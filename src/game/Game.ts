@@ -143,6 +143,7 @@ export class Game {
         if (this.inputManager.isCameraTogglePressed() && 
             (currentTime - this.lastCameraToggleTime) > this.cameraToggleCooldown) {
             this.cameraController.toggleLockMode();
+            this.uiManager.updateCameraToggleIcon(); // Update UI to reflect camera mode change
             this.lastCameraToggleTime = currentTime;
         }
     }
@@ -181,6 +182,10 @@ export class Game {
 
     public getCameraController(): CameraController {
         return this.cameraController;
+    }
+
+    public getUIManager(): UIManager {
+        return this.uiManager;
     }
 
     private updateBombs(deltaTime: number): void {

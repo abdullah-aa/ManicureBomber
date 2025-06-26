@@ -83,7 +83,7 @@ export class UIManager {
         this.updateCameraToggleIcon();
     }
 
-    private updateCameraToggleIcon(): void {
+    public updateCameraToggleIcon(): void {
         const lockMode = this.game.getCameraController().getLockMode();
         if (lockMode === CameraLockMode.BOMBER) {
             // Plane icon for bomber lock
