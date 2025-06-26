@@ -52,12 +52,12 @@ export class CameraController {
         
         // Handle camera panning with Right Shift + Arrow keys
         if (inputManager.isRightShiftLeftPressed()) {
-            // Pan camera left (negative X direction)
-            this.panAngleOffset -= this.panSpeed * deltaTime;
-        }
-        if (inputManager.isRightShiftRightPressed()) {
             // Pan camera right (positive X direction)
             this.panAngleOffset += this.panSpeed * deltaTime;
+        }
+        if (inputManager.isRightShiftRightPressed()) {
+            // Pan camera left (negative X direction)
+            this.panAngleOffset -= this.panSpeed * deltaTime;
         }
         
         // Handle camera height adjustment with Shift + Up/Down arrows (inverted)

@@ -46,6 +46,7 @@ export class B2Bomber {
         // Create B2 bomber-like shape
         this.createFuselage();
         this.createWings();
+        this.createCockpit();
         this.createEngines();
         this.createBombBay();
     }
@@ -127,6 +128,31 @@ export class B2Bomber {
         wingRight.material = wingMaterial;
         wingLeftSmall.material = wingMaterial;
         wingRightSmall.material = wingMaterial;
+    }
+
+    private createCockpit(): void {
+        // Create a small hemisphere for the cockpit
+        const cockpit = MeshBuilder.CreateSphere('cockpit', {
+            diameter: 3,
+            segments: 16
+        }, this.scene);
+
+        // Scale it to make it more hemisphere-like (flatten the bottom)
+        cockpit.scaling.y = 0.5;
+        
+        // Position it on top of the fuselage, slightly forward
+        cockpit.position.x = 0;
+        cockpit.position.y = 0.5; // Above the fuselage
+        cockpit.position.z = 9; // Forward on the fuselage
+        cockpit.parent = this.bomberGroup;
+
+        // Create cockpit material - turquoise blue with some transparency
+        const cockpitMaterial = new StandardMaterial('cockpitMaterial', this.scene);
+        cockpitMaterial.diffuseColor = new Color3(0.0, 0.5, 0.5);
+        cockpitMaterial.specularColor = new Color3(0.2, 0.8, 0.8);
+        cockpitMaterial.emissiveColor = new Color3(0.0, 0.3, 0.3);
+        cockpitMaterial.alpha = 0.8; // Slightly transparent for glass effect
+        cockpit.material = cockpitMaterial;
     }
 
     private createBombBay(): void {
