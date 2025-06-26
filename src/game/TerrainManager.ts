@@ -504,4 +504,16 @@ export class TerrainManager {
         const chunkKey = `${chunkX}_${chunkZ}`;
         return this.chunks.get(chunkKey);
     }
+
+    public updateDefenseLaunchers(bomberPosition: Vector3, currentTime: number, deltaTime: number): void {
+        // Get defense launchers within a reasonable range of the bomber
+        const maxRange = 400; // Maximum range for defense launchers to be active
+        const buildings = this.getBuildingsInRadius(bomberPosition, maxRange);
+        
+        buildings.forEach(building => {
+            if (building.isDefenseLauncher()) {
+                building.updateDefenseLauncher(bomberPosition, currentTime, deltaTime);
+            }
+        });
+    }
 } 

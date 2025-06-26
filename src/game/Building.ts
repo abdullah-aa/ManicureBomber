@@ -1,4 +1,5 @@
 import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, TransformNode, ParticleSystem, Texture, Color4, PointLight, Animation, AnimationGroup } from '@babylonjs/core';
+import { DefenseMissile } from './DefenseMissile';
 
 export enum BuildingType {
     RESIDENTIAL = 'residential',
@@ -15,6 +16,7 @@ export interface BuildingConfig {
     depth: number;
     color?: Color3;
     isTarget?: boolean;
+    isDefenseLauncher?: boolean;
 }
 
 export class Building {
@@ -29,6 +31,13 @@ export class Building {
     private fireParticles: ParticleSystem | null = null;
     private smokeParticles: ParticleSystem | null = null;
     private damageLight: PointLight | null = null;
+    
+    // Defense launcher properties
+    private launcherMesh: Mesh | null = null;
+    private defenseMissiles: DefenseMissile[] = [];
+    private lastMissileLaunchTime: number = 0;
+    private missileLaunchInterval: number = 8; // Launch every 8 seconds
+    private radarScanRange: number = 300; // Detection range
 
     constructor(scene: Scene, config: BuildingConfig) {
         this.scene = scene;
@@ -40,6 +49,10 @@ export class Building {
         
         if (config.isTarget) {
             this.createTargetIndicator();
+        }
+        
+        if (config.isDefenseLauncher) {
+            this.createDefenseLauncher();
         }
         
         this.setupDamageEffects();
@@ -252,6 +265,41 @@ export class Building {
         );
     }
 
+    private createDefenseLauncher(): void {
+        // Create a missile launcher on top of the building
+        this.launcherMesh = MeshBuilder.CreateBox(`launcher_${Date.now()}`, {
+            width: 3,
+            height: 2,
+            depth: 3
+        }, this.scene);
+
+        this.launcherMesh.position.y = this.config.height + 1;
+        this.launcherMesh.parent = this.parent;
+
+        const launcherMaterial = new StandardMaterial(`launcherMaterial_${Date.now()}`, this.scene);
+        launcherMaterial.diffuseColor = new Color3(0.3, 0.3, 0.3); // Dark gray
+        launcherMaterial.specularColor = new Color3(0.5, 0.5, 0.5);
+        launcherMaterial.emissiveColor = new Color3(0.1, 0.1, 0.1);
+        this.launcherMesh.material = launcherMaterial;
+
+        // Add radar dish
+        const radarDish = MeshBuilder.CreateSphere(`radar_${Date.now()}`, {
+            diameter: 1.5,
+            segments: 8
+        }, this.scene);
+        radarDish.position.y = 1.5;
+        radarDish.parent = this.launcherMesh;
+
+        const radarMaterial = new StandardMaterial(`radarMaterial_${Date.now()}`, this.scene);
+        radarMaterial.diffuseColor = new Color3(0.4, 0.4, 0.4);
+        radarMaterial.emissiveColor = new Color3(0.2, 0.2, 0.2);
+        radarDish.material = radarMaterial;
+
+        // Rotate radar dish constantly
+        Animation.CreateAndStartAnimation('radarRotation', radarDish, 'rotation.y', 60, 360, 
+            0, Math.PI * 2, 1);
+    }
+
     private setupDamageEffects(): void {
         // Fire particles for when building is damaged
         this.fireParticles = new ParticleSystem('buildingFire', 200, this.scene);
@@ -394,11 +442,64 @@ export class Building {
         return maxHeight;
     }
 
+    public updateDefenseLauncher(bomberPosition: Vector3, currentTime: number, deltaTime: number): void {
+        if (!this.config.isDefenseLauncher || this.isDestroyed) return;
+
+        // Update existing missiles
+        for (let i = this.defenseMissiles.length - 1; i >= 0; i--) {
+            const missile = this.defenseMissiles[i];
+            missile.update(deltaTime);
+            
+            // Remove exploded missiles
+            if (missile.hasExploded()) {
+                missile.dispose();
+                this.defenseMissiles.splice(i, 1);
+            }
+        }
+
+        // Check if we should launch a new missile
+        const distanceToBomber = Vector3.Distance(this.getPosition(), bomberPosition);
+        if (distanceToBomber <= this.radarScanRange && 
+            (currentTime - this.lastMissileLaunchTime) >= this.missileLaunchInterval) {
+            
+            this.launchDefenseMissile(bomberPosition);
+            this.lastMissileLaunchTime = currentTime;
+        }
+    }
+
+    private launchDefenseMissile(bomberPosition: Vector3): void {
+        if (!this.config.isDefenseLauncher || this.isDestroyed) return;
+
+        const launchPosition = this.getPosition().clone();
+        launchPosition.y += this.config.height + 3; // Launch from top of launcher
+
+        // Add some inaccuracy to make the missile aim slightly off target
+        const inaccuracy = 20; // Units of inaccuracy
+        const targetPosition = bomberPosition.clone();
+        targetPosition.x += (Math.random() - 0.5) * inaccuracy;
+        targetPosition.y += (Math.random() - 0.5) * inaccuracy;
+        targetPosition.z += (Math.random() - 0.5) * inaccuracy;
+        
+        const missile = new DefenseMissile(this.scene, launchPosition, targetPosition);
+        missile.launch();
+        this.defenseMissiles.push(missile);
+    }
+
+    public isDefenseLauncher(): boolean {
+        return this.config.isDefenseLauncher || false;
+    }
+
     public dispose(): void {
         if (this.targetRing) this.targetRing.dispose();
         if (this.fireParticles) this.fireParticles.dispose();
         if (this.smokeParticles) this.smokeParticles.dispose();
         if (this.damageLight) this.damageLight.dispose();
+        if (this.launcherMesh) this.launcherMesh.dispose();
+        
+        // Dispose all defense missiles
+        this.defenseMissiles.forEach(missile => missile.dispose());
+        this.defenseMissiles = [];
+        
         this.parent.dispose();
     }
 
@@ -435,12 +536,17 @@ export class Building {
                 depth = 8 + Math.random() * 10;
         }
         
+        // Randomly designate some non-target buildings as defense launchers
+        // About 15% chance for a building to be a defense launcher
+        const isDefenseLauncher = Math.random() < 0.15;
+        
         return {
             position: new Vector3(position.x, terrainHeight, position.z),
             type: type,
             width: width,
             height: height,
-            depth: depth
+            depth: depth,
+            isDefenseLauncher: isDefenseLauncher
         };
     }
 } 

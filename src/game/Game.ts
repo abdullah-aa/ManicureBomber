@@ -154,6 +154,13 @@ export class Game {
 
                 this.terrainManager.update(this.bomber.getPosition());
                 
+                // Update defense launchers
+                this.terrainManager.updateDefenseLaunchers(
+                    this.bomber.getPosition(), 
+                    safeCurrentTime, 
+                    safeDeltaTime
+                );
+                
                 const maxBuildingHeight = this.terrainManager.getMaxBuildingHeight();
                 this.bomber.setMinimumAltitude(maxBuildingHeight);
 
