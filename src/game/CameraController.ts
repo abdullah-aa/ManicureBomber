@@ -18,13 +18,48 @@ export class CameraController {
     private maxFollowHeight: number = 250;
     private zoomSpeed: number = 5;
     private lockMode: CameraLockMode = CameraLockMode.BOMBER;
+    
+    // Initial camera state for reset functionality
+    private initialFollowDistance: number = 200;
+    private initialFollowHeight: number = 80;
+    private initialLockMode: CameraLockMode = CameraLockMode.BOMBER;
+    
+    // Camera panning properties
+    private panSpeed: number = 1.5; // Radians per second for angular panning
+    private panAngleOffset: number = 0; // Current angular offset from normal position (no limits)
+    
+    // Reset cooldown to prevent rapid resets
+    private lastResetTime: number = 0;
+    private resetCooldown: number = 0.5; // 500ms cooldown
 
     constructor(camera: FreeCamera, bomber: B2Bomber) {
         this.camera = camera;
         this.bomber = bomber;
+        
+        // Store initial values for reset functionality
+        this.initialFollowDistance = this.followDistance;
+        this.initialFollowHeight = this.followHeight;
+        this.initialLockMode = this.lockMode;
     }
 
     public update(deltaTime: number, inputManager: InputManager): void {
+        const currentTime = performance.now() / 1000;
+        
+        // Handle camera reset with C key
+        if (inputManager.isCameraResetPressed()) {
+            this.resetCamera(currentTime);
+        }
+        
+        // Handle camera panning with Right Shift + Arrow keys
+        if (inputManager.isRightShiftLeftPressed()) {
+            // Pan camera left (negative X direction)
+            this.panAngleOffset -= this.panSpeed * deltaTime;
+        }
+        if (inputManager.isRightShiftRightPressed()) {
+            // Pan camera right (positive X direction)
+            this.panAngleOffset += this.panSpeed * deltaTime;
+        }
+        
         // Handle camera height adjustment with Shift + Up/Down arrows (inverted)
         if (inputManager.isShiftUpPressed()) {
             this.followHeight -= this.zoomSpeed * deltaTime * 60; // Shift+Up lowers camera
@@ -39,16 +74,22 @@ export class CameraController {
         const bomberRotation = this.bomber.getRotation();
 
         // Calculate desired camera position (behind the bomber, at an absolute height)
+        // Apply angular pan offset to the bomber's rotation for orbiting effect
+        const effectiveRotation = bomberRotation.y + this.panAngleOffset;
+        
         const desiredCameraPos = new Vector3(
-            bomberPos.x - Math.sin(bomberRotation.y) * this.followDistance,
+            bomberPos.x - Math.sin(effectiveRotation) * this.followDistance,
             this.followHeight,
-            bomberPos.z - Math.cos(bomberRotation.y) * this.followDistance
+            bomberPos.z - Math.cos(effectiveRotation) * this.followDistance
         );
+        
+        // No longer need to add pan offset since it's built into the rotation calculation
+        const finalCameraPos = desiredCameraPos;
 
         // Smoothly move camera to desired position
         this.camera.position = Vector3.Lerp(
             this.camera.position,
-            desiredCameraPos,
+            finalCameraPos,
             this.smoothing * deltaTime
         );
 
@@ -94,5 +135,33 @@ export class CameraController {
 
     public setFollowHeight(height: number): void {
         this.followHeight = height;
+    }
+
+    private resetCamera(currentTime: number): void {
+        // Check if cooldown has passed
+        if (currentTime - this.lastResetTime < this.resetCooldown) {
+            return; // Cooldown not yet complete
+        }
+
+        // Reset camera to initial state
+        this.followDistance = this.initialFollowDistance;
+        this.followHeight = this.initialFollowHeight;
+        this.lockMode = this.initialLockMode;
+        
+        // Reset pan offset to center the camera
+        this.panAngleOffset = 0;
+
+        // Update last reset time
+        this.lastResetTime = currentTime;
+    }
+
+    public reset(): void {
+        // Reset camera to initial state immediately (for external calls)
+        this.followDistance = this.initialFollowDistance;
+        this.followHeight = this.initialFollowHeight;
+        this.lockMode = this.initialLockMode;
+        
+        // Reset pan offset to center the camera
+        this.panAngleOffset = 0;
     }
 } 

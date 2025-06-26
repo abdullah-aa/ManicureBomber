@@ -244,16 +244,17 @@ export class B2Bomber {
 
     public update(deltaTime: number, inputManager: InputManager): void {
         // Handle turning (left/right arrows) and banking
+        // Only turn if Right Shift is NOT pressed (Right Shift + arrows is for camera panning)
         let isTurning = false;
         let isClimbing = false;
         let isDiving = false;
         
-        if (inputManager.isKeyPressed('ArrowLeft')) {
+        if (inputManager.isKeyPressed('ArrowLeft') && !inputManager.isKeyPressed('ShiftRight')) {
             this.rotation.y += this.turnSpeed * deltaTime; // Left arrow turns right
             this.targetBankAngle = this.maxBankAngle; // Bank right
             isTurning = true;
         }
-        if (inputManager.isKeyPressed('ArrowRight')) {
+        if (inputManager.isKeyPressed('ArrowRight') && !inputManager.isKeyPressed('ShiftRight')) {
             this.rotation.y -= this.turnSpeed * deltaTime; // Right arrow turns left
             this.targetBankAngle = -this.maxBankAngle; // Bank left
             isTurning = true;

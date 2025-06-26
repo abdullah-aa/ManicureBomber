@@ -89,6 +89,18 @@ export class InputManager {
         return this.isKeyPressed('KeyV');
     }
 
+    public isRightShiftLeftPressed(): boolean {
+        return this.isKeyPressed('ShiftRight') && this.isKeyPressed('ArrowLeft');
+    }
+
+    public isRightShiftRightPressed(): boolean {
+        return this.isKeyPressed('ShiftRight') && this.isKeyPressed('ArrowRight');
+    }
+
+    public isCameraResetPressed(): boolean {
+        return this.isKeyPressed('KeyC');
+    }
+
     public getKeys(): { [key: string]: boolean } {
         return { ...this.keys };
     }
