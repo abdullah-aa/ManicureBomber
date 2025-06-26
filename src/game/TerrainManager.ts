@@ -450,7 +450,10 @@ export class TerrainManager {
         let maxHeight = 0;
         this.chunks.forEach(chunk => {
             chunk.buildings.forEach(building => {
-                maxHeight = Math.max(maxHeight, building.getMaxHeight());
+                const height = building.getMaxHeight();
+                if (height > maxHeight) {
+                    maxHeight = height;
+                }
             });
         });
         return maxHeight;
@@ -493,5 +496,12 @@ export class TerrainManager {
         }
         
         return buildings;
+    }
+
+    public getTerrainChunkAtPosition(position: Vector3): TerrainChunk | undefined {
+        const chunkX = Math.floor(position.x / this.chunkSize);
+        const chunkZ = Math.floor(position.z / this.chunkSize);
+        const chunkKey = `${chunkX}_${chunkZ}`;
+        return this.chunks.get(chunkKey);
     }
 } 

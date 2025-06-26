@@ -1,8 +1,8 @@
-import { Scene, Vector3, HemisphericLight, DirectionalLight, Color3, FreeCamera } from '@babylonjs/core';
+import { Scene, Vector3, HemisphericLight, DirectionalLight, Color3, FreeCamera, Mesh, MeshBuilder, StandardMaterial, Texture, DynamicTexture } from '@babylonjs/core';
 import { B2Bomber } from './B2Bomber';
 import { TerrainManager } from './TerrainManager';
 import { InputManager } from './InputManager';
-import { CameraController } from './CameraController';
+import { CameraController, CameraLockMode } from './CameraController';
 import { Bomb } from './Bomb';
 import { TomahawkMissile } from './TomahawkMissile';
 import { UIManager } from '../ui/UIManager';
@@ -18,6 +18,7 @@ export class Game {
     private camera!: FreeCamera;
     private uiManager!: UIManager;
     private radarManager!: RadarManager;
+    private groundCrosshair!: Mesh;
 
     // Bombing properties
     private bombs: Bomb[] = [];
@@ -50,6 +51,7 @@ export class Game {
         this.cameraController = new CameraController(this.camera, this.bomber);
         this.uiManager = new UIManager(this, this.inputManager);
         this.radarManager = new RadarManager();
+        this.createGroundCrosshair();
 
         await this.terrainManager.generateInitialTerrain(this.bomber.getPosition());
         
@@ -69,6 +71,50 @@ export class Game {
         this.camera = new FreeCamera('camera', new Vector3(0, 100, -200), this.scene);
         this.camera.setTarget(Vector3.Zero());
         this.camera.attachControl(this.canvas, true);
+    }
+
+    private createGroundCrosshair(): void {
+        this.groundCrosshair = MeshBuilder.CreatePlane('groundCrosshair', {size: 10}, this.scene);
+        this.groundCrosshair.rotation.x = Math.PI / 2;
+        this.groundCrosshair.isPickable = false;
+
+        const crosshairMaterial = new StandardMaterial('crosshairMaterial', this.scene);
+        
+        // Use DynamicTexture to draw a crosshair
+        const textureSize = 64;
+        const dynamicTexture = new DynamicTexture("dynamic crosshair", textureSize, this.scene, false);
+        const ctx = dynamicTexture.getContext();
+
+        // Clear with transparent background
+        ctx.clearRect(0, 0, textureSize, textureSize);
+
+        // Draw the 'X'
+        ctx.strokeStyle = "rgba(200, 200, 200, 0.3)"; // Dimmer, more translucent white
+        ctx.lineWidth = 1; // Thinner line
+        
+        // Line 1 (\\)
+        ctx.beginPath();
+        ctx.moveTo(textureSize * 0.3, textureSize * 0.3);
+        ctx.lineTo(textureSize * 0.7, textureSize * 0.7);
+        ctx.stroke();
+        
+        // Line 2 (/)
+        ctx.beginPath();
+        ctx.moveTo(textureSize * 0.7, textureSize * 0.3);
+        ctx.lineTo(textureSize * 0.3, textureSize * 0.7);
+        ctx.stroke();
+        
+        dynamicTexture.update();
+
+        crosshairMaterial.diffuseTexture = dynamicTexture;
+        crosshairMaterial.diffuseTexture.hasAlpha = true;
+        crosshairMaterial.useAlphaFromDiffuseTexture = true;
+        crosshairMaterial.emissiveColor = Color3.White();
+        crosshairMaterial.disableLighting = true;
+        crosshairMaterial.backFaceCulling = false; // Render from both sides
+
+        this.groundCrosshair.material = crosshairMaterial;
+        this.groundCrosshair.setEnabled(false);
     }
 
     public startGameLoop(): void {
@@ -104,6 +150,8 @@ export class Game {
                 
                 this.radarManager.update(this.bomber, this.terrainManager, this.destroyedBuildings, this.destroyedTargets);
                 
+                this.updateGroundCrosshair();
+
                 this.terrainManager.update(this.bomber.getPosition());
                 
                 const maxBuildingHeight = this.terrainManager.getMaxBuildingHeight();
@@ -202,6 +250,14 @@ export class Game {
         return this.destroyedTargets;
     }
 
+    public getScene(): Scene {
+        return this.scene;
+    }
+
+    public getEngine() {
+        return this.scene.getEngine();
+    }
+
     private updateBombs(deltaTime: number): void {
         for (let i = this.bombs.length - 1; i >= 0; i--) {
             const bomb = this.bombs[i];
@@ -231,6 +287,18 @@ export class Game {
                 bomb.explode(explosionPoint);
                 this.bombs.splice(i, 1);
             }
+        }
+    }
+
+    private updateGroundCrosshair(): void {
+        const cameraMode = this.cameraController.getLockMode();
+        if (cameraMode === CameraLockMode.GROUND) {
+            this.groundCrosshair.setEnabled(true);
+            const bomberPosition = this.bomber.getPosition();
+            const terrainHeight = this.terrainManager.getHeightAtPosition(bomberPosition.x, bomberPosition.z);
+            this.groundCrosshair.position.set(bomberPosition.x, terrainHeight + 0.5, bomberPosition.z);
+        } else {
+            this.groundCrosshair.setEnabled(false);
         }
     }
 } 

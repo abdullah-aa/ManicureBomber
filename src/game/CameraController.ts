@@ -155,6 +155,10 @@ export class CameraController {
         this.followHeight = height;
     }
 
+    public getCamera(): FreeCamera {
+        return this.camera;
+    }
+
     private resetCamera(currentTime: number): void {
         // Check if cooldown has passed
         if (currentTime - this.lastResetTime < this.resetCooldown) {
