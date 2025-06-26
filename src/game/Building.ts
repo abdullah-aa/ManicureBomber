@@ -250,19 +250,6 @@ export class Building {
         ringMaterial.emissiveColor = new Color3(1, 0, 0); // Red glow
         ringMaterial.diffuseColor = new Color3(0.8, 0, 0);
         this.targetRing.material = ringMaterial;
-        
-        // Animate the ring
-        const animationGroup = new AnimationGroup('targetRingAnimation', this.scene);
-        const rotationAnimation = Animation.CreateAndStartAnimation(
-            'ringRotation',
-            this.targetRing,
-            'rotation.y',
-            30,
-            Number.MAX_VALUE,
-            0,
-            2 * Math.PI,
-            Animation.ANIMATIONLOOPMODE_CYCLE
-        );
     }
 
     private createDefenseLauncher(): void {
@@ -277,9 +264,33 @@ export class Building {
         this.launcherMesh.parent = this.parent;
 
         const launcherMaterial = new StandardMaterial(`launcherMaterial_${Date.now()}`, this.scene);
-        launcherMaterial.diffuseColor = new Color3(0.3, 0.3, 0.3); // Dark gray
-        launcherMaterial.specularColor = new Color3(0.5, 0.5, 0.5);
-        launcherMaterial.emissiveColor = new Color3(0.1, 0.1, 0.1);
+        launcherMaterial.diffuseColor = new Color3(1.0, 0.5, 0.0); // Orange
+        launcherMaterial.specularColor = new Color3(1.0, 0.7, 0.3);
+        launcherMaterial.emissiveColor = new Color3(0.3, 0.15, 0.0); // Base orange glow
+        
+        // Create flashing animation
+        const emissiveAnimation = new Animation("launcherFlash", "emissiveColor", 30, Animation.ANIMATIONTYPE_COLOR3, Animation.ANIMATIONLOOPMODE_CYCLE);
+        
+        const keyFrames = [];
+        keyFrames.push({
+            frame: 0,
+            value: new Color3(0.3, 0.15, 0.0) // Dim orange
+        });
+        keyFrames.push({
+            frame: 15,
+            value: new Color3(1.0, 0.5, 0.0) // Bright orange
+        });
+        keyFrames.push({
+            frame: 30,
+            value: new Color3(0.3, 0.15, 0.0) // Back to dim orange
+        });
+        
+        emissiveAnimation.setKeys(keyFrames);
+        launcherMaterial.animations = [emissiveAnimation];
+        
+        // Start the animation
+        this.scene.beginAnimation(launcherMaterial, 0, 30, true);
+        
         this.launcherMesh.material = launcherMaterial;
     }
 
