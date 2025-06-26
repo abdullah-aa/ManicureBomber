@@ -273,7 +273,7 @@ export class Building {
             depth: 3
         }, this.scene);
 
-        this.launcherMesh.position.y = this.config.height + 1;
+        this.launcherMesh.position.y = this.config.height;
         this.launcherMesh.parent = this.parent;
 
         const launcherMaterial = new StandardMaterial(`launcherMaterial_${Date.now()}`, this.scene);
@@ -281,23 +281,6 @@ export class Building {
         launcherMaterial.specularColor = new Color3(0.5, 0.5, 0.5);
         launcherMaterial.emissiveColor = new Color3(0.1, 0.1, 0.1);
         this.launcherMesh.material = launcherMaterial;
-
-        // Add radar dish
-        const radarDish = MeshBuilder.CreateSphere(`radar_${Date.now()}`, {
-            diameter: 1.5,
-            segments: 8
-        }, this.scene);
-        radarDish.position.y = 1.5;
-        radarDish.parent = this.launcherMesh;
-
-        const radarMaterial = new StandardMaterial(`radarMaterial_${Date.now()}`, this.scene);
-        radarMaterial.diffuseColor = new Color3(0.4, 0.4, 0.4);
-        radarMaterial.emissiveColor = new Color3(0.2, 0.2, 0.2);
-        radarDish.material = radarMaterial;
-
-        // Rotate radar dish constantly
-        Animation.CreateAndStartAnimation('radarRotation', radarDish, 'rotation.y', 60, 360, 
-            0, Math.PI * 2, 1);
     }
 
     private setupDamageEffects(): void {
@@ -487,6 +470,13 @@ export class Building {
 
     public isDefenseLauncher(): boolean {
         return this.config.isDefenseLauncher || false;
+    }
+
+    public getActiveMissiles(): DefenseMissile[] {
+        if (!this.config.isDefenseLauncher) return [];
+        
+        // Return only missiles that haven't exploded
+        return this.defenseMissiles.filter(missile => !missile.hasExploded());
     }
 
     public dispose(): void {

@@ -170,6 +170,32 @@
             transform: translate(-50%, -50%);
         }
         
+        .radar-defense-launcher {
+            position: absolute;
+            width: 3px;
+            height: 3px;
+            background: #ff6600;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 4px rgba(255, 102, 0, 0.8);
+        }
+        
+        .radar-missile {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: #ff00ff;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 3px rgba(255, 0, 255, 0.9);
+            animation: missileBlink 0.5s ease-in-out infinite alternate;
+        }
+        
+        @keyframes missileBlink {
+            from { opacity: 1; }
+            to { opacity: 0.3; }
+        }
+        
         .radar-bomber {
             position: absolute;
             width: 6px;
@@ -219,6 +245,15 @@
             <div id="scoreDisplay">
                 <div>Buildings: <span id="buildingCount">0</span></div>
                 <div>Targets: <span id="targetCount">0</span></div>
+            </div>
+            <div id="radarLegend">
+                <div style="font-size: 10px; margin-top: 8px;">
+                    <div style="color: #00ff00;">● Bomber</div>
+                    <div style="color: #ff0000;">● Target</div>
+                    <div style="color: #ffff00;">● Building</div>
+                    <div style="color: #ff6600;">● Defense</div>
+                    <div style="color: #ff00ff;">● Missile</div>
+                </div>
             </div>
         </div>
     </div>
