@@ -17,37 +17,90 @@
             height: 100vh;
             touch-action: none;
         }
-        #controls {
-            position: absolute;
-            top: 10px;
-            left: 10px;
+        #instructionsOverlay {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
             color: white;
             font-size: 14px;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px;
-            border-radius: 5px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            max-width: 300px;
         }
-        #closeButton {
-            position: absolute;
-            top: 5px;
-            right: 5px;
+        #instructionsHeader {
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px 8px 0 0;
             cursor: pointer;
-            color: #fff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+        }
+        #instructionsHeader:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+        #instructionsTitle {
             font-weight: bold;
+            font-size: 16px;
+        }
+        #toggleButton {
+            color: #fff;
+            font-size: 18px;
+            transform: rotate(0deg);
+            transition: transform 0.3s ease;
+        }
+        #toggleButton.collapsed {
+            transform: rotate(180deg);
+        }
+        #instructionsContent {
+            padding: 16px;
+            max-height: 200px;
+            overflow: hidden;
+            transition: max-height 0.3s ease, padding 0.3s ease;
+        }
+        #instructionsContent.collapsed {
+            max-height: 0;
+            padding: 0 16px;
+        }
+        #instructionsContent div {
+            margin-bottom: 8px;
+            line-height: 1.4;
         }
     </style>
 </head>
 <body>
     <canvas id="renderCanvas"></canvas>
-    <div id="controls">
-        <div id="closeButton">X</div>
-        <div>Arrow Keys: Turn Left/Right, Climb/Descend</div>
-                    <div>B: Drop Bombs</div>
+    <div id="instructionsOverlay">
+        <div id="instructionsHeader">
+            <div id="instructionsTitle">Controls</div>
+            <div id="toggleButton">▼</div>
+        </div>
+        <div id="instructionsContent">
+            <div>Arrow Keys: Turn Left/Right, Climb/Descend</div>
+            <div>B: Drop Bombs</div>
+            <div>M: Launch Missile</div>
             <div>Shift + Up/Down: Adjust Camera Height</div>
+            <div>Shift + Left/Right: Pan Camera</div>
+        </div>
     </div>
     <script>
-        document.getElementById('closeButton').addEventListener('click', function() {
-            document.getElementById('controls').style.display = 'none';
+        document.getElementById('instructionsHeader').addEventListener('click', function() {
+            const content = document.getElementById('instructionsContent');
+            const toggleButton = document.getElementById('toggleButton');
+            
+            if (content.classList.contains('collapsed')) {
+                content.classList.remove('collapsed');
+                toggleButton.classList.remove('collapsed');
+                toggleButton.textContent = '▼';
+            } else {
+                content.classList.add('collapsed');
+                toggleButton.classList.add('collapsed');
+                toggleButton.textContent = '▲';
+            }
         });
     </script>
 </body>

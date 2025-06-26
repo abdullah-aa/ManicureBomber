@@ -24,8 +24,6 @@ export class B2Bomber {
     private targetBankAngle: number = 0; // Target roll angle
     
     // Tomahawk missile system
-    private missileLauncherLeft!: Mesh;
-    private missileLauncherRight!: Mesh;
     private missiles: TomahawkMissile[] = [];
     private lastMissileLaunchTime: number = -Infinity;
     private missileCooldownTime: number = 10; // 10 seconds cooldown
