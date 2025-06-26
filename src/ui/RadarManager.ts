@@ -21,20 +21,30 @@ export class RadarManager {
         const existingMarkers = this.radarDisplay.querySelectorAll('.radar-target, .radar-building');
         existingMarkers.forEach(marker => marker.remove());
 
-        // Get bomber position
+        // Get bomber position and orientation
         const bomberPosition = bomber.getPosition();
+        const bomberRotationY = bomber.getRotation().y;
 
         // Get all buildings in radar range
         const nearbyBuildings = terrainManager.getBuildingsInRadius(bomberPosition, this.radarRadius);
+
+        // Pre-calculate sin and cos for rotation
+        const cosY = Math.cos(bomberRotationY);
+        const sinY = Math.sin(bomberRotationY);
 
         // Add building markers to radar
         nearbyBuildings.forEach(building => {
             const buildingPosition = building.getPosition();
             const relativePosition = buildingPosition.subtract(bomberPosition);
             
+            // Rotate the relative position to be aligned with the bomber's forward direction
+            // This is a 2D rotation on the X-Z plane.
+            const rotatedX = relativePosition.x * cosY - relativePosition.z * sinY;
+            const rotatedZ = relativePosition.x * sinY + relativePosition.z * cosY;
+            
             // Convert to radar coordinates (top-down view)
-            const radarX = (relativePosition.x / this.radarRadius) * this.radarPixelRadius;
-            const radarZ = (relativePosition.z / this.radarRadius) * this.radarPixelRadius;
+            const radarX = (rotatedX / this.radarRadius) * this.radarPixelRadius;
+            const radarZ = (rotatedZ / this.radarRadius) * this.radarPixelRadius;
             
             // Only show if within radar circle
             const distance = Math.sqrt(radarX * radarX + radarZ * radarZ);
