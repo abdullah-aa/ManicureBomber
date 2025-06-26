@@ -5,6 +5,14 @@ export class InputManager {
     private canvas: HTMLCanvasElement;
     private keys: { [key: string]: boolean } = {};
     private wheelDelta: number = 0;
+    
+    // Cache frequently accessed keys to reduce lookup overhead
+    private cachedArrowLeft: boolean = false;
+    private cachedArrowRight: boolean = false;
+    private cachedShiftRight: boolean = false;
+    private keyCacheValid: boolean = false;
+    private lastKeyCacheUpdate: number = 0;
+    private keyCacheInterval: number = 16; // Update cache every 16ms (~60fps)
 
     constructor(scene: Scene, canvas: HTMLCanvasElement) {
         this.scene = scene;
@@ -24,18 +32,21 @@ export class InputManager {
         // Handle keydown events
         window.addEventListener('keydown', (event) => {
             this.keys[event.code] = true;
+            this.keyCacheValid = false; // Invalidate cache when keys change
             event.preventDefault();
         });
 
         // Handle keyup events
         window.addEventListener('keyup', (event) => {
             this.keys[event.code] = false;
+            this.keyCacheValid = false; // Invalidate cache when keys change
             event.preventDefault();
         });
 
         // Clear keys when window loses focus
         window.addEventListener('blur', () => {
             this.keys = {};
+            this.keyCacheValid = false; // Invalidate cache when clearing keys
         });
     }
 
@@ -48,7 +59,27 @@ export class InputManager {
     }
 
     public isKeyPressed(key: string): boolean {
-        return this.keys[key] || false;
+        // Cache frequently accessed keys to reduce lookup overhead during bomber turning
+        const currentTime = performance.now();
+        if (!this.keyCacheValid || currentTime - this.lastKeyCacheUpdate > this.keyCacheInterval) {
+            this.cachedArrowLeft = this.keys['ArrowLeft'] || false;
+            this.cachedArrowRight = this.keys['ArrowRight'] || false;
+            this.cachedShiftRight = this.keys['ShiftRight'] || false;
+            this.keyCacheValid = true;
+            this.lastKeyCacheUpdate = currentTime;
+        }
+        
+        // Use cached values for frequently accessed keys
+        switch (key) {
+            case 'ArrowLeft':
+                return this.cachedArrowLeft;
+            case 'ArrowRight':
+                return this.cachedArrowRight;
+            case 'ShiftRight':
+                return this.cachedShiftRight;
+            default:
+                return this.keys[key] || false;
+        }
     }
 
     public isBombKeyPressed(): boolean {

@@ -27,6 +27,16 @@ export class B2Bomber {
     private missiles: TomahawkMissile[] = [];
     private lastMissileLaunchTime: number = -Infinity;
     private missileCooldownTime: number = 10; // 10 seconds cooldown
+    
+    // Performance optimizations: cache trigonometric calculations
+    private lastRotationY: number = 0;
+    private cachedSinY: number = 0;
+    private cachedCosY: number = 1;
+    private trigCacheValid: boolean = false;
+    
+    // Reusable vector to avoid object creation
+    private tempVector: Vector3 = new Vector3();
+    private tempRotation: Vector3 = new Vector3();
 
     constructor(scene: Scene) {
         this.scene = scene;
@@ -281,11 +291,13 @@ export class B2Bomber {
             this.rotation.y += this.turnSpeed * deltaTime; // Left arrow turns right
             this.targetBankAngle = this.maxBankAngle; // Bank right
             isTurning = true;
+            this.trigCacheValid = false; // Invalidate cache when turning
         }
         if (inputManager.isKeyPressed('ArrowRight') && !inputManager.isKeyPressed('ShiftRight')) {
             this.rotation.y -= this.turnSpeed * deltaTime; // Right arrow turns left
             this.targetBankAngle = -this.maxBankAngle; // Bank left
             isTurning = true;
+            this.trigCacheValid = false; // Invalidate cache when turning
         }
 
         // Handle altitude changes (up/down arrows) with banking (inverted)
@@ -320,20 +332,30 @@ export class B2Bomber {
         // Minimum altitude will be dynamically set by the game based on building heights
         this.altitude = Math.max(30, Math.min(300, this.altitude));
 
-        // Update velocity based on rotation
-        this.velocity.x = Math.sin(this.rotation.y) * this.speed;
-        this.velocity.z = Math.cos(this.rotation.y) * this.speed;
+        // Cache trigonometric calculations to avoid repeated sin/cos calls
+        if (!this.trigCacheValid || Math.abs(this.rotation.y - this.lastRotationY) > 0.01) {
+            this.cachedSinY = Math.sin(this.rotation.y);
+            this.cachedCosY = Math.cos(this.rotation.y);
+            this.lastRotationY = this.rotation.y;
+            this.trigCacheValid = true;
+        }
+
+        // Update velocity based on cached rotation values
+        this.velocity.x = this.cachedSinY * this.speed;
+        this.velocity.z = this.cachedCosY * this.speed;
 
         // Update position
         this.position.x += this.velocity.x * deltaTime;
         this.position.z += this.velocity.z * deltaTime;
         this.position.y = this.altitude;
 
-        // Update mesh position and rotation (including banking)
-        this.bomberGroup.position = this.position.clone();
-        const bomberRotation = this.rotation.clone();
-        bomberRotation.z = this.currentBankAngle; // Apply banking to Z rotation (roll)
-        this.bomberGroup.rotation = bomberRotation;
+        // Update mesh position and rotation (including banking) using reusable vectors
+        this.bomberGroup.position.copyFrom(this.position);
+        
+        // Reuse rotation vector instead of creating new one
+        this.tempRotation.copyFrom(this.rotation);
+        this.tempRotation.z = this.currentBankAngle; // Apply banking to Z rotation (roll)
+        this.bomberGroup.rotation.copyFrom(this.tempRotation);
 
         // Update missiles
         this.updateMissiles(deltaTime);

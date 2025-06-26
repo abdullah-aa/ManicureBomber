@@ -18,6 +18,7 @@ export class TerrainManager {
     private noiseGenerator: NoiseGenerator;
     private terrainMaterial!: StandardMaterial;
     private skyMesh: Mesh | null = null;
+    private lastTerrainUpdateTime: number = 0; // Add timing control for updates
 
     constructor(scene: Scene) {
         this.scene = scene;
@@ -274,6 +275,19 @@ export class TerrainManager {
         const currentChunkX = Math.floor(bomberPosition.x / this.chunkSize);
         const currentChunkZ = Math.floor(bomberPosition.z / this.chunkSize);
 
+        // Only update terrain generation periodically, not every frame
+        // This prevents expensive operations from causing freezing
+        const currentTime = performance.now();
+        if (currentTime - this.lastTerrainUpdateTime < 100) {
+            // Still update sky position every frame for smooth movement
+            if (this.skyMesh) {
+                this.skyMesh.position.x = bomberPosition.x;
+                this.skyMesh.position.z = bomberPosition.z;
+            }
+            return;
+        }
+        this.lastTerrainUpdateTime = currentTime;
+
         // Check if bomber is approaching the edge of explored territory
         const distanceToChunkEdge = this.getDistanceToNearestChunkEdge(bomberPosition);
         
@@ -282,12 +296,18 @@ export class TerrainManager {
             this.generateChunksNearPlayer(currentChunkX, currentChunkZ, bomberPosition);
         }
 
-        // Remove distant chunks to save memory
+        // Remove distant chunks to save memory (limit how many we process per frame)
         const chunksToRemove: string[] = [];
+        let chunksProcessed = 0;
+        const maxChunksToProcessPerFrame = 2; // Limit to prevent freezing
+        
         this.chunks.forEach((chunk, key) => {
+            if (chunksProcessed >= maxChunksToProcessPerFrame) return;
+            
             const distance = Math.abs(chunk.x - currentChunkX) + Math.abs(chunk.z - currentChunkZ);
             if (distance > 3) { // Reduced from 4 since chunks are bigger now
                 chunksToRemove.push(key);
+                chunksProcessed++;
             }
         });
 
@@ -325,26 +345,50 @@ export class TerrainManager {
     }
 
     private generateChunksNearPlayer(currentChunkX: number, currentChunkZ: number, bomberPosition: Vector3): void {
+        // Add safeguard: limit total number of chunks to prevent memory issues
+        const maxTotalChunks = 25; // 5x5 grid maximum
+        if (this.chunks.size >= maxTotalChunks) {
+            return; // Don't generate more chunks if we're at the limit
+        }
+        
         // Generate chunks in a 3x3 grid around current position
-        for (let x = currentChunkX - 1; x <= currentChunkX + 1; x++) {
-            for (let z = currentChunkZ - 1; z <= currentChunkZ + 1; z++) {
-                this.generateChunk(x, z);
+        let chunksGenerated = 0;
+        const maxChunksPerUpdate = 4; // Limit chunks generated per update to prevent freezing
+        
+        for (let x = currentChunkX - 1; x <= currentChunkX + 1 && chunksGenerated < maxChunksPerUpdate; x++) {
+            for (let z = currentChunkZ - 1; z <= currentChunkZ + 1 && chunksGenerated < maxChunksPerUpdate; z++) {
+                const chunkKey = `${x}_${z}`;
+                if (!this.chunks.has(chunkKey)) {
+                    this.generateChunk(x, z);
+                    chunksGenerated++;
+                }
             }
         }
         
-        // Also generate chunks in the direction the bomber is moving
-        const bomberVelocity = this.getBomberDirection(bomberPosition);
-        if (Math.abs(bomberVelocity.x) > Math.abs(bomberVelocity.z)) {
-            // Moving more in X direction
-            const directionX = bomberVelocity.x > 0 ? 1 : -1;
-            for (let z = currentChunkZ - 1; z <= currentChunkZ + 1; z++) {
-                this.generateChunk(currentChunkX + directionX * 2, z);
-            }
-        } else {
-            // Moving more in Z direction
-            const directionZ = bomberVelocity.z > 0 ? 1 : -1;
-            for (let x = currentChunkX - 1; x <= currentChunkX + 1; x++) {
-                this.generateChunk(x, currentChunkZ + directionZ * 2);
+        // Only generate forward chunks if we haven't hit our limit
+        if (chunksGenerated < maxChunksPerUpdate && this.chunks.size < maxTotalChunks) {
+            // Also generate chunks in the direction the bomber is moving
+            const bomberVelocity = this.getBomberDirection(bomberPosition);
+            if (Math.abs(bomberVelocity.x) > Math.abs(bomberVelocity.z)) {
+                // Moving more in X direction
+                const directionX = bomberVelocity.x > 0 ? 1 : -1;
+                for (let z = currentChunkZ - 1; z <= currentChunkZ + 1 && chunksGenerated < maxChunksPerUpdate; z++) {
+                    const chunkKey = `${currentChunkX + directionX * 2}_${z}`;
+                    if (!this.chunks.has(chunkKey)) {
+                        this.generateChunk(currentChunkX + directionX * 2, z);
+                        chunksGenerated++;
+                    }
+                }
+            } else {
+                // Moving more in Z direction
+                const directionZ = bomberVelocity.z > 0 ? 1 : -1;
+                for (let x = currentChunkX - 1; x <= currentChunkX + 1 && chunksGenerated < maxChunksPerUpdate; x++) {
+                    const chunkKey = `${x}_${currentChunkZ + directionZ * 2}`;
+                    if (!this.chunks.has(chunkKey)) {
+                        this.generateChunk(x, currentChunkZ + directionZ * 2);
+                        chunksGenerated++;
+                    }
+                }
             }
         }
     }
@@ -371,14 +415,40 @@ export class TerrainManager {
 
     public getBuildingsInRadius(position: Vector3, radius: number): Building[] {
         const buildings: Building[] = [];
-        this.chunks.forEach(chunk => {
-            chunk.buildings.forEach(building => {
-                const distance = Vector3.Distance(position, building.getPosition());
-                if (distance <= radius) {
-                    buildings.push(building);
+        
+        // Calculate which chunks might contain buildings in range
+        const chunkRadius = Math.ceil(radius / this.chunkSize) + 1;
+        const centerChunkX = Math.floor(position.x / this.chunkSize);
+        const centerChunkZ = Math.floor(position.z / this.chunkSize);
+        
+        // Only check chunks that could contain buildings in range
+        for (let x = centerChunkX - chunkRadius; x <= centerChunkX + chunkRadius; x++) {
+            for (let z = centerChunkZ - chunkRadius; z <= centerChunkZ + chunkRadius; z++) {
+                const chunkKey = `${x}_${z}`;
+                const chunk = this.chunks.get(chunkKey);
+                
+                if (chunk) {
+                    // Pre-filter by chunk distance to avoid unnecessary calculations
+                    const chunkCenterX = x * this.chunkSize;
+                    const chunkCenterZ = z * this.chunkSize;
+                    const chunkDistance = Math.sqrt(
+                        Math.pow(position.x - chunkCenterX, 2) + 
+                        Math.pow(position.z - chunkCenterZ, 2)
+                    );
+                    
+                    // Only check buildings in chunks that are close enough
+                    if (chunkDistance <= radius + this.chunkSize * 0.7) {
+                        chunk.buildings.forEach(building => {
+                            const distance = Vector3.Distance(position, building.getPosition());
+                            if (distance <= radius) {
+                                buildings.push(building);
+                            }
+                        });
+                    }
                 }
-            });
-        });
+            }
+        }
+        
         return buildings;
     }
 } 

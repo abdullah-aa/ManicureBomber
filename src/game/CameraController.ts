@@ -31,6 +31,17 @@ export class CameraController {
     // Reset cooldown to prevent rapid resets
     private lastResetTime: number = 0;
     private resetCooldown: number = 0.5; // 500ms cooldown
+    
+    // Performance optimization: reuse Vector3 objects to reduce GC pressure
+    private tempVector1: Vector3 = new Vector3();
+    private tempVector2: Vector3 = new Vector3();
+    private tempVector3: Vector3 = new Vector3();
+    
+    // Cache trigonometric calculations to avoid repeated computations
+    private lastEffectiveRotation: number = 0;
+    private cachedSin: number = 0;
+    private cachedCos: number = 0;
+    private trigCacheValid: boolean = false;
 
     constructor(camera: FreeCamera, bomber: B2Bomber) {
         this.camera = camera;
@@ -54,10 +65,12 @@ export class CameraController {
         if (inputManager.isRightShiftLeftPressed()) {
             // Pan camera right (positive X direction)
             this.panAngleOffset += this.panSpeed * deltaTime;
+            this.trigCacheValid = false; // Invalidate cache when panning
         }
         if (inputManager.isRightShiftRightPressed()) {
             // Pan camera left (negative X direction)
             this.panAngleOffset -= this.panSpeed * deltaTime;
+            this.trigCacheValid = false; // Invalidate cache when panning
         }
         
         // Handle camera height adjustment with Shift + Up/Down arrows (inverted)
@@ -73,47 +86,52 @@ export class CameraController {
         const bomberPos = this.bomber.getPosition();
         const bomberRotation = this.bomber.getRotation();
 
-        // Calculate desired camera position (behind the bomber, at an absolute height)
-        // Apply angular pan offset to the bomber's rotation for orbiting effect
+        // Calculate effective rotation with caching to avoid repeated trig calculations
         const effectiveRotation = bomberRotation.y + this.panAngleOffset;
         
-        const desiredCameraPos = new Vector3(
-            bomberPos.x - Math.sin(effectiveRotation) * this.followDistance,
+        // Only recalculate trigonometric values if rotation changed significantly
+        if (!this.trigCacheValid || Math.abs(effectiveRotation - this.lastEffectiveRotation) > 0.01) {
+            this.cachedSin = Math.sin(effectiveRotation);
+            this.cachedCos = Math.cos(effectiveRotation);
+            this.lastEffectiveRotation = effectiveRotation;
+            this.trigCacheValid = true;
+        }
+        
+        // Calculate desired camera position using cached values and reusable vectors
+        this.tempVector1.set(
+            bomberPos.x - this.cachedSin * this.followDistance,
             this.followHeight,
-            bomberPos.z - Math.cos(effectiveRotation) * this.followDistance
+            bomberPos.z - this.cachedCos * this.followDistance
         );
         
-        // No longer need to add pan offset since it's built into the rotation calculation
-        const finalCameraPos = desiredCameraPos;
-
-        // Smoothly move camera to desired position
-        this.camera.position = Vector3.Lerp(
-            this.camera.position,
-            finalCameraPos,
-            this.smoothing * deltaTime
-        );
+        // Use a more performance-friendly smoothing approach
+        // Instead of Vector3.Lerp which creates new objects, modify existing vectors
+        const lerpFactor = Math.min(this.smoothing * deltaTime, 1.0); // Cap lerp factor
+        const invLerpFactor = 1.0 - lerpFactor;
+        
+        // Manually interpolate to avoid object creation
+        this.camera.position.x = this.camera.position.x * invLerpFactor + this.tempVector1.x * lerpFactor;
+        this.camera.position.y = this.camera.position.y * invLerpFactor + this.tempVector1.y * lerpFactor;
+        this.camera.position.z = this.camera.position.z * invLerpFactor + this.tempVector1.z * lerpFactor;
 
         // Set camera target based on lock mode
         if (this.lockMode === CameraLockMode.BOMBER) {
-            // Look at the bomber
+            // Look at the bomber directly
             this.camera.setTarget(bomberPos);
         } else {
-            // Look at ground below bomber
-            const groundTarget = new Vector3(
-                bomberPos.x,
-                0, // Ground level
-                bomberPos.z
+            // Look at ground below bomber with look-ahead
+            this.tempVector2.set(bomberPos.x, 0, bomberPos.z);
+
+            // Add look-ahead using cached trig values
+            this.tempVector3.set(
+                this.cachedSin * this.lookAheadDistance,
+                0,
+                this.cachedCos * this.lookAheadDistance
             );
 
-            // Add slight look-ahead on the ground in the direction the bomber is moving
-            const lookAheadOffset = new Vector3(
-                Math.sin(bomberRotation.y) * this.lookAheadDistance,
-                0, // Keep at ground level
-                Math.cos(bomberRotation.y) * this.lookAheadDistance
-            );
-
-            const finalGroundTarget = groundTarget.add(lookAheadOffset);
-            this.camera.setTarget(finalGroundTarget);
+            // Combine ground target with look-ahead
+            this.tempVector2.addInPlace(this.tempVector3);
+            this.camera.setTarget(this.tempVector2);
         }
     }
 

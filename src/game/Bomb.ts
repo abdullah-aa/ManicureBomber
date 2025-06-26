@@ -1,4 +1,4 @@
-import { Scene, Mesh, Vector3, MeshBuilder, StandardMaterial, Color3, ParticleSystem, Texture, Sound, Color4, PointLight } from '@babylonjs/core';
+import { Scene, Mesh, Vector3, MeshBuilder, StandardMaterial, Color3, ParticleSystem, Texture, Sound, Color4, PointLight, DynamicTexture } from '@babylonjs/core';
 
 export class Bomb {
     private scene: Scene;
@@ -7,7 +7,7 @@ export class Bomb {
     private velocity: Vector3;
     private fireParticles!: ParticleSystem;
     private smokeParticles!: ParticleSystem;
-    private explosionSound!: Sound;
+    private explosionSound: Sound | null = null;
     private trailParticles!: ParticleSystem;
     private light!: PointLight;
 
@@ -38,7 +38,22 @@ export class Bomb {
 
     private setupTrail(): void {
         this.trailParticles = new ParticleSystem('trail', 500, this.scene);
-        this.trailParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/flare.png', this.scene);
+        
+        // Create procedural trail texture instead of external URL
+        const trailTexture = new DynamicTexture('trailTexture', {width: 64, height: 64}, this.scene);
+        const context = trailTexture.getContext();
+        
+        // Create a simple white/gray dot pattern
+        const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        gradient.addColorStop(0.5, 'rgba(200, 200, 200, 0.5)');
+        gradient.addColorStop(1, 'rgba(100, 100, 100, 0)');
+        
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, 64, 64);
+        trailTexture.update();
+        
+        this.trailParticles.particleTexture = trailTexture;
         this.trailParticles.emitter = this.mesh;
         this.trailParticles.minEmitBox = new Vector3(0, 1, 0);
         this.trailParticles.maxEmitBox = new Vector3(0, 1, 0);
@@ -61,9 +76,24 @@ export class Bomb {
     }
 
     private setupExplosionEffects(): void {
+        // Create procedural fire texture
+        const fireTexture = new DynamicTexture('fireTexture', {width: 64, height: 64}, this.scene);
+        const fireContext = fireTexture.getContext();
+        
+        // Create fire effect
+        const fireGradient = fireContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+        fireGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        fireGradient.addColorStop(0.3, 'rgba(255, 200, 0, 0.8)');
+        fireGradient.addColorStop(0.7, 'rgba(255, 100, 0, 0.4)');
+        fireGradient.addColorStop(1, 'rgba(200, 0, 0, 0)');
+        
+        fireContext.fillStyle = fireGradient;
+        fireContext.fillRect(0, 0, 64, 64);
+        fireTexture.update();
+
         // Fire particle system for the main explosion flash
         this.fireParticles = new ParticleSystem('fire', 2000, this.scene);
-        this.fireParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/flare.png', this.scene);
+        this.fireParticles.particleTexture = fireTexture;
         this.fireParticles.emitter = this.mesh;
         this.fireParticles.minEmitBox = new Vector3(-1, 0, -1);
         this.fireParticles.maxEmitBox = new Vector3(1, 0, 1);
@@ -85,9 +115,35 @@ export class Bomb {
         this.fireParticles.manualEmitCount = 2000;
         this.fireParticles.stop();
 
+        // Create procedural smoke texture
+        const smokeTexture = new DynamicTexture('smokeTexture', {width: 64, height: 64}, this.scene);
+        const smokeContext = smokeTexture.getContext();
+        
+        // Create smoke effect with noise
+        smokeContext.fillStyle = 'rgba(0, 0, 0, 0)';
+        smokeContext.fillRect(0, 0, 64, 64);
+        
+        // Add several overlapping circles for smoke effect
+        for (let i = 0; i < 8; i++) {
+            const x = 32 + (Math.random() - 0.5) * 40;
+            const y = 32 + (Math.random() - 0.5) * 40;
+            const radius = 15 + Math.random() * 15;
+            const alpha = 0.1 + Math.random() * 0.3;
+            
+            const gradient = smokeContext.createRadialGradient(x, y, 0, x, y, radius);
+            gradient.addColorStop(0, `rgba(100, 100, 100, ${alpha})`);
+            gradient.addColorStop(1, 'rgba(50, 50, 50, 0)');
+            
+            smokeContext.fillStyle = gradient;
+            smokeContext.beginPath();
+            smokeContext.arc(x, y, radius, 0, 2 * Math.PI);
+            smokeContext.fill();
+        }
+        smokeTexture.update();
+
         // Smoke particle system for lingering smoke
         this.smokeParticles = new ParticleSystem('smoke', 1000, this.scene);
-        this.smokeParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/explosion/Smoke_11.png', this.scene);
+        this.smokeParticles.particleTexture = smokeTexture;
         this.smokeParticles.emitter = this.mesh;
         this.smokeParticles.minEmitBox = new Vector3(-2, 0, -2);
         this.smokeParticles.maxEmitBox = new Vector3(2, 0, 2);
@@ -108,9 +164,6 @@ export class Bomb {
         this.smokeParticles.updateSpeed = 0.01;
         this.smokeParticles.manualEmitCount = 1000;
         this.smokeParticles.stop();
-
-        // Explosion sound
-        this.explosionSound = new Sound('explosionSound', 'https://assets.babylonjs.com/sound/explosion.mp3', this.scene);
     }
 
     public update(deltaTime: number): void {
@@ -131,17 +184,30 @@ export class Bomb {
 
         this.fireParticles.start();
         this.smokeParticles.start();
-        this.explosionSound.play();
+        
+        // Only play sound if it exists
+        if (this.explosionSound) {
+            this.explosionSound.play();
+        }
+        
         this.mesh.dispose();
 
         // Dispose particles after they are done
         setTimeout(() => {
-            this.fireParticles.dispose();
-            this.trailParticles.dispose();
+            try {
+                this.fireParticles.dispose();
+                this.trailParticles.dispose();
+            } catch (e) {
+                console.warn('Error disposing fire/trail particles:', e);
+            }
         }, 1000);
 
         setTimeout(() => {
-            this.smokeParticles.dispose();
+            try {
+                this.smokeParticles.dispose();
+            } catch (e) {
+                console.warn('Error disposing smoke particles:', e);
+            }
         }, 6000);
     }
 

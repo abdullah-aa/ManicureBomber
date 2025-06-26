@@ -86,43 +86,67 @@ export class Game {
     }
 
     private startGameLoop(): void {
+        let lastFrameTime = performance.now();
+        let frameCount = 0;
+        
         this.scene.registerBeforeRender(() => {
-            const deltaTime = this.scene.getEngine().getDeltaTime() / 1000;
-            const currentTime = performance.now() / 1000;
+            try {
+                const currentTime = performance.now();
+                const deltaTime = this.scene.getEngine().getDeltaTime() / 1000;
+                
+                // Monitor frame time to detect performance issues
+                const frameTime = currentTime - lastFrameTime;
+                frameCount++;
+                
+                // Log warning if frame time exceeds 33ms (30 FPS)
+                if (frameTime > 33 && frameCount % 60 === 0) {
+                    console.warn(`Performance warning: Frame time ${frameTime.toFixed(2)}ms`);
+                }
+                
+                // Prevent extremely large delta times that could cause issues
+                const safeDeltaTime = Math.min(deltaTime, 0.1); // Cap at 100ms
+                const safeCurrentTime = currentTime / 1000;
 
-            // Handle bombing runs
-            this.handleBombing(currentTime);
-            
-            // Handle missile launches
-            this.handleMissileLaunch();
+                // Handle bombing runs
+                this.handleBombing(safeCurrentTime);
+                
+                // Handle missile launches
+                this.handleMissileLaunch();
 
-            // Handle camera mode toggle
-            this.handleCameraToggle(currentTime);
-            
-            // Update bomber based on input
-            this.bomber.update(deltaTime, this.inputManager);
-            
-            // Update camera to follow bomber
-            this.cameraController.update(deltaTime, this.inputManager);
-            
-            // Update UI
-            this.uiManager.update();
-            
-            // Update radar
-            this.radarManager.update(this.bomber, this.terrainManager, this.destroyedBuildings, this.destroyedTargets);
-            
-            // Update terrain based on bomber position
-            this.terrainManager.update(this.bomber.getPosition());
-            
-            // Update bomber altitude restriction based on nearby buildings
-            const maxBuildingHeight = this.terrainManager.getMaxBuildingHeight();
-            this.bomber.setMinimumAltitude(maxBuildingHeight);
+                // Handle camera mode toggle
+                this.handleCameraToggle(safeCurrentTime);
+                
+                // Update bomber based on input
+                this.bomber.update(safeDeltaTime, this.inputManager);
+                
+                // Update camera to follow bomber
+                this.cameraController.update(safeDeltaTime, this.inputManager);
+                
+                // Update UI
+                this.uiManager.update();
+                
+                // Update radar
+                this.radarManager.update(this.bomber, this.terrainManager, this.destroyedBuildings, this.destroyedTargets);
+                
+                // Update terrain based on bomber position
+                this.terrainManager.update(this.bomber.getPosition());
+                
+                // Update bomber altitude restriction based on nearby buildings
+                const maxBuildingHeight = this.terrainManager.getMaxBuildingHeight();
+                this.bomber.setMinimumAltitude(maxBuildingHeight);
 
-            // Update bombs
-            this.updateBombs(deltaTime);
+                // Update bombs
+                this.updateBombs(safeDeltaTime);
 
-            // Reset input deltas
-            this.inputManager.endFrame();
+                // Reset input deltas
+                this.inputManager.endFrame();
+                
+                lastFrameTime = currentTime;
+                
+            } catch (error) {
+                console.error('Error in game loop:', error);
+                // Continue running to prevent complete freeze
+            }
         });
     }
 
