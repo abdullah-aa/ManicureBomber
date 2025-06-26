@@ -19,6 +19,9 @@ export class TerrainManager {
     private terrainMaterial!: StandardMaterial;
     private skyMesh: Mesh | null = null;
     private lastTerrainUpdateTime: number = 0; // Add timing control for updates
+    private heightmapCache: Map<string, Float32Array> = new Map();
+    private subdivisions = 64;
+    private lastBomberPosition: Vector3 = new Vector3(0, 0, 0);
 
     constructor(scene: Scene) {
         this.scene = scene;
@@ -128,23 +131,26 @@ export class TerrainManager {
         skyMaterial.backFaceCulling = false;
         
         this.skyMesh.material = skyMaterial;
-        this.skyMesh.position.y = 0; // Center at ground level
-        this.skyMesh.infiniteDistance = true;
+        
+        // Make the sky render behind everything else
+        this.skyMesh.renderingGroupId = 0;
+        this.skyMesh.isPickable = false;
+        this.skyMesh.infiniteDistance = true; // Ensures sky moves with camera
     }
 
-    public generateInitialTerrain(center: Vector3): void {
+    public async generateInitialTerrain(center: Vector3): Promise<void> {
         const chunkX = Math.floor(center.x / this.chunkSize);
         const chunkZ = Math.floor(center.z / this.chunkSize);
 
         // Generate initial 3x3 grid of chunks
         for (let x = chunkX - 1; x <= chunkX + 1; x++) {
             for (let z = chunkZ - 1; z <= chunkZ + 1; z++) {
-                this.generateChunk(x, z);
+                await this.generateChunk(x, z);
             }
         }
     }
 
-    private generateChunk(chunkX: number, chunkZ: number): void {
+    private async generateChunk(chunkX: number, chunkZ: number): Promise<void> {
         const chunkKey = `${chunkX}_${chunkZ}`;
         if (this.chunks.has(chunkKey)) return;
 
@@ -155,7 +161,7 @@ export class TerrainManager {
         const ground = MeshBuilder.CreateGround(`ground_${chunkX}_${chunkZ}`, {
             width: this.chunkSize,
             height: this.chunkSize,
-            subdivisions: 64  // Increased from 32 for more detailed terrain
+            subdivisions: this.subdivisions  // Increased from 32 for more detailed terrain
         }, this.scene);
 
         ground.position.x = worldX;
@@ -173,43 +179,41 @@ export class TerrainManager {
             z: chunkZ
         };
 
-        // Generate buildings for this chunk
-        this.generateBuildingsForChunk(chunk, worldX, worldZ);
-
         this.chunks.set(chunkKey, chunk);
+
+        // Generate buildings for this chunk asynchronously
+        await this.generateBuildingsForChunk(chunk, worldX, worldZ);
     }
 
     private applyHeightMap(ground: GroundMesh, worldX: number, worldZ: number): void {
         const positions = ground.getVerticesData('position');
         if (!positions) return;
+        const heights = new Float32Array((this.subdivisions + 1) * (this.subdivisions + 1));
 
-        for (let i = 1; i < positions.length; i += 3) {
-            const x = positions[i - 1] + worldX;
-            const z = positions[i + 1] + worldZ;
+        for (let i = 0; i < positions.length / 3; i++) {
+            const localX = positions[i * 3];
+            const localZ = positions[i * 3 + 2];
+            const x = localX + worldX;
+            const z = localZ + worldZ;
             
-            // Generate varied terrain with reasonable heights (max ~50 units for reliability)
-            let height = 0;
-            
-            // Base terrain using fractal noise [0,1] range 
-            height += this.noiseGenerator.fractalNoise(x * 0.005, z * 0.005, 4) * 25; // Base hills
-            height += this.noiseGenerator.fractalNoise(x * 0.015, z * 0.015, 3) * 15; // Medium features
-            height += this.noiseGenerator.fractalNoise(x * 0.03, z * 0.03, 2) * 8;    // Surface variation
-            height += this.noiseGenerator.fractalNoise(x * 0.08, z * 0.08, 1) * 3;    // Fine detail
-            
-            // Ensure height is always reasonable and positive
-            height = Math.max(0, Math.min(height, 60)); // Cap at 60 units max
-            
-            positions[i] = Math.max(0, height); // No negative heights, but allow very low areas
+            const height = this.calculateHeightFromNoise(x, z);
+            positions[i * 3 + 1] = height;
+            heights[i] = height;
         }
 
         ground.updateVerticesData('position', positions);
         ground.createNormals(false);
+
+        const chunkKey = `${Math.floor(worldX / this.chunkSize)}_${Math.floor(worldZ / this.chunkSize)}`;
+        this.heightmapCache.set(chunkKey, heights);
     }
 
-    private generateBuildingsForChunk(chunk: TerrainChunk, worldX: number, worldZ: number): void {
+    private async generateBuildingsForChunk(chunk: TerrainChunk, worldX: number, worldZ: number): Promise<void> {
         const buildingDensity = 0.00005; // Buildings per square unit (adjust for more/fewer buildings)
         const chunkArea = this.chunkSize * this.chunkSize;
         const numBuildings = Math.floor(chunkArea * buildingDensity * (0.5 + Math.random() * 0.8)); // Random variation
+        const buildingsPerBatch = 5;
+        let generatedCount = 0;
 
         for (let i = 0; i < numBuildings; i++) {
             // Random position within chunk boundaries
@@ -252,23 +256,65 @@ export class TerrainManager {
             // Create and add building
             const building = new Building(this.scene, buildingConfig);
             chunk.buildings.push(building);
+            generatedCount++;
+
+            if (generatedCount % buildingsPerBatch === 0) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
         }
     }
 
-    public getHeightAtPosition(x: number, z: number): number {
-        // Calculate height using the same algorithm as terrain generation for consistency
+    private calculateHeightFromNoise(x: number, z: number): number {
         let height = 0;
+        height += this.noiseGenerator.fractalNoise(x * 0.005, z * 0.005, 4) * 25;
+        height += this.noiseGenerator.fractalNoise(x * 0.015, z * 0.015, 3) * 15;
+        height += this.noiseGenerator.fractalNoise(x * 0.03, z * 0.03, 2) * 8;
+        height += this.noiseGenerator.fractalNoise(x * 0.08, z * 0.08, 1) * 3;
+        return Math.max(0, Math.min(height, 60));
+    }
+
+    public getHeightAtPosition(x: number, z: number): number {
+        const chunkX = Math.floor(x / this.chunkSize);
+        const chunkZ = Math.floor(z / this.chunkSize);
+        const chunkKey = `${chunkX}_${chunkZ}`;
+        const heights = this.heightmapCache.get(chunkKey);
+
+        if (!heights) {
+            return this.calculateHeightFromNoise(x, z);
+        }
+
+        const worldChunkX = chunkX * this.chunkSize;
+        const worldChunkZ = chunkZ * this.chunkSize;
         
-        // Base terrain using fractal noise [0,1] range - MUST match applyHeightMap exactly
-        height += this.noiseGenerator.fractalNoise(x * 0.005, z * 0.005, 4) * 25; // Base hills
-        height += this.noiseGenerator.fractalNoise(x * 0.015, z * 0.015, 3) * 15; // Medium features
-        height += this.noiseGenerator.fractalNoise(x * 0.03, z * 0.03, 2) * 8;    // Surface variation
-        height += this.noiseGenerator.fractalNoise(x * 0.08, z * 0.08, 1) * 3;    // Fine detail
+        const localX = x - worldChunkX;
+        const localZ = z - worldChunkZ;
         
-        // Ensure height is always reasonable and positive - MUST match applyHeightMap exactly
-        height = Math.max(0, Math.min(height, 60)); // Cap at 60 units max
+        const gridX = (localX + this.chunkSize / 2) / this.chunkSize * this.subdivisions;
+        const gridZ = (localZ + this.chunkSize / 2) / this.chunkSize * this.subdivisions;
         
-        return height;
+        const gridX0 = Math.floor(gridX);
+        const gridZ0 = Math.floor(gridZ);
+
+        if (gridX0 < 0 || gridX0 >= this.subdivisions || gridZ0 < 0 || gridZ0 >= this.subdivisions) {
+            return this.calculateHeightFromNoise(x, z);
+        }
+
+        const tx = gridX - gridX0;
+        const tz = gridZ - gridZ0;
+        
+        const h00 = heights[gridZ0 * (this.subdivisions + 1) + gridX0];
+        const h10 = heights[gridZ0 * (this.subdivisions + 1) + (gridX0 + 1)];
+        const h01 = heights[(gridZ0 + 1) * (this.subdivisions + 1) + gridX0];
+        const h11 = heights[(gridZ0 + 1) * (this.subdivisions + 1) + (gridX0 + 1)];
+
+        if (h00 === undefined || h10 === undefined || h01 === undefined || h11 === undefined) {
+            return this.calculateHeightFromNoise(x, z);
+        }
+        
+        const h_x1 = h00 * (1 - tx) + h10 * tx;
+        const h_x2 = h01 * (1 - tx) + h11 * tx;
+
+        return h_x1 * (1 - tz) + h_x2 * tz;
     }
 
     public update(bomberPosition: Vector3): void {
@@ -318,6 +364,7 @@ export class TerrainManager {
                 chunk.buildings.forEach(building => building.dispose());
                 chunk.buildings.length = 0;
                 
+                this.heightmapCache.delete(key);
                 // Dispose of the terrain mesh
                 chunk.mesh.dispose();
                 this.chunks.delete(key);
@@ -393,11 +440,7 @@ export class TerrainManager {
         }
     }
 
-    private lastBomberPosition: Vector3 = new Vector3(0, 0, 0);
-
     private getBomberDirection(bomberPosition: Vector3): Vector3 {
-        // This is a simplified direction calculation
-        // In a real implementation, you might get this from the bomber's velocity
         const direction = bomberPosition.subtract(this.lastBomberPosition);
         this.lastBomberPosition = bomberPosition.clone();
         return direction;

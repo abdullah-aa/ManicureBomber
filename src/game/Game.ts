@@ -38,22 +38,31 @@ export class Game {
     constructor(scene: Scene, canvas: HTMLCanvasElement) {
         this.scene = scene;
         this.canvas = canvas;
+    }
 
+    public async initialize(): Promise<void> {
         this.setupLighting();
         this.setupCamera();
-        this.initializeGame();
+        
+        this.bomber = new B2Bomber(this.scene);
+        this.terrainManager = new TerrainManager(this.scene);
+        this.inputManager = new InputManager(this.scene, this.canvas);
+        this.cameraController = new CameraController(this.camera, this.bomber);
+        this.uiManager = new UIManager(this, this.inputManager);
+        this.radarManager = new RadarManager();
+
+        await this.terrainManager.generateInitialTerrain(this.bomber.getPosition());
+        
         this.startGameLoop();
     }
 
     private setupLighting(): void {
-        // Ambient light
         const hemisphericLight = new HemisphericLight('hemisphericLight', new Vector3(0, 1, 0), this.scene);
         hemisphericLight.intensity = 0.3;
 
-        // Directional light (sun)
         const directionalLight = new DirectionalLight('directionalLight', new Vector3(-1, -1, -1), this.scene);
         directionalLight.intensity = 0.8;
-        directionalLight.diffuse = new Color3(1, 0.9, 0.7); // Warm sunlight
+        directionalLight.diffuse = new Color3(1, 0.9, 0.7);
     }
 
     private setupCamera(): void {
@@ -62,30 +71,7 @@ export class Game {
         this.camera.attachControl(this.canvas, true);
     }
 
-    private initializeGame(): void {
-        // Create the B2 bomber
-        this.bomber = new B2Bomber(this.scene);
-
-        // Create terrain manager
-        this.terrainManager = new TerrainManager(this.scene);
-
-        // Setup input handling
-        this.inputManager = new InputManager(this.scene, this.canvas);
-
-        // Setup camera controller
-        this.cameraController = new CameraController(this.camera, this.bomber);
-
-        // Create UI Manager
-        this.uiManager = new UIManager(this, this.inputManager);
-        
-        // Create Radar Manager
-        this.radarManager = new RadarManager();
-
-        // Generate initial terrain around the bomber
-        this.terrainManager.generateInitialTerrain(this.bomber.getPosition());
-    }
-
-    private startGameLoop(): void {
+    public startGameLoop(): void {
         let lastFrameTime = performance.now();
         let frameCount = 0;
         
@@ -94,96 +80,76 @@ export class Game {
                 const currentTime = performance.now();
                 const deltaTime = this.scene.getEngine().getDeltaTime() / 1000;
                 
-                // Monitor frame time to detect performance issues
                 const frameTime = currentTime - lastFrameTime;
                 frameCount++;
                 
-                // Log warning if frame time exceeds 33ms (30 FPS)
                 if (frameTime > 33 && frameCount % 60 === 0) {
                     console.warn(`Performance warning: Frame time ${frameTime.toFixed(2)}ms`);
                 }
                 
-                // Prevent extremely large delta times that could cause issues
-                const safeDeltaTime = Math.min(deltaTime, 0.1); // Cap at 100ms
+                const safeDeltaTime = Math.min(deltaTime, 0.1);
                 const safeCurrentTime = currentTime / 1000;
 
-                // Handle bombing runs
                 this.handleBombing(safeCurrentTime);
                 
-                // Handle missile launches
                 this.handleMissileLaunch();
 
-                // Handle camera mode toggle
                 this.handleCameraToggle(safeCurrentTime);
                 
-                // Update bomber based on input
                 this.bomber.update(safeDeltaTime, this.inputManager);
                 
-                // Update camera to follow bomber
                 this.cameraController.update(safeDeltaTime, this.inputManager);
                 
-                // Update UI
                 this.uiManager.update();
                 
-                // Update radar
                 this.radarManager.update(this.bomber, this.terrainManager, this.destroyedBuildings, this.destroyedTargets);
                 
-                // Update terrain based on bomber position
                 this.terrainManager.update(this.bomber.getPosition());
                 
-                // Update bomber altitude restriction based on nearby buildings
                 const maxBuildingHeight = this.terrainManager.getMaxBuildingHeight();
                 this.bomber.setMinimumAltitude(maxBuildingHeight);
 
-                // Update bombs
                 this.updateBombs(safeDeltaTime);
 
-                // Reset input deltas
                 this.inputManager.endFrame();
                 
                 lastFrameTime = currentTime;
                 
             } catch (error) {
                 console.error('Error in game loop:', error);
-                // Continue running to prevent complete freeze
             }
         });
     }
 
     private handleBombing(currentTime: number): void {
-        // Start a bombing run on key press
         if (this.inputManager.isBombKeyPressed() && this.isBombingAvailable()) {
             this.startBombingRun();
         }
 
-        // Drop subsequent bombs during a bombing run
         if (this.isBombingRun && this.bombsToDrop > 0 && (currentTime - this.lastBombDropTime) >= 1) {
             this.dropBomb();
             this.bombsToDrop--;
             this.lastBombDropTime = currentTime;
         }
 
-        // End bombing run when all bombs are dropped
         if (this.isBombingRun && this.bombsToDrop === 0) {
             this.isBombingRun = false;
-            this.bomber.closeBombBay(); // Close bomb bay
-            this.lastBombingRunTime = currentTime; // Start cooldown after last bomb
+            this.bomber.closeBombBay();
+            this.lastBombingRunTime = currentTime;
         }
     }
 
     private handleMissileLaunch(): void {
-        // Launch missile on key press
         if (this.inputManager.isMissileKeyPressed() && this.bomber.canLaunchMissile()) {
             this.bomber.launchMissile();
         }
     }
 
     private handleCameraToggle(currentTime: number): void {
-        // Toggle camera mode on 'V' key press with cooldown
         if (this.inputManager.isCameraTogglePressed() && 
             (currentTime - this.lastCameraToggleTime) > this.cameraToggleCooldown) {
             this.cameraController.toggleLockMode();
-            this.uiManager.updateCameraToggleIcon(); // Update UI to reflect camera mode change
+            this.uiManager.updateCameraToggleIcon();
             this.lastCameraToggleTime = currentTime;
         }
     }
@@ -197,10 +163,10 @@ export class Game {
     public startBombingRun(): void {
         if (this.isBombingAvailable()) {
             this.isBombingRun = true;
-            this.bombsToDrop = 9; // Drop 1 immediately, 9 to go
+            this.bombsToDrop = 9;
             this.lastBombDropTime = performance.now() / 1000;
-            this.bomber.openBombBay(); // Open bomb bay
-            this.dropBomb(); // Drop the first bomb instantly
+            this.bomber.openBombBay();
+            this.dropBomb();
         }
     }
 
@@ -241,21 +207,17 @@ export class Game {
             const bomb = this.bombs[i];
             bomb.update(deltaTime);
 
-            // Check for collision with ground (same level as buildings)
             const bombPosition = bomb.getPosition();
 
-            // Bombs explode when they reach ground level (Y=0) where buildings are
             if (bombPosition.y <= 0) {
                 const explosionPoint = new Vector3(bombPosition.x, 0, bombPosition.z);
                 
-                // Check for buildings within blast radius
                 const blastRadius = 50;
                 const nearbyBuildings = this.terrainManager.getBuildingsInRadius(explosionPoint, blastRadius);
                 
-                // Damage buildings based on distance from explosion
                 nearbyBuildings.forEach(building => {
                     const distance = Vector3.Distance(explosionPoint, building.getPosition());
-                    const damage = Math.max(10, 50 - distance); // 50 damage at center, 10 minimum
+                    const damage = Math.max(10, 50 - distance);
                     
                     const wasDestroyed = building.takeDamage(damage);
                     if (wasDestroyed) {
