@@ -117,7 +117,7 @@ export class InputManager {
     }
 
     public isCameraTogglePressed(): boolean {
-        return this.isKeyPressed('KeyV');
+        return this.isKeyPressed('KeyN');
     }
 
     public isRightShiftLeftPressed(): boolean {

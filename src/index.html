@@ -58,7 +58,7 @@
         }
         #instructionsContent {
             padding: 16px;
-            max-height: 200px;
+            max-height: 320px;
             overflow: hidden;
             transition: max-height 0.3s ease, padding 0.3s ease;
         }
@@ -226,9 +226,20 @@
         <div id="instructionsContent">
             <div>Arrow Keys: Turn Left/Right, Climb/Descend</div>
             <div>B: Drop Bombs</div>
+            <div>N: Toggle Camera Lock</div>
             <div>M: Launch Missile</div>
             <div>Shift + Up/Down: Adjust Camera Height</div>
             <div>Shift + Left/Right: Pan Camera</div>
+            <div id="radarLegend">
+                <div>Radr Legend:</div>
+                <div style="font-size: 10px; margin-top: 8px;">
+                    <div style="color: #00ff00;">● Bomber</div>
+                    <div style="color: #ff0000;">● Target</div>
+                    <div style="color: #ffff00;">● Building</div>
+                    <div style="color: #ff6600;">● Defense</div>
+                    <div style="color: #ff00ff;">● Missile</div>
+                </div>
+            </div>
         </div>
     </div>
     
@@ -245,15 +256,6 @@
             <div id="scoreDisplay">
                 <div>Buildings: <span id="buildingCount">0</span></div>
                 <div>Targets: <span id="targetCount">0</span></div>
-            </div>
-            <div id="radarLegend">
-                <div style="font-size: 10px; margin-top: 8px;">
-                    <div style="color: #00ff00;">● Bomber</div>
-                    <div style="color: #ff0000;">● Target</div>
-                    <div style="color: #ffff00;">● Building</div>
-                    <div style="color: #ff6600;">● Defense</div>
-                    <div style="color: #ff00ff;">● Missile</div>
-                </div>
             </div>
         </div>
     </div>
