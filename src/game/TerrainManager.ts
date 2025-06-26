@@ -1,8 +1,10 @@
 import { Scene, Vector3, GroundMesh, MeshBuilder, StandardMaterial, Color3, Texture, DynamicTexture, Mesh, TransformNode, VertexData, Ray } from '@babylonjs/core';
 import { NoiseGenerator } from '../utils/NoiseGenerator';
+import { Building, BuildingConfig } from './Building';
 
 interface TerrainChunk {
     mesh: GroundMesh;
+    buildings: Building[];
     x: number;
     z: number;
 }
@@ -156,6 +158,7 @@ export class TerrainManager {
         }, this.scene);
 
         ground.position.x = worldX;
+        ground.position.y = 0; // Explicitly set terrain base at ground level
         ground.position.z = worldZ;
         ground.material = this.terrainMaterial;
 
@@ -164,9 +167,13 @@ export class TerrainManager {
 
         const chunk: TerrainChunk = {
             mesh: ground,
+            buildings: [],
             x: chunkX,
             z: chunkZ
         };
+
+        // Generate buildings for this chunk
+        this.generateBuildingsForChunk(chunk, worldX, worldZ);
 
         this.chunks.set(chunkKey, chunk);
     }
@@ -196,6 +203,52 @@ export class TerrainManager {
 
         ground.updateVerticesData('position', positions);
         ground.createNormals(false);
+    }
+
+    private generateBuildingsForChunk(chunk: TerrainChunk, worldX: number, worldZ: number): void {
+        const buildingDensity = 0.00005; // Buildings per square unit (adjust for more/fewer buildings)
+        const chunkArea = this.chunkSize * this.chunkSize;
+        const numBuildings = Math.floor(chunkArea * buildingDensity * (0.5 + Math.random() * 0.8)); // Random variation
+
+        for (let i = 0; i < numBuildings; i++) {
+            // Random position within chunk boundaries
+            const localX = (Math.random() - 0.5) * this.chunkSize * 0.8; // Leave some margin from edges
+            const localZ = (Math.random() - 0.5) * this.chunkSize * 0.8;
+            const buildingX = worldX + localX;
+            const buildingZ = worldZ + localZ;
+            
+            // Get terrain height at this position
+            const terrainHeight = this.getHeightAtPosition(buildingX, buildingZ);
+            
+            // Skip if terrain is too steep (simple slope check)
+            const sampleDistance = 5;
+            const heightNorth = this.getHeightAtPosition(buildingX, buildingZ - sampleDistance);
+            const heightSouth = this.getHeightAtPosition(buildingX, buildingZ + sampleDistance);
+            const heightEast = this.getHeightAtPosition(buildingX + sampleDistance, buildingZ);
+            const heightWest = this.getHeightAtPosition(buildingX - sampleDistance, buildingZ);
+            
+            const maxSlope = Math.max(
+                Math.abs(heightNorth - terrainHeight),
+                Math.abs(heightSouth - terrainHeight),
+                Math.abs(heightEast - terrainHeight),
+                Math.abs(heightWest - terrainHeight)
+            );
+            
+            // Skip building if terrain is too steep (more than 8 units difference over 5 units distance)
+            if (maxSlope > 8) {
+                continue;
+            }
+            
+            // Generate building configuration
+            const buildingConfig = Building.generateRandomBuildingConfig(
+                new Vector3(buildingX, 0, buildingZ),
+                terrainHeight
+            );
+            
+            // Create and add building
+            const building = new Building(this.scene, buildingConfig);
+            chunk.buildings.push(building);
+        }
     }
 
     public getHeightAtPosition(x: number, z: number): number {
@@ -238,6 +291,11 @@ export class TerrainManager {
         chunksToRemove.forEach(key => {
             const chunk = this.chunks.get(key);
             if (chunk) {
+                // Dispose of all buildings in the chunk
+                chunk.buildings.forEach(building => building.dispose());
+                chunk.buildings.length = 0;
+                
+                // Dispose of the terrain mesh
                 chunk.mesh.dispose();
                 this.chunks.delete(key);
             }

@@ -193,18 +193,14 @@ export class Game {
             const bomb = this.bombs[i];
             bomb.update(deltaTime);
 
-            // Check for collision with terrain
+            // Check for collision with ground (same level as buildings)
             const bombPosition = bomb.getPosition();
-            const terrainHeight = this.terrainManager.getHeightAtPosition(bombPosition.x, bombPosition.z);
 
-            // Add some margin to prevent floating point precision issues and ensure bombs reach the ground
-            if (bombPosition.y <= terrainHeight + 2) {
-                const explosionPoint = new Vector3(bombPosition.x, Math.max(terrainHeight, 0), bombPosition.z);
+            // Bombs explode when they reach ground level (Y=0) where buildings are
+            if (bombPosition.y <= 0) {
+                const explosionPoint = new Vector3(bombPosition.x, 0, bombPosition.z);
                 bomb.explode(explosionPoint);
                 this.bombs.splice(i, 1);
-                
-                // Debug logging
-                console.log(`Bomb exploded at Y: ${bombPosition.y.toFixed(2)}, Terrain height: ${terrainHeight.toFixed(2)}`);
             }
         }
     }
