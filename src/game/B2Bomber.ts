@@ -266,6 +266,10 @@ export class B2Bomber {
         this.particleSystems.push(particleSystem);
     }
 
+    public setMinimumAltitude(minAltitude: number): void {
+        this.altitude = Math.max(this.altitude, minAltitude + 10); // 10 unit safety margin
+    }
+
     public update(deltaTime: number, inputManager: InputManager): void {
         // Handle turning (left/right arrows) and banking
         // Only turn if Right Shift is NOT pressed (Right Shift + arrows is for camera panning)
@@ -313,6 +317,7 @@ export class B2Bomber {
         this.currentBankAngle += bankDifference * this.bankSpeed * deltaTime;
 
         // Keep altitude within reasonable bounds - above terrain (max ~80) but still allow low flying
+        // Minimum altitude will be dynamically set by the game based on building heights
         this.altitude = Math.max(30, Math.min(300, this.altitude));
 
         // Update velocity based on rotation

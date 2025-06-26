@@ -245,6 +245,9 @@ export class TerrainManager {
                 terrainHeight
             );
             
+            // Randomly designate 10% of buildings as targets
+            buildingConfig.isTarget = Math.random() < 0.1;
+            
             // Create and add building
             const building = new Building(this.scene, buildingConfig);
             chunk.buildings.push(building);
@@ -354,5 +357,28 @@ export class TerrainManager {
         const direction = bomberPosition.subtract(this.lastBomberPosition);
         this.lastBomberPosition = bomberPosition.clone();
         return direction;
+    }
+
+    public getMaxBuildingHeight(): number {
+        let maxHeight = 0;
+        this.chunks.forEach(chunk => {
+            chunk.buildings.forEach(building => {
+                maxHeight = Math.max(maxHeight, building.getMaxHeight());
+            });
+        });
+        return maxHeight;
+    }
+
+    public getBuildingsInRadius(position: Vector3, radius: number): Building[] {
+        const buildings: Building[] = [];
+        this.chunks.forEach(chunk => {
+            chunk.buildings.forEach(building => {
+                const distance = Vector3.Distance(position, building.getPosition());
+                if (distance <= radius) {
+                    buildings.push(building);
+                }
+            });
+        });
+        return buildings;
     }
 } 

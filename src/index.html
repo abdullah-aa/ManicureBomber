@@ -70,6 +70,124 @@
             margin-bottom: 8px;
             line-height: 1.4;
         }
+        
+        /* Radar Overlay Styles */
+        #radarOverlay {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 200px;
+            background: rgba(0, 50, 0, 0.9);
+            border: 2px solid rgba(0, 255, 0, 0.5);
+            border-radius: 8px;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+        
+        #radarHeader {
+            padding: 8px 12px;
+            background: rgba(0, 100, 0, 0.3);
+            border-radius: 6px 6px 0 0;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+            font-weight: bold;
+        }
+        
+        #radarHeader:hover {
+            background: rgba(0, 150, 0, 0.3);
+        }
+        
+        #radarToggle {
+            color: #00ff00;
+            font-size: 14px;
+            transform: rotate(0deg);
+            transition: transform 0.3s ease;
+        }
+        
+        #radarToggle.collapsed {
+            transform: rotate(180deg);
+        }
+        
+        #radarContent {
+            padding: 12px;
+            max-height: 300px;
+            overflow: hidden;
+            transition: max-height 0.3s ease, padding 0.3s ease;
+        }
+        
+        #radarContent.collapsed {
+            max-height: 0;
+            padding: 0 12px;
+        }
+        
+        #radarDisplay {
+            width: 176px;
+            height: 176px;
+            background: rgba(0, 20, 0, 0.8);
+            border: 1px solid rgba(0, 255, 0, 0.3);
+            border-radius: 50%;
+            position: relative;
+            margin-bottom: 12px;
+        }
+        
+        .radar-sweep {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            height: 88px;
+            background: linear-gradient(to top, rgba(0, 255, 0, 0.8), rgba(0, 255, 0, 0));
+            transform-origin: bottom center;
+            animation: radarSweep 4s linear infinite;
+        }
+        
+        @keyframes radarSweep {
+            from { transform: translate(-50%, -100%) rotate(0deg); }
+            to { transform: translate(-50%, -100%) rotate(360deg); }
+        }
+        
+        .radar-target {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: #ff0000;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        .radar-building {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: #ffff00;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        .radar-bomber {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background: #00ff00;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            top: 50%;
+            left: 50%;
+        }
+        
+        #scoreDisplay {
+            text-align: center;
+        }
+        
+        #scoreDisplay div {
+            margin-bottom: 4px;
+        }
     </style>
 </head>
 <body>
@@ -87,10 +205,43 @@
             <div>Shift + Left/Right: Pan Camera</div>
         </div>
     </div>
+    
+    <div id="radarOverlay">
+        <div id="radarHeader">
+            <div>RADAR</div>
+            <div id="radarToggle">▼</div>
+        </div>
+        <div id="radarContent">
+            <div id="radarDisplay">
+                <div class="radar-sweep"></div>
+                <div class="radar-bomber"></div>
+            </div>
+            <div id="scoreDisplay">
+                <div>Buildings: <span id="buildingCount">0</span></div>
+                <div>Targets: <span id="targetCount">0</span></div>
+            </div>
+        </div>
+    </div>
     <script>
         document.getElementById('instructionsHeader').addEventListener('click', function() {
             const content = document.getElementById('instructionsContent');
             const toggleButton = document.getElementById('toggleButton');
+            
+            if (content.classList.contains('collapsed')) {
+                content.classList.remove('collapsed');
+                toggleButton.classList.remove('collapsed');
+                toggleButton.textContent = '▼';
+            } else {
+                content.classList.add('collapsed');
+                toggleButton.classList.add('collapsed');
+                toggleButton.textContent = '▲';
+            }
+        });
+        
+        // Radar toggle functionality
+        document.getElementById('radarHeader').addEventListener('click', function() {
+            const content = document.getElementById('radarContent');
+            const toggleButton = document.getElementById('radarToggle');
             
             if (content.classList.contains('collapsed')) {
                 content.classList.remove('collapsed');

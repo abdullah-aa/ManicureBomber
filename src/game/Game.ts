@@ -6,6 +6,7 @@ import { CameraController } from './CameraController';
 import { Bomb } from './Bomb';
 import { TomahawkMissile } from './TomahawkMissile';
 import { UIManager } from '../ui/UIManager';
+import { RadarManager } from '../ui/RadarManager';
 
 export class Game {
     private scene: Scene;
@@ -16,6 +17,7 @@ export class Game {
     private cameraController!: CameraController;
     private camera!: FreeCamera;
     private uiManager!: UIManager;
+    private radarManager!: RadarManager;
 
     // Bombing properties
     private bombs: Bomb[] = [];
@@ -28,6 +30,10 @@ export class Game {
     // Camera toggle properties
     private lastCameraToggleTime: number = 0;
     private cameraToggleCooldown: number = 0.3; // 300ms cooldown to prevent rapid toggling
+    
+    // Scoring system
+    private destroyedBuildings: number = 0;
+    private destroyedTargets: number = 0;
 
     constructor(scene: Scene, canvas: HTMLCanvasElement) {
         this.scene = scene;
@@ -71,6 +77,9 @@ export class Game {
 
         // Create UI Manager
         this.uiManager = new UIManager(this, this.inputManager);
+        
+        // Create Radar Manager
+        this.radarManager = new RadarManager();
 
         // Generate initial terrain around the bomber
         this.terrainManager.generateInitialTerrain(this.bomber.getPosition());
@@ -99,8 +108,15 @@ export class Game {
             // Update UI
             this.uiManager.update();
             
+            // Update radar
+            this.radarManager.update(this.bomber, this.terrainManager, this.destroyedBuildings, this.destroyedTargets);
+            
             // Update terrain based on bomber position
             this.terrainManager.update(this.bomber.getPosition());
+            
+            // Update bomber altitude restriction based on nearby buildings
+            const maxBuildingHeight = this.terrainManager.getMaxBuildingHeight();
+            this.bomber.setMinimumAltitude(maxBuildingHeight);
 
             // Update bombs
             this.updateBombs(deltaTime);
@@ -188,6 +204,14 @@ export class Game {
         return this.uiManager;
     }
 
+    public getDestroyedBuildings(): number {
+        return this.destroyedBuildings;
+    }
+
+    public getDestroyedTargets(): number {
+        return this.destroyedTargets;
+    }
+
     private updateBombs(deltaTime: number): void {
         for (let i = this.bombs.length - 1; i >= 0; i--) {
             const bomb = this.bombs[i];
@@ -199,6 +223,25 @@ export class Game {
             // Bombs explode when they reach ground level (Y=0) where buildings are
             if (bombPosition.y <= 0) {
                 const explosionPoint = new Vector3(bombPosition.x, 0, bombPosition.z);
+                
+                // Check for buildings within blast radius
+                const blastRadius = 50;
+                const nearbyBuildings = this.terrainManager.getBuildingsInRadius(explosionPoint, blastRadius);
+                
+                // Damage buildings based on distance from explosion
+                nearbyBuildings.forEach(building => {
+                    const distance = Vector3.Distance(explosionPoint, building.getPosition());
+                    const damage = Math.max(10, 50 - distance); // 50 damage at center, 10 minimum
+                    
+                    const wasDestroyed = building.takeDamage(damage);
+                    if (wasDestroyed) {
+                        this.destroyedBuildings++;
+                        if (building.isTarget()) {
+                            this.destroyedTargets++;
+                        }
+                    }
+                });
+                
                 bomb.explode(explosionPoint);
                 this.bombs.splice(i, 1);
             }

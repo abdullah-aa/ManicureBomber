@@ -1,4 +1,4 @@
-import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, TransformNode } from '@babylonjs/core';
+import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, TransformNode, ParticleSystem, Texture, Color4, PointLight, Animation, AnimationGroup } from '@babylonjs/core';
 
 export enum BuildingType {
     RESIDENTIAL = 'residential',
@@ -14,6 +14,7 @@ export interface BuildingConfig {
     height: number;
     depth: number;
     color?: Color3;
+    isTarget?: boolean;
 }
 
 export class Building {
@@ -21,6 +22,13 @@ export class Building {
     private mesh: Mesh;
     private parent: TransformNode;
     private config: BuildingConfig;
+    private targetRing: Mesh | null = null;
+    private damage: number = 0;
+    private maxHealth: number = 100;
+    private isDestroyed: boolean = false;
+    private fireParticles: ParticleSystem | null = null;
+    private smokeParticles: ParticleSystem | null = null;
+    private damageLight: PointLight | null = null;
 
     constructor(scene: Scene, config: BuildingConfig) {
         this.scene = scene;
@@ -29,6 +37,12 @@ export class Building {
         this.mesh = this.createBuildingMesh();
         this.setupMaterial();
         this.positionBuilding();
+        
+        if (config.isTarget) {
+            this.createTargetIndicator();
+        }
+        
+        this.setupDamageEffects();
     }
 
     private createBuildingMesh(): Mesh {
@@ -210,7 +224,181 @@ export class Building {
         };
     }
 
+    private createTargetIndicator(): void {
+        this.targetRing = MeshBuilder.CreateTorus('targetRing', {
+            diameter: Math.max(this.config.width, this.config.depth) + 10,
+            thickness: 1
+        }, this.scene);
+        
+        this.targetRing.position.y = this.config.height + 5;
+        this.targetRing.parent = this.parent;
+        
+        const ringMaterial = new StandardMaterial('ringMaterial', this.scene);
+        ringMaterial.emissiveColor = new Color3(1, 0, 0); // Red glow
+        ringMaterial.diffuseColor = new Color3(0.8, 0, 0);
+        this.targetRing.material = ringMaterial;
+        
+        // Animate the ring
+        const animationGroup = new AnimationGroup('targetRingAnimation', this.scene);
+        const rotationAnimation = Animation.CreateAndStartAnimation(
+            'ringRotation',
+            this.targetRing,
+            'rotation.y',
+            30,
+            Number.MAX_VALUE,
+            0,
+            2 * Math.PI,
+            Animation.ANIMATIONLOOPMODE_CYCLE
+        );
+    }
+
+    private setupDamageEffects(): void {
+        // Fire particles for when building is damaged
+        this.fireParticles = new ParticleSystem('buildingFire', 200, this.scene);
+        this.fireParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/flare.png', this.scene);
+        this.fireParticles.emitter = this.parent.position;
+        this.fireParticles.minEmitBox = new Vector3(-this.config.width/2, 0, -this.config.depth/2);
+        this.fireParticles.maxEmitBox = new Vector3(this.config.width/2, this.config.height, this.config.depth/2);
+        this.fireParticles.color1 = new Color4(1, 0.8, 0, 0.8);
+        this.fireParticles.color2 = new Color4(1, 0.3, 0, 0.6);
+        this.fireParticles.colorDead = new Color4(0.2, 0, 0, 0.0);
+        this.fireParticles.minSize = 1.0;
+        this.fireParticles.maxSize = 3.0;
+        this.fireParticles.minLifeTime = 0.5;
+        this.fireParticles.maxLifeTime = 1.5;
+        this.fireParticles.emitRate = 50;
+        this.fireParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        this.fireParticles.gravity = new Vector3(0, -2, 0);
+        this.fireParticles.direction1 = new Vector3(-1, 2, -1);
+        this.fireParticles.direction2 = new Vector3(1, 4, 1);
+        this.fireParticles.minEmitPower = 1;
+        this.fireParticles.maxEmitPower = 3;
+        this.fireParticles.stop();
+
+        // Smoke particles
+        this.smokeParticles = new ParticleSystem('buildingSmoke', 150, this.scene);
+        this.smokeParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/explosion/Smoke_11.png', this.scene);
+        this.smokeParticles.emitter = this.parent.position;
+        this.smokeParticles.minEmitBox = new Vector3(-this.config.width/2, this.config.height/2, -this.config.depth/2);
+        this.smokeParticles.maxEmitBox = new Vector3(this.config.width/2, this.config.height, this.config.depth/2);
+        this.smokeParticles.color1 = new Color4(0.3, 0.3, 0.3, 0.6);
+        this.smokeParticles.color2 = new Color4(0.5, 0.5, 0.5, 0.4);
+        this.smokeParticles.colorDead = new Color4(0.2, 0.2, 0.2, 0.0);
+        this.smokeParticles.minSize = 2.0;
+        this.smokeParticles.maxSize = 6.0;
+        this.smokeParticles.minLifeTime = 2.0;
+        this.smokeParticles.maxLifeTime = 4.0;
+        this.smokeParticles.emitRate = 30;
+        this.smokeParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+        this.smokeParticles.gravity = new Vector3(0, -1, 0);
+        this.smokeParticles.direction1 = new Vector3(-0.5, 2, -0.5);
+        this.smokeParticles.direction2 = new Vector3(0.5, 3, 0.5);
+        this.smokeParticles.minEmitPower = 0.5;
+        this.smokeParticles.maxEmitPower = 1.5;
+        this.smokeParticles.stop();
+
+        // Damage light
+        this.damageLight = new PointLight('damageLight', Vector3.Zero(), this.scene);
+        this.damageLight.diffuse = new Color3(1, 0.3, 0);
+        this.damageLight.specular = new Color3(1, 0.3, 0);
+        this.damageLight.intensity = 0;
+        this.damageLight.range = 30;
+        this.damageLight.parent = this.parent;
+        this.damageLight.position.y = this.config.height / 2;
+    }
+
+    public takeDamage(damage: number): boolean {
+        if (this.isDestroyed) return false;
+
+        this.damage += damage;
+        const damagePercent = this.damage / this.maxHealth;
+
+        // Start fire and smoke effects when damaged
+        if (damagePercent > 0.3 && this.fireParticles && !this.fireParticles.isStarted()) {
+            this.fireParticles.start();
+        }
+        
+        if (damagePercent > 0.5 && this.smokeParticles && !this.smokeParticles.isStarted()) {
+            this.smokeParticles.start();
+        }
+
+        // Update damage light intensity
+        if (this.damageLight) {
+            this.damageLight.intensity = damagePercent * 2;
+        }
+
+        // Check if building is destroyed
+        if (this.damage >= this.maxHealth) {
+            this.destroyBuilding();
+            return true; // Building was destroyed
+        }
+
+        return false; // Building still standing
+    }
+
+    private destroyBuilding(): void {
+        this.isDestroyed = true;
+
+        // Create destruction explosion
+        const explosionParticles = new ParticleSystem('buildingExplosion', 1000, this.scene);
+        explosionParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/flare.png', this.scene);
+        explosionParticles.emitter = this.parent.position;
+        explosionParticles.minEmitBox = new Vector3(-this.config.width/2, 0, -this.config.depth/2);
+        explosionParticles.maxEmitBox = new Vector3(this.config.width/2, this.config.height, this.config.depth/2);
+        explosionParticles.color1 = new Color4(1, 0.8, 0, 1.0);
+        explosionParticles.color2 = new Color4(1, 0.3, 0, 1.0);
+        explosionParticles.colorDead = new Color4(0.3, 0.1, 0, 0.0);
+        explosionParticles.minSize = 2.0;
+        explosionParticles.maxSize = 8.0;
+        explosionParticles.minLifeTime = 1.0;
+        explosionParticles.maxLifeTime = 3.0;
+        explosionParticles.emitRate = 1000;
+        explosionParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        explosionParticles.gravity = new Vector3(0, -5, 0);
+        explosionParticles.direction1 = new Vector3(-5, 5, -5);
+        explosionParticles.direction2 = new Vector3(5, 10, 5);
+        explosionParticles.minEmitPower = 3;
+        explosionParticles.maxEmitPower = 8;
+        explosionParticles.manualEmitCount = 1000;
+        explosionParticles.start();
+
+        // Dispose of explosion particles after time
+        setTimeout(() => {
+            explosionParticles.dispose();
+        }, 5000);
+
+        // Fade out and dispose building
+        setTimeout(() => {
+            this.dispose();
+        }, 1000);
+    }
+
+    public isTarget(): boolean {
+        return this.config.isTarget || false;
+    }
+
+    public getMaxHeight(): number {
+        // Return maximum height including any attachments (like smokestacks)
+        let maxHeight = this.config.height;
+        
+        // Add extra height for industrial buildings with smokestacks
+        if (this.config.type === BuildingType.INDUSTRIAL) {
+            maxHeight += this.config.height * 0.8; // Smokestack height
+        }
+        
+        // Add extra height for skyscrapers with tiers
+        if (this.config.type === BuildingType.SKYSCRAPER) {
+            maxHeight += this.config.height * 0.5; // Tier heights
+        }
+        
+        return maxHeight;
+    }
+
     public dispose(): void {
+        if (this.targetRing) this.targetRing.dispose();
+        if (this.fireParticles) this.fireParticles.dispose();
+        if (this.smokeParticles) this.smokeParticles.dispose();
+        if (this.damageLight) this.damageLight.dispose();
         this.parent.dispose();
     }
 
