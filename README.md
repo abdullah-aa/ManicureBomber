@@ -2,11 +2,11 @@
 
 Originally inspired by: https://www.youtube.com/watch?v=neGQPynVbsk
 
-A 3D flight simulation featuring a B2 Spirit bomber flying over procedurally generated arid terrain using BabylonJS and TypeScript.
+A 3D flight simulation featuring a Bomber flying over procedurally generated arid terrain using BabylonJS and TypeScript.
 
 ## Features
 
-- **B2 Spirit Bomber**: Custom-built 3D model with realistic proportions and exhaust effects
+- **Bomber**: Custom-built 3D model with realistic proportions and exhaust effects
 - **Procedural Terrain**: Dynamically generated rugged, arid landscape with heightmaps
 - **Terrain Chunking**: Efficient terrain streaming as you explore the world
 - **Rock Formations**: Various procedurally placed rock types for realistic terrain
@@ -70,6 +70,6 @@ src/
 
 ## Gameplay
 
-Experience the thrill of piloting a B2 Spirit bomber over an endless, procedurally generated desert landscape. The terrain features realistic height variations, scattered rock formations, and sparse desert vegetation. As you fly, new terrain chunks are generated ahead of you while distant terrain is efficiently removed to maintain performance.
+Experience the thrill of piloting a Bomber over an endless, procedurally generated desert landscape. The terrain features realistic height variations, scattered rock formations, and sparse desert vegetation. As you fly, new terrain chunks are generated ahead of you while distant terrain is efficiently removed to maintain performance.
 
 The camera maintains a perfect view of the bomber from behind and above, letting you see the aircraft's exhaust trails as you navigate through the virtual desert environment.
