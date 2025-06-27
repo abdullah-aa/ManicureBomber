@@ -9,7 +9,7 @@ export enum BuildingType {
 }
 
 export interface BuildingConfig {
-    position: Vector3;
+    position: { x: number; y: number; z: number };
     type: BuildingType;
     width: number;
     height: number;
@@ -657,50 +657,5 @@ export class Building {
         this.parent.dispose();
     }
 
-    public static generateRandomBuildingConfig(position: Vector3, terrainHeight: number): BuildingConfig {
-        const types = Object.values(BuildingType);
-        const type = types[Math.floor(Math.random() * types.length)] as BuildingType;
-        
-        let width: number, height: number, depth: number;
-        
-        switch (type) {
-            case BuildingType.RESIDENTIAL:
-                width = 8 + Math.random() * 8; // 8-16 units
-                height = 8 + Math.random() * 12; // 8-20 units
-                depth = 8 + Math.random() * 8;
-                break;
-            case BuildingType.COMMERCIAL:
-                width = 12 + Math.random() * 15; // 12-27 units
-                height = 12 + Math.random() * 18; // 12-30 units
-                depth = 12 + Math.random() * 15;
-                break;
-            case BuildingType.INDUSTRIAL:
-                width = 15 + Math.random() * 20; // 15-35 units
-                height = 10 + Math.random() * 15; // 10-25 units
-                depth = 15 + Math.random() * 20;
-                break;
-            case BuildingType.SKYSCRAPER:
-                width = 10 + Math.random() * 12; // 10-22 units
-                height = 25 + Math.random() * 35; // 25-60 units
-                depth = 10 + Math.random() * 12;
-                break;
-            default:
-                width = 8 + Math.random() * 10;
-                height = 8 + Math.random() * 15;
-                depth = 8 + Math.random() * 10;
-        }
-        
-        // Randomly designate some non-target buildings as defense launchers
-        // About 15% chance for a building to be a defense launcher
-        const isDefenseLauncher = Math.random() < 0.15;
-        
-        return {
-            position: new Vector3(position.x, terrainHeight, position.z),
-            type: type,
-            width: width,
-            height: height,
-            depth: depth,
-            isDefenseLauncher: isDefenseLauncher
-        };
-    }
+    
 } 
