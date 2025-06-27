@@ -196,7 +196,7 @@ export class B2Bomber {
         // Create bomb bay doors that open outward and downward
         // Left door - positioned on the left side of the cylindrical fuselage
         this.bombBayLeft = MeshBuilder.CreateBox('bombBayLeft', { width: 1.8, height: 0.2, depth: 8 }, this.scene);
-        this.bombBayLeft.position = new Vector3(-1.5, -1.3, -8); // Further out and lower for cylindrical fuselage
+        this.bombBayLeft.position = new Vector3(-1, -1, -3); // Further out and lower for cylindrical fuselage
         this.bombBayLeft.parent = this.bomberGroup;
         this.bombBayLeft.material = bayMaterial;
         // Set pivot point for rotation (left edge of door)
@@ -204,7 +204,7 @@ export class B2Bomber {
 
         // Right door - positioned on the right side of the cylindrical fuselage
         this.bombBayRight = MeshBuilder.CreateBox('bombBayRight', { width: 1.8, height: 0.2, depth: 8 }, this.scene);
-        this.bombBayRight.position = new Vector3(1.5, -1.3, -8); // Further out and lower for cylindrical fuselage
+        this.bombBayRight.position = new Vector3(1, -1, -3); // Further out and lower for cylindrical fuselage
         this.bombBayRight.parent = this.bomberGroup;
         this.bombBayRight.material = bayMaterial;
         // Set pivot point for rotation (right edge of door)

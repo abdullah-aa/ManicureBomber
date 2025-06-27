@@ -36,6 +36,9 @@ export class Bomb {
         // Create a group to hold all bomb parts
         const bombGroup = MeshBuilder.CreateBox('bombGroup', { width: 0.1, height: 0.1, depth: 0.1 }, this.scene);
         bombGroup.isVisible = false; // Hide the group mesh, we'll use it as a container
+        
+        // Rotate the entire bomb 180 degrees around X-axis to fix upside-down orientation
+        bombGroup.rotation.x = Math.PI;
 
         // Main bomb body - cylindrical shape
         const bombBody = MeshBuilder.CreateCylinder('bombBody', {
@@ -61,20 +64,35 @@ export class Bomb {
             tessellation: 12
         }, this.scene);
         
-        noseCone.position.y = -2.6; // Bottom of bomb (pointing down)
+        noseCone.position.y = 2.6; // Top of bomb (pointing down when falling)
         noseCone.parent = bombGroup;
         
         const noseMaterial = new StandardMaterial('bombNoseMaterial', this.scene);
-        noseMaterial.diffuseColor = new Color3(0.2, 0.2, 0.2); // Darker than body
-        noseMaterial.specularColor = new Color3(0.6, 0.6, 0.6);
+        noseMaterial.diffuseColor = new Color3(0.1, 0.1, 0.1); // Very dark, almost black
+        noseMaterial.specularColor = new Color3(0.8, 0.8, 0.8); // High specular for metallic look
+        noseMaterial.emissiveColor = new Color3(0.05, 0.05, 0.05); // Slight glow
         noseCone.material = noseMaterial;
 
-        // Tail fins - 4 fins around the top (rear when falling)
+        // Add a small colored tip to make orientation clear
+        const noseTip = MeshBuilder.CreateSphere('bombNoseTip', {
+            diameter: 0.1,
+            segments: 8
+        }, this.scene);
+        
+        noseTip.position.y = 3.2; // Very top tip
+        noseTip.parent = bombGroup;
+        
+        const tipMaterial = new StandardMaterial('bombNoseTipMaterial', this.scene);
+        tipMaterial.diffuseColor = new Color3(0.8, 0.2, 0.2); // Red tip
+        tipMaterial.emissiveColor = new Color3(0.1, 0.02, 0.02); // Slight red glow
+        noseTip.material = tipMaterial;
+
+        // Tail fins - 4 fins around the bottom (front when falling)
         const finPositions = [
-            { pos: new Vector3(0, 2.2, 0.5), rot: new Vector3(0, 0, 0) },
-            { pos: new Vector3(0, 2.2, -0.5), rot: new Vector3(0, 0, Math.PI) },
-            { pos: new Vector3(0.5, 2.2, 0), rot: new Vector3(0, 0, Math.PI / 2) },
-            { pos: new Vector3(-0.5, 2.2, 0), rot: new Vector3(0, 0, -Math.PI / 2) }
+            { pos: new Vector3(0, -2.2, 0.5), rot: new Vector3(0, 0, 0) },
+            { pos: new Vector3(0, -2.2, -0.5), rot: new Vector3(0, 0, Math.PI) },
+            { pos: new Vector3(0.5, -2.2, 0), rot: new Vector3(0, 0, Math.PI / 2) },
+            { pos: new Vector3(-0.5, -2.2, 0), rot: new Vector3(0, 0, -Math.PI / 2) }
         ];
 
         finPositions.forEach((finData, index) => {
@@ -93,7 +111,7 @@ export class Bomb {
             fin.material = finMaterial;
         });
 
-        // Tail cone - small cone at the top (rear when falling)
+        // Tail cone - small cone at the bottom (front when falling)
         const tailCone = MeshBuilder.CreateCylinder('bombTail', {
             height: 0.8,
             diameterTop: 0.3,
@@ -101,12 +119,27 @@ export class Bomb {
             tessellation: 12
         }, this.scene);
         
-        tailCone.position.y = 2.4; // Top of bomb (rear when falling)
+        tailCone.position.y = -2.4; // Bottom of bomb (front when falling)
         tailCone.parent = bombGroup;
         
         const tailMaterial = new StandardMaterial('bombTailMaterial', this.scene);
-        tailMaterial.diffuseColor = new Color3(0.35, 0.35, 0.35);
+        tailMaterial.diffuseColor = new Color3(0.5, 0.5, 0.5); // Lighter gray to distinguish from nose
+        tailMaterial.specularColor = new Color3(0.3, 0.3, 0.3);
         tailCone.material = tailMaterial;
+
+        // Add a small indicator at the very bottom of the tail
+        const tailIndicator = MeshBuilder.CreateSphere('bombTailIndicator', {
+            diameter: 0.15,
+            segments: 8
+        }, this.scene);
+        
+        tailIndicator.position.y = -2.8; // Very bottom of bomb
+        tailIndicator.parent = bombGroup;
+        
+        const indicatorMaterial = new StandardMaterial('bombTailIndicatorMaterial', this.scene);
+        indicatorMaterial.diffuseColor = new Color3(0.7, 0.7, 0.7); // Light gray
+        indicatorMaterial.emissiveColor = new Color3(0.05, 0.05, 0.05); // Slight glow
+        tailIndicator.material = indicatorMaterial;
 
         // Add some detail rings around the body
         for (let i = 0; i < 3; i++) {
@@ -116,7 +149,7 @@ export class Bomb {
                 tessellation: 12
             }, this.scene);
             
-            ring.position.y = 1 - i * 1.5; // Distribute along body vertically
+            ring.position.y = -1 + i * 1.5; // Distribute along body vertically (flipped)
             ring.parent = bombGroup;
             
             const ringMaterial = new StandardMaterial('bombRingMaterial' + i, this.scene);
@@ -146,8 +179,9 @@ export class Bomb {
         
         this.trailParticles.particleTexture = trailTexture;
         this.trailParticles.emitter = this.mesh;
-        this.trailParticles.minEmitBox = new Vector3(0, 1, 0);
-        this.trailParticles.maxEmitBox = new Vector3(0, 1, 0);
+        // Emit trail from the top/rear of the bomb (positive Y) since bomb is now inverted and falling downward
+        this.trailParticles.minEmitBox = new Vector3(0, 2, 0);
+        this.trailParticles.maxEmitBox = new Vector3(0, 2, 0);
         this.trailParticles.color1 = new Color4(0.8, 0.8, 0.8, 0.3);
         this.trailParticles.color2 = new Color4(0.6, 0.6, 0.6, 0.2);
         this.trailParticles.colorDead = new Color4(0.2, 0.2, 0.2, 0.0);
@@ -158,6 +192,7 @@ export class Bomb {
         this.trailParticles.emitRate = 200;
         this.trailParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
         this.trailParticles.gravity = new Vector3(0, 0, 0);
+        // Trail should go upward relative to the bomb's movement (since bomb is falling down)
         this.trailParticles.direction1 = new Vector3(0, 0.1, 0);
         this.trailParticles.direction2 = new Vector3(0, 0.1, 0);
         this.trailParticles.minEmitPower = 0.1;
@@ -310,4 +345,4 @@ export class Bomb {
         if (this.explosionSound) this.explosionSound.dispose();
         if (this.light) this.light.dispose();
     }
-} 
+}
