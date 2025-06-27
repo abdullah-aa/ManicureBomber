@@ -1,4 +1,4 @@
-import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, TransformNode, ParticleSystem, Texture, Color4, PointLight, Animation, AnimationGroup } from '@babylonjs/core';
+import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, TransformNode, ParticleSystem, Texture, Color4, PointLight, Animation, AnimationGroup, DynamicTexture } from '@babylonjs/core';
 import { DefenseMissile } from './DefenseMissile';
 
 export enum BuildingType {
@@ -298,9 +298,24 @@ export class Building {
     }
 
     private setupDamageEffects(): void {
+        // Create procedural fire texture
+        const fireTexture = new DynamicTexture('buildingFireTexture', {width: 64, height: 64}, this.scene);
+        const fireContext = fireTexture.getContext();
+        
+        // Create fire effect with gradient
+        const fireGradient = fireContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+        fireGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        fireGradient.addColorStop(0.3, 'rgba(255, 200, 0, 0.8)');
+        fireGradient.addColorStop(0.7, 'rgba(255, 100, 0, 0.4)');
+        fireGradient.addColorStop(1, 'rgba(200, 0, 0, 0)');
+        
+        fireContext.fillStyle = fireGradient;
+        fireContext.fillRect(0, 0, 64, 64);
+        fireTexture.update();
+
         // Fire particles for when building is damaged
         this.fireParticles = new ParticleSystem('buildingFire', 200, this.scene);
-        this.fireParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/flare.png', this.scene);
+        this.fireParticles.particleTexture = fireTexture;
         this.fireParticles.emitter = this.parent.position;
         this.fireParticles.minEmitBox = new Vector3(-this.config.width/2, 0, -this.config.depth/2);
         this.fireParticles.maxEmitBox = new Vector3(this.config.width/2, this.config.height, this.config.depth/2);
@@ -320,9 +335,35 @@ export class Building {
         this.fireParticles.maxEmitPower = 3;
         this.fireParticles.stop();
 
+        // Create procedural smoke texture
+        const smokeTexture = new DynamicTexture('buildingSmokeTexture', {width: 64, height: 64}, this.scene);
+        const smokeContext = smokeTexture.getContext();
+        
+        // Create smoke effect with noise
+        smokeContext.fillStyle = 'rgba(0, 0, 0, 0)';
+        smokeContext.fillRect(0, 0, 64, 64);
+        
+        // Add several overlapping circles for smoke effect
+        for (let i = 0; i < 8; i++) {
+            const x = 32 + (Math.random() - 0.5) * 40;
+            const y = 32 + (Math.random() - 0.5) * 40;
+            const radius = 15 + Math.random() * 15;
+            const alpha = 0.1 + Math.random() * 0.3;
+            
+            const gradient = smokeContext.createRadialGradient(x, y, 0, x, y, radius);
+            gradient.addColorStop(0, `rgba(100, 100, 100, ${alpha})`);
+            gradient.addColorStop(1, 'rgba(50, 50, 50, 0)');
+            
+            smokeContext.fillStyle = gradient;
+            smokeContext.beginPath();
+            smokeContext.arc(x, y, radius, 0, 2 * Math.PI);
+            smokeContext.fill();
+        }
+        smokeTexture.update();
+
         // Smoke particles
         this.smokeParticles = new ParticleSystem('buildingSmoke', 150, this.scene);
-        this.smokeParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/explosion/Smoke_11.png', this.scene);
+        this.smokeParticles.particleTexture = smokeTexture;
         this.smokeParticles.emitter = this.parent.position;
         this.smokeParticles.minEmitBox = new Vector3(-this.config.width/2, this.config.height/2, -this.config.depth/2);
         this.smokeParticles.maxEmitBox = new Vector3(this.config.width/2, this.config.height, this.config.depth/2);
@@ -352,7 +393,7 @@ export class Building {
         this.damageLight.position.y = this.config.height / 2;
     }
 
-    public takeDamage(damage: number): boolean {
+    public takeDamage(damage: number, isBombDamage: boolean = false): boolean {
         if (this.isDestroyed) return false;
 
         this.damage += damage;
@@ -374,7 +415,11 @@ export class Building {
 
         // Check if building is destroyed
         if (this.damage >= this.maxHealth) {
-            this.destroyBuilding();
+            if (isBombDamage) {
+                this.destroyBuildingByBomb();
+            } else {
+                this.destroyBuilding();
+            }
             return true; // Building was destroyed
         }
 
@@ -389,27 +434,43 @@ export class Building {
             this.onDestroyedCallback();
         }
 
+        // Create procedural explosion texture
+        const explosionTexture = new DynamicTexture('buildingExplosionTexture', {width: 64, height: 64}, this.scene);
+        const explosionContext = explosionTexture.getContext();
+        
+        // Create explosion effect with bright center and fading edges
+        const explosionGradient = explosionContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+        explosionGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        explosionGradient.addColorStop(0.2, 'rgba(255, 255, 0, 0.9)');
+        explosionGradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.6)');
+        explosionGradient.addColorStop(0.8, 'rgba(255, 50, 0, 0.3)');
+        explosionGradient.addColorStop(1, 'rgba(200, 0, 0, 0)');
+        
+        explosionContext.fillStyle = explosionGradient;
+        explosionContext.fillRect(0, 0, 64, 64);
+        explosionTexture.update();
+
         // Create destruction explosion
-        const explosionParticles = new ParticleSystem('buildingExplosion', 1000, this.scene);
-        explosionParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/flare.png', this.scene);
+        const explosionParticles = new ParticleSystem('buildingExplosion', 400, this.scene);
+        explosionParticles.particleTexture = explosionTexture;
         explosionParticles.emitter = this.parent.position;
         explosionParticles.minEmitBox = new Vector3(-this.config.width/2, 0, -this.config.depth/2);
         explosionParticles.maxEmitBox = new Vector3(this.config.width/2, this.config.height, this.config.depth/2);
         explosionParticles.color1 = new Color4(1, 0.8, 0, 1.0);
         explosionParticles.color2 = new Color4(1, 0.3, 0, 1.0);
         explosionParticles.colorDead = new Color4(0.3, 0.1, 0, 0.0);
-        explosionParticles.minSize = 2.0;
-        explosionParticles.maxSize = 8.0;
-        explosionParticles.minLifeTime = 1.0;
-        explosionParticles.maxLifeTime = 3.0;
-        explosionParticles.emitRate = 1000;
+        explosionParticles.minSize = 1.0;
+        explosionParticles.maxSize = 4.0;
+        explosionParticles.minLifeTime = 0.8;
+        explosionParticles.maxLifeTime = 2.0;
+        explosionParticles.emitRate = 400;
         explosionParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
         explosionParticles.gravity = new Vector3(0, -5, 0);
-        explosionParticles.direction1 = new Vector3(-5, 5, -5);
-        explosionParticles.direction2 = new Vector3(5, 10, 5);
-        explosionParticles.minEmitPower = 3;
-        explosionParticles.maxEmitPower = 8;
-        explosionParticles.manualEmitCount = 1000;
+        explosionParticles.direction1 = new Vector3(-3, 3, -3);
+        explosionParticles.direction2 = new Vector3(3, 6, 3);
+        explosionParticles.minEmitPower = 2;
+        explosionParticles.maxEmitPower = 5;
+        explosionParticles.manualEmitCount = 400;
         explosionParticles.start();
 
         // Dispose of explosion particles after time
@@ -421,6 +482,95 @@ export class Building {
         setTimeout(() => {
             this.dispose();
         }, 1000);
+    }
+
+    private destroyBuildingByBomb(): void {
+        this.isDestroyed = true;
+
+        // Trigger destruction callback if set
+        if (this.onDestroyedCallback) {
+            this.onDestroyedCallback();
+        }
+
+        // Create procedural bomb explosion texture with more dramatic colors
+        const bombExplosionTexture = new DynamicTexture('buildingBombExplosionTexture', {width: 64, height: 64}, this.scene);
+        const bombExplosionContext = bombExplosionTexture.getContext();
+        
+        // Create more dramatic explosion effect with brighter colors
+        const bombExplosionGradient = bombExplosionContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+        bombExplosionGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        bombExplosionGradient.addColorStop(0.1, 'rgba(255, 255, 0, 1)');
+        bombExplosionGradient.addColorStop(0.3, 'rgba(255, 150, 0, 0.9)');
+        bombExplosionGradient.addColorStop(0.6, 'rgba(255, 50, 0, 0.7)');
+        bombExplosionGradient.addColorStop(0.9, 'rgba(200, 0, 0, 0.3)');
+        bombExplosionGradient.addColorStop(1, 'rgba(100, 0, 0, 0)');
+        
+        bombExplosionContext.fillStyle = bombExplosionGradient;
+        bombExplosionContext.fillRect(0, 0, 64, 64);
+        bombExplosionTexture.update();
+
+        // Create dramatic bomb destruction explosion
+        const bombExplosionParticles = new ParticleSystem('buildingBombExplosion', 800, this.scene); // More particles
+        bombExplosionParticles.particleTexture = bombExplosionTexture;
+        bombExplosionParticles.emitter = this.parent.position;
+        bombExplosionParticles.minEmitBox = new Vector3(-this.config.width/2, 0, -this.config.depth/2);
+        bombExplosionParticles.maxEmitBox = new Vector3(this.config.width/2, this.config.height, this.config.depth/2);
+        bombExplosionParticles.color1 = new Color4(1, 0.9, 0, 1.0); // Brighter yellow
+        bombExplosionParticles.color2 = new Color4(1, 0.4, 0, 1.0); // Brighter orange
+        bombExplosionParticles.colorDead = new Color4(0.3, 0.1, 0, 0.0);
+        bombExplosionParticles.minSize = 2.0; // Larger particles
+        bombExplosionParticles.maxSize = 6.0; // Larger particles
+        bombExplosionParticles.minLifeTime = 1.2; // Longer duration
+        bombExplosionParticles.maxLifeTime = 2.5; // Longer duration
+        bombExplosionParticles.emitRate = 800; // Higher emission rate
+        bombExplosionParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        bombExplosionParticles.gravity = new Vector3(0, -5, 0);
+        bombExplosionParticles.direction1 = new Vector3(-5, 5, -5); // More spread
+        bombExplosionParticles.direction2 = new Vector3(5, 10, 5); // More spread
+        bombExplosionParticles.minEmitPower = 4; // More power
+        bombExplosionParticles.maxEmitPower = 8; // More power
+        bombExplosionParticles.manualEmitCount = 800;
+        bombExplosionParticles.start();
+
+        // Create additional debris particles for bomb destruction
+        const debrisTexture = new DynamicTexture('buildingDebrisTexture', {width: 32, height: 32}, this.scene);
+        const debrisContext = debrisTexture.getContext();
+        debrisContext.fillStyle = 'rgba(100, 100, 100, 1)';
+        debrisContext.fillRect(0, 0, 32, 32);
+        debrisTexture.update();
+
+        const debrisParticles = new ParticleSystem('buildingDebris', 300, this.scene);
+        debrisParticles.particleTexture = debrisTexture;
+        debrisParticles.emitter = this.parent.position;
+        debrisParticles.minEmitBox = new Vector3(-this.config.width/2, 0, -this.config.depth/2);
+        debrisParticles.maxEmitBox = new Vector3(this.config.width/2, this.config.height, this.config.depth/2);
+        debrisParticles.color1 = new Color4(0.6, 0.6, 0.6, 1.0);
+        debrisParticles.color2 = new Color4(0.4, 0.4, 0.4, 0.8);
+        debrisParticles.colorDead = new Color4(0.2, 0.2, 0.2, 0.0);
+        debrisParticles.minSize = 0.5;
+        debrisParticles.maxSize = 2.0;
+        debrisParticles.minLifeTime = 2.0;
+        debrisParticles.maxLifeTime = 4.0;
+        debrisParticles.emitRate = 300;
+        debrisParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+        debrisParticles.gravity = new Vector3(0, -15, 0); // Stronger gravity for debris
+        debrisParticles.direction1 = new Vector3(-8, 3, -8);
+        debrisParticles.direction2 = new Vector3(8, 8, 8);
+        debrisParticles.minEmitPower = 3;
+        debrisParticles.maxEmitPower = 6;
+        debrisParticles.manualEmitCount = 300;
+        debrisParticles.start();
+
+        // Dispose of explosion particles after time
+        setTimeout(() => {
+            bombExplosionParticles.dispose();
+            debrisParticles.dispose();
+        }, 6000); // Longer duration for bomb effects
+
+        // Fade out and dispose building
+        setTimeout(() => {
+            this.dispose();
+        }, 1500); // Slightly longer delay
     }
 
     public isTarget(): boolean {

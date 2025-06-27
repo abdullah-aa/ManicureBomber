@@ -1,4 +1,4 @@
-import { Scene, Mesh, Vector3, MeshBuilder, StandardMaterial, Color3, ParticleSystem, Texture, Sound, Color4, PointLight, TransformNode, Animation, AnimationGroup } from '@babylonjs/core';
+import { Scene, Mesh, Vector3, MeshBuilder, StandardMaterial, Color3, ParticleSystem, Texture, Sound, Color4, PointLight, TransformNode, Animation, AnimationGroup, DynamicTexture } from '@babylonjs/core';
 import { Building } from './Building';
 
 export class TomahawkMissile {
@@ -19,7 +19,8 @@ export class TomahawkMissile {
     private flightSmokeParticles!: ParticleSystem;
     private fireParticles!: ParticleSystem;
     private explosionSmokeParticles!: ParticleSystem;
-    private explosionSound!: Sound;
+    private shockwaveParticles!: ParticleSystem;
+    private sparkParticles!: ParticleSystem;
     private light!: PointLight;
     private launchAnimationGroup!: AnimationGroup;
     
@@ -223,9 +224,23 @@ export class TomahawkMissile {
         this.exhaustParticles.gravity = new Vector3(0, 0, 0);
         this.exhaustParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
 
+        // Create procedural trail texture
+        const trailTexture = new DynamicTexture('missileTrailTexture', {width: 64, height: 64}, this.scene);
+        const trailContext = trailTexture.getContext();
+        
+        // Create a simple white/gray dot pattern for trail
+        const trailGradient = trailContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+        trailGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        trailGradient.addColorStop(0.5, 'rgba(200, 200, 200, 0.5)');
+        trailGradient.addColorStop(1, 'rgba(100, 100, 100, 0)');
+        
+        trailContext.fillStyle = trailGradient;
+        trailContext.fillRect(0, 0, 64, 64);
+        trailTexture.update();
+
         // Optimized vapor trail particles - reduced count
         this.trailParticles = new ParticleSystem('missileTrail', 150, this.scene); // Reduced from 300
-        this.trailParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/flare.png', this.scene);
+        this.trailParticles.particleTexture = trailTexture;
         this.trailParticles.emitter = emitterMesh;
         this.trailParticles.minEmitBox = new Vector3(0, 0, 0);
         this.trailParticles.maxEmitBox = new Vector3(0, 0, 0);
@@ -249,9 +264,35 @@ export class TomahawkMissile {
         this.trailParticles.gravity = new Vector3(0, -1, 0);
         this.trailParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
         
+        // Create procedural smoke texture
+        const smokeTexture = new DynamicTexture('missileSmokeTexture', {width: 64, height: 64}, this.scene);
+        const smokeContext = smokeTexture.getContext();
+        
+        // Create smoke effect with noise
+        smokeContext.fillStyle = 'rgba(0, 0, 0, 0)';
+        smokeContext.fillRect(0, 0, 64, 64);
+        
+        // Add several overlapping circles for smoke effect
+        for (let i = 0; i < 8; i++) {
+            const x = 32 + (Math.random() - 0.5) * 40;
+            const y = 32 + (Math.random() - 0.5) * 40;
+            const radius = 15 + Math.random() * 15;
+            const alpha = 0.1 + Math.random() * 0.3;
+            
+            const gradient = smokeContext.createRadialGradient(x, y, 0, x, y, radius);
+            gradient.addColorStop(0, `rgba(100, 100, 100, ${alpha})`);
+            gradient.addColorStop(1, 'rgba(50, 50, 50, 0)');
+            
+            smokeContext.fillStyle = gradient;
+            smokeContext.beginPath();
+            smokeContext.arc(x, y, radius, 0, 2 * Math.PI);
+            smokeContext.fill();
+        }
+        smokeTexture.update();
+        
         // Optimized smoke trail - reduced count
         this.flightSmokeParticles = new ParticleSystem('missileSmoke', 50, this.scene); // Reduced from 100
-        this.flightSmokeParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/explosion/Smoke_11.png', this.scene);
+        this.flightSmokeParticles.particleTexture = smokeTexture;
         this.flightSmokeParticles.emitter = emitterMesh;
         this.flightSmokeParticles.minEmitBox = new Vector3(0, 0, 0);
         this.flightSmokeParticles.maxEmitBox = new Vector3(0, 0, 0);
@@ -276,60 +317,177 @@ export class TomahawkMissile {
     }
 
     private setupExplosionEffects(): void {
-        // Optimized fire explosion particles - reduced count
-        this.fireParticles = new ParticleSystem('missileExplosionFire', 1500, this.scene); // Reduced from 3000
-        this.fireParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/flare.png', this.scene);
+        // Create procedural fire explosion texture
+        const fireExplosionTexture = new DynamicTexture('missileFireExplosionTexture', {width: 64, height: 64}, this.scene);
+        const fireExplosionContext = fireExplosionTexture.getContext();
+        
+        // Create fire explosion effect with bright center and fading edges
+        const fireExplosionGradient = fireExplosionContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+        fireExplosionGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        fireExplosionGradient.addColorStop(0.2, 'rgba(255, 255, 0, 0.9)');
+        fireExplosionGradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.6)');
+        fireExplosionGradient.addColorStop(0.8, 'rgba(255, 50, 0, 0.3)');
+        fireExplosionGradient.addColorStop(1, 'rgba(200, 0, 0, 0)');
+        
+        fireExplosionContext.fillStyle = fireExplosionGradient;
+        fireExplosionContext.fillRect(0, 0, 64, 64);
+        fireExplosionTexture.update();
+
+        // Optimized fire explosion particles - increased size and effects
+        this.fireParticles = new ParticleSystem('missileExplosionFire', 800, this.scene); // Increased from 600
+        this.fireParticles.particleTexture = fireExplosionTexture;
         this.fireParticles.emitter = this.position;
-        this.fireParticles.minEmitBox = new Vector3(-2, 0, -2);
-        this.fireParticles.maxEmitBox = new Vector3(2, 0, 2);
+        this.fireParticles.minEmitBox = new Vector3(-1.5, 0, -1.5); // Increased from -1, 0, -1
+        this.fireParticles.maxEmitBox = new Vector3(1.5, 0, 1.5); // Increased from 1, 0, 1
         
         this.fireParticles.color1 = new Color4(1, 0.9, 0.1, 1.0);
         this.fireParticles.color2 = new Color4(1, 0.4, 0, 1.0);
         this.fireParticles.colorDead = new Color4(0.3, 0.1, 0, 0.0);
         
-        this.fireParticles.minSize = 3.0;
-        this.fireParticles.maxSize = 8.0;
-        this.fireParticles.minLifeTime = 0.4;
-        this.fireParticles.maxLifeTime = 0.8;
-        this.fireParticles.emitRate = 1500; // Reduced from 3000
+        this.fireParticles.minSize = 2.5; // Increased from 2.0
+        this.fireParticles.maxSize = 6.5; // Increased from 5.0
+        this.fireParticles.minLifeTime = 0.4; // Increased from 0.3
+        this.fireParticles.maxLifeTime = 0.8; // Increased from 0.6
+        this.fireParticles.emitRate = 800; // Increased from 600
         this.fireParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
         this.fireParticles.gravity = new Vector3(0, -5, 0);
-        this.fireParticles.direction1 = new Vector3(-15, 10, -15);
-        this.fireParticles.direction2 = new Vector3(15, 15, 15);
-        this.fireParticles.minEmitPower = 8;
-        this.fireParticles.maxEmitPower = 20;
+        this.fireParticles.direction1 = new Vector3(-10, 8, -10); // Increased from -8, 6, -8
+        this.fireParticles.direction2 = new Vector3(10, 12, 10); // Increased from 8, 10, 8
+        this.fireParticles.minEmitPower = 6; // Increased from 5
+        this.fireParticles.maxEmitPower = 15; // Increased from 12
         this.fireParticles.updateSpeed = 0.005;
-        this.fireParticles.manualEmitCount = 1500; // Reduced from 3000
+        this.fireParticles.manualEmitCount = 800; // Increased from 600
         this.fireParticles.stop();
 
-        // Optimized explosion smoke - reduced count
-        this.explosionSmokeParticles = new ParticleSystem('missileExplosionSmoke', 800, this.scene); // Reduced from 1500
-        this.explosionSmokeParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/explosion/Smoke_11.png', this.scene);
+        // Create procedural explosion smoke texture
+        const explosionSmokeTexture = new DynamicTexture('missileExplosionSmokeTexture', {width: 64, height: 64}, this.scene);
+        const explosionSmokeContext = explosionSmokeTexture.getContext();
+        
+        // Create explosion smoke effect with noise
+        explosionSmokeContext.fillStyle = 'rgba(0, 0, 0, 0)';
+        explosionSmokeContext.fillRect(0, 0, 64, 64);
+        
+        // Add several overlapping circles for smoke effect
+        for (let i = 0; i < 8; i++) {
+            const x = 32 + (Math.random() - 0.5) * 40;
+            const y = 32 + (Math.random() - 0.5) * 40;
+            const radius = 15 + Math.random() * 15;
+            const alpha = 0.1 + Math.random() * 0.3;
+            
+            const gradient = explosionSmokeContext.createRadialGradient(x, y, 0, x, y, radius);
+            gradient.addColorStop(0, `rgba(100, 100, 100, ${alpha})`);
+            gradient.addColorStop(1, 'rgba(50, 50, 50, 0)');
+            
+            explosionSmokeContext.fillStyle = gradient;
+            explosionSmokeContext.beginPath();
+            explosionSmokeContext.arc(x, y, radius, 0, 2 * Math.PI);
+            explosionSmokeContext.fill();
+        }
+        explosionSmokeTexture.update();
+
+        // Optimized explosion smoke - increased size
+        this.explosionSmokeParticles = new ParticleSystem('missileExplosionSmoke', 400, this.scene); // Increased from 300
+        this.explosionSmokeParticles.particleTexture = explosionSmokeTexture;
         this.explosionSmokeParticles.emitter = this.position;
-        this.explosionSmokeParticles.minEmitBox = new Vector3(-3, 0, -3);
-        this.explosionSmokeParticles.maxEmitBox = new Vector3(3, 0, 3);
+        this.explosionSmokeParticles.minEmitBox = new Vector3(-2, 0, -2); // Increased from -1.5, 0, -1.5
+        this.explosionSmokeParticles.maxEmitBox = new Vector3(2, 0, 2); // Increased from 1.5, 0, 1.5
         
         this.explosionSmokeParticles.color1 = new Color4(0.3, 0.3, 0.3, 0.9);
         this.explosionSmokeParticles.color2 = new Color4(0.5, 0.5, 0.5, 0.7);
         this.explosionSmokeParticles.colorDead = new Color4(0.2, 0.2, 0.2, 0.0);
         
-        this.explosionSmokeParticles.minSize = 6.0;
-        this.explosionSmokeParticles.maxSize = 15.0;
-        this.explosionSmokeParticles.minLifeTime = 3.0;
-        this.explosionSmokeParticles.maxLifeTime = 6.0;
-        this.explosionSmokeParticles.emitRate = 800; // Reduced from 1500
+        this.explosionSmokeParticles.minSize = 4.0; // Increased from 3.0
+        this.explosionSmokeParticles.maxSize = 10.0; // Increased from 8.0
+        this.explosionSmokeParticles.minLifeTime = 2.5; // Increased from 2.0
+        this.explosionSmokeParticles.maxLifeTime = 5.0; // Increased from 4.0
+        this.explosionSmokeParticles.emitRate = 400; // Increased from 300
         this.explosionSmokeParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
         this.explosionSmokeParticles.gravity = new Vector3(0, -1, 0);
-        this.explosionSmokeParticles.direction1 = new Vector3(-2, 5, -2);
-        this.explosionSmokeParticles.direction2 = new Vector3(2, 8, 2);
-        this.explosionSmokeParticles.minEmitPower = 2;
-        this.explosionSmokeParticles.maxEmitPower = 5;
+        this.explosionSmokeParticles.direction1 = new Vector3(-1.5, 4, -1.5); // Increased from -1, 3, -1
+        this.explosionSmokeParticles.direction2 = new Vector3(1.5, 6, 1.5); // Increased from 1, 5, 1
+        this.explosionSmokeParticles.minEmitPower = 1.5; // Increased from 1
+        this.explosionSmokeParticles.maxEmitPower = 4; // Increased from 3
         this.explosionSmokeParticles.updateSpeed = 0.01;
-        this.explosionSmokeParticles.manualEmitCount = 800; // Reduced from 1500
+        this.explosionSmokeParticles.manualEmitCount = 400; // Increased from 300
         this.explosionSmokeParticles.stop();
 
-        // Explosion sound
-        this.explosionSound = new Sound('missileExplosionSound', 'https://assets.babylonjs.com/sound/explosion.mp3', this.scene);
+        // Create shockwave effect
+        const shockwaveTexture = new DynamicTexture('missileShockwaveTexture', {width: 64, height: 64}, this.scene);
+        const shockwaveContext = shockwaveTexture.getContext();
+        
+        // Create expanding ring effect
+        const shockwaveGradient = shockwaveContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+        shockwaveGradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        shockwaveGradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.8)');
+        shockwaveGradient.addColorStop(0.7, 'rgba(255, 200, 100, 0.4)');
+        shockwaveGradient.addColorStop(1, 'rgba(255, 150, 50, 0)');
+        
+        shockwaveContext.fillStyle = shockwaveGradient;
+        shockwaveContext.fillRect(0, 0, 64, 64);
+        shockwaveTexture.update();
+
+        this.shockwaveParticles = new ParticleSystem('missileShockwave', 200, this.scene);
+        this.shockwaveParticles.particleTexture = shockwaveTexture;
+        this.shockwaveParticles.emitter = this.position;
+        this.shockwaveParticles.minEmitBox = new Vector3(0, 0, 0);
+        this.shockwaveParticles.maxEmitBox = new Vector3(0, 0, 0);
+        
+        this.shockwaveParticles.color1 = new Color4(1, 1, 1, 0.8);
+        this.shockwaveParticles.color2 = new Color4(1, 0.8, 0.4, 0.6);
+        this.shockwaveParticles.colorDead = new Color4(1, 0.6, 0.2, 0.0);
+        
+        this.shockwaveParticles.minSize = 8.0;
+        this.shockwaveParticles.maxSize = 15.0;
+        this.shockwaveParticles.minLifeTime = 0.8;
+        this.shockwaveParticles.maxLifeTime = 1.2;
+        this.shockwaveParticles.emitRate = 200;
+        this.shockwaveParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        this.shockwaveParticles.gravity = new Vector3(0, 0, 0);
+        this.shockwaveParticles.direction1 = new Vector3(-0.5, 0, -0.5);
+        this.shockwaveParticles.direction2 = new Vector3(0.5, 0, 0.5);
+        this.shockwaveParticles.minEmitPower = 20;
+        this.shockwaveParticles.maxEmitPower = 30;
+        this.shockwaveParticles.manualEmitCount = 200;
+        this.shockwaveParticles.stop();
+
+        // Create spark effect
+        const sparkTexture = new DynamicTexture('missileSparkTexture', {width: 32, height: 32}, this.scene);
+        const sparkContext = sparkTexture.getContext();
+        
+        // Create bright spark effect
+        const sparkGradient = sparkContext.createRadialGradient(16, 16, 0, 16, 16, 16);
+        sparkGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        sparkGradient.addColorStop(0.3, 'rgba(255, 255, 200, 0.8)');
+        sparkGradient.addColorStop(0.7, 'rgba(255, 200, 100, 0.4)');
+        sparkGradient.addColorStop(1, 'rgba(255, 150, 50, 0)');
+        
+        sparkContext.fillStyle = sparkGradient;
+        sparkContext.fillRect(0, 0, 32, 32);
+        sparkTexture.update();
+
+        this.sparkParticles = new ParticleSystem('missileSparks', 150, this.scene);
+        this.sparkParticles.particleTexture = sparkTexture;
+        this.sparkParticles.emitter = this.position;
+        this.sparkParticles.minEmitBox = new Vector3(-0.5, 0, -0.5);
+        this.sparkParticles.maxEmitBox = new Vector3(0.5, 0, 0.5);
+        
+        this.sparkParticles.color1 = new Color4(1, 1, 0.8, 1.0);
+        this.sparkParticles.color2 = new Color4(1, 0.8, 0.4, 0.8);
+        this.sparkParticles.colorDead = new Color4(1, 0.6, 0.2, 0.0);
+        
+        this.sparkParticles.minSize = 0.5;
+        this.sparkParticles.maxSize = 1.5;
+        this.sparkParticles.minLifeTime = 0.5;
+        this.sparkParticles.maxLifeTime = 1.0;
+        this.sparkParticles.emitRate = 150;
+        this.sparkParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        this.sparkParticles.gravity = new Vector3(0, -10, 0);
+        this.sparkParticles.direction1 = new Vector3(-8, 5, -8);
+        this.sparkParticles.direction2 = new Vector3(8, 8, 8);
+        this.sparkParticles.minEmitPower = 10;
+        this.sparkParticles.maxEmitPower = 20;
+        this.sparkParticles.manualEmitCount = 150;
+        this.sparkParticles.stop();
     }
 
     private createLaunchAnimation(): void {
@@ -443,9 +601,13 @@ export class TomahawkMissile {
         // Start explosion effects
         this.fireParticles.emitter = this.position;
         this.explosionSmokeParticles.emitter = this.position;
+        this.shockwaveParticles.emitter = this.position;
+        this.sparkParticles.emitter = this.position;
+        
         this.fireParticles.start();
         this.explosionSmokeParticles.start();
-        this.explosionSound.play();
+        this.shockwaveParticles.start();
+        this.sparkParticles.start();
         
         // Destroy the target building if it exists and is close enough
         if (this.targetBuilding && Vector3.Distance(this.position, this.targetBuilding.getPosition()) <= 20) {
@@ -460,6 +622,8 @@ export class TomahawkMissile {
             this.fireParticles.dispose();
             this.trailParticles.dispose();
             this.exhaustParticles.dispose();
+            this.shockwaveParticles.dispose();
+            this.sparkParticles.dispose();
         }, 1000); // Reduced from 1500
         
         setTimeout(() => {
@@ -485,7 +649,8 @@ export class TomahawkMissile {
         if (this.explosionSmokeParticles) this.explosionSmokeParticles.dispose();
         if (this.trailParticles) this.trailParticles.dispose();
         if (this.exhaustParticles) this.exhaustParticles.dispose();
-        if (this.explosionSound) this.explosionSound.dispose();
+        if (this.shockwaveParticles) this.shockwaveParticles.dispose();
+        if (this.sparkParticles) this.sparkParticles.dispose();
         if (this.light) this.light.dispose();
         if (this.launchAnimationGroup) this.launchAnimationGroup.dispose();
     }

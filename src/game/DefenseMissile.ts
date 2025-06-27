@@ -1,4 +1,4 @@
-import { Scene, Mesh, Vector3, MeshBuilder, StandardMaterial, Color3, ParticleSystem, Texture, Color4, PointLight, TransformNode } from '@babylonjs/core';
+import { Scene, Mesh, Vector3, MeshBuilder, StandardMaterial, Color3, ParticleSystem, Texture, Color4, PointLight, TransformNode, DynamicTexture } from '@babylonjs/core';
 
 export class DefenseMissile {
     private scene: Scene;
@@ -165,28 +165,44 @@ export class DefenseMissile {
         this.exploded = true;
         this.exhaustParticles.stop();
         
+        // Create procedural explosion texture
+        const explosionTexture = new DynamicTexture('defenseMissileExplosionTexture', {width: 64, height: 64}, this.scene);
+        const explosionContext = explosionTexture.getContext();
+        
+        // Create explosion effect with bright center and fading edges
+        const explosionGradient = explosionContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+        explosionGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        explosionGradient.addColorStop(0.2, 'rgba(255, 255, 0, 0.9)');
+        explosionGradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.6)');
+        explosionGradient.addColorStop(0.8, 'rgba(255, 50, 0, 0.3)');
+        explosionGradient.addColorStop(1, 'rgba(200, 0, 0, 0)');
+        
+        explosionContext.fillStyle = explosionGradient;
+        explosionContext.fillRect(0, 0, 64, 64);
+        explosionTexture.update();
+        
         // Create explosion effect
-        const explosionParticles = new ParticleSystem('defenseMissileExplosion', 500, this.scene);
-        explosionParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/flare.png', this.scene);
+        const explosionParticles = new ParticleSystem('defenseMissileExplosion', 350, this.scene);
+        explosionParticles.particleTexture = explosionTexture;
         explosionParticles.emitter = this.position;
-        explosionParticles.minEmitBox = new Vector3(-1, -1, -1);
-        explosionParticles.maxEmitBox = new Vector3(1, 1, 1);
+        explosionParticles.minEmitBox = new Vector3(-0.8, -0.8, -0.8);
+        explosionParticles.maxEmitBox = new Vector3(0.8, 0.8, 0.8);
         
         explosionParticles.color1 = new Color4(1, 0.9, 0.1, 1.0);
         explosionParticles.color2 = new Color4(1, 0.4, 0, 1.0);
         explosionParticles.colorDead = new Color4(0.3, 0.1, 0, 0.0);
         
-        explosionParticles.minSize = 1.0;
+        explosionParticles.minSize = 0.8;
         explosionParticles.maxSize = 3.0;
-        explosionParticles.minLifeTime = 0.5;
-        explosionParticles.maxLifeTime = 1.5;
-        explosionParticles.emitRate = 1000;
+        explosionParticles.minLifeTime = 0.4;
+        explosionParticles.maxLifeTime = 1.2;
+        explosionParticles.emitRate = 700;
         explosionParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
         explosionParticles.gravity = new Vector3(0, -9.81, 0);
-        explosionParticles.direction1 = new Vector3(-7, 1, -7);
-        explosionParticles.direction2 = new Vector3(7, 8, 7);
-        explosionParticles.minEmitPower = 5;
-        explosionParticles.maxEmitPower = 15;
+        explosionParticles.direction1 = new Vector3(-4, 2, -4);
+        explosionParticles.direction2 = new Vector3(4, 6, 4);
+        explosionParticles.minEmitPower = 4;
+        explosionParticles.maxEmitPower = 10;
         
         explosionParticles.start();
         

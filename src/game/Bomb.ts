@@ -95,20 +95,20 @@ export class Bomb {
         this.fireParticles = new ParticleSystem('fire', 2000, this.scene);
         this.fireParticles.particleTexture = fireTexture;
         this.fireParticles.emitter = this.mesh;
-        this.fireParticles.minEmitBox = new Vector3(-1, 0, -1);
-        this.fireParticles.maxEmitBox = new Vector3(1, 0, 1);
-        this.fireParticles.color1 = new Color4(1, 0.8, 0, 1.0);
-        this.fireParticles.color2 = new Color4(1, 0.2, 0, 1.0);
+        this.fireParticles.minEmitBox = new Vector3(-1.2, 0, -1.2);
+        this.fireParticles.maxEmitBox = new Vector3(1.2, 0, 1.2);
+        this.fireParticles.color1 = new Color4(1, 0.9, 0, 1.0);
+        this.fireParticles.color2 = new Color4(1, 0.3, 0, 1.0);
         this.fireParticles.colorDead = new Color4(0.2, 0, 0, 0.0);
-        this.fireParticles.minSize = 2.0;
-        this.fireParticles.maxSize = 6.0;
+        this.fireParticles.minSize = 2.5;
+        this.fireParticles.maxSize = 6.5;
         this.fireParticles.minLifeTime = 0.3;
         this.fireParticles.maxLifeTime = 0.6;
         this.fireParticles.emitRate = 2000;
         this.fireParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
         this.fireParticles.gravity = new Vector3(0, -9.81, 0);
         this.fireParticles.direction1 = new Vector3(-10, 8, -10);
-        this.fireParticles.direction2 = new Vector3(10, 8, 10);
+        this.fireParticles.direction2 = new Vector3(10, 10, 10);
         this.fireParticles.minEmitPower = 5;
         this.fireParticles.maxEmitPower = 15;
         this.fireParticles.updateSpeed = 0.005;
@@ -142,27 +142,27 @@ export class Bomb {
         smokeTexture.update();
 
         // Smoke particle system for lingering smoke
-        this.smokeParticles = new ParticleSystem('smoke', 1000, this.scene);
+        this.smokeParticles = new ParticleSystem('smoke', 1200, this.scene);
         this.smokeParticles.particleTexture = smokeTexture;
         this.smokeParticles.emitter = this.mesh;
         this.smokeParticles.minEmitBox = new Vector3(-2, 0, -2);
         this.smokeParticles.maxEmitBox = new Vector3(2, 0, 2);
-        this.smokeParticles.color1 = new Color4(0.2, 0.2, 0.2, 0.8);
-        this.smokeParticles.color2 = new Color4(0.4, 0.4, 0.4, 0.6);
+        this.smokeParticles.color1 = new Color4(0.3, 0.3, 0.3, 0.9);
+        this.smokeParticles.color2 = new Color4(0.5, 0.5, 0.5, 0.7);
         this.smokeParticles.colorDead = new Color4(0.1, 0.1, 0.1, 0.0);
         this.smokeParticles.minSize = 4.0;
         this.smokeParticles.maxSize = 10.0;
         this.smokeParticles.minLifeTime = 2.0;
         this.smokeParticles.maxLifeTime = 5.0;
-        this.smokeParticles.emitRate = 1000;
+        this.smokeParticles.emitRate = 1200;
         this.smokeParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
         this.smokeParticles.gravity = new Vector3(0, -2, 0);
-        this.smokeParticles.direction1 = new Vector3(-1, 3, -1);
-        this.smokeParticles.direction2 = new Vector3(1, 3, 1);
-        this.smokeParticles.minEmitPower = 1;
+        this.smokeParticles.direction1 = new Vector3(-1.2, 3, -1.2);
+        this.smokeParticles.direction2 = new Vector3(1.2, 3, 1.2);
+        this.smokeParticles.minEmitPower = 1.2;
         this.smokeParticles.maxEmitPower = 3;
         this.smokeParticles.updateSpeed = 0.01;
-        this.smokeParticles.manualEmitCount = 1000;
+        this.smokeParticles.manualEmitCount = 1200;
         this.smokeParticles.stop();
     }
 

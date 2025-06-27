@@ -324,7 +324,7 @@ export class Game {
                     const distance = Vector3.Distance(explosionPoint, building.getPosition());
                     const damage = Math.max(10, 50 - distance);
                     
-                    const wasDestroyed = building.takeDamage(damage);
+                    const wasDestroyed = building.takeDamage(damage, true);
                     if (wasDestroyed) {
                         this.destroyedBuildings++;
                         if (building.isTarget()) {
