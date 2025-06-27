@@ -1,5 +1,7 @@
 # ManicureBomber
 
+Originally inspired by: https://www.youtube.com/watch?v=neGQPynVbsk
+
 A 3D flight simulation featuring a B2 Spirit bomber flying over procedurally generated arid terrain using BabylonJS and TypeScript.
 
 ## Features
