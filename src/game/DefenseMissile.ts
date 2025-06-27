@@ -27,9 +27,13 @@ export class DefenseMissile {
         this.missileGroup = new TransformNode('defenseMissileGroup', this.scene);
         this.missileGroup.position = this.position.clone();
         
-        // Orient missile toward target
-        const angle = Math.atan2(direction.x, direction.z);
-        this.missileGroup.rotation.y = angle;
+        // Orient missile toward target with both yaw and pitch
+        const yaw = Math.atan2(direction.x, direction.z);
+        const horizontalSpeed = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
+        const pitch = Math.atan2(direction.y, horizontalSpeed);
+        
+        this.missileGroup.rotation.y = yaw;
+        this.missileGroup.rotation.x = pitch - Math.PI / 2; // Adjust for model's initial horizontal orientation
         
         this.createMissileModel();
         this.setupParticleEffects();

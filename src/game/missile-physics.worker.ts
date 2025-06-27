@@ -119,6 +119,13 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
             
             // Apply rotation adjustment for defense missile model orientation
             newRotation.x = pitch - Math.PI / 2; // Adjust for model's initial horizontal orientation
+        } else {
+            // If velocity is too small, use direction to target for initial orientation
+            const direction = vector3Normalize(vector3Subtract(data.targetPosition, newPosition));
+            newRotation.y = Math.atan2(direction.x, direction.z);
+            const horizontalSpeed = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
+            const pitch = Math.atan2(direction.y, horizontalSpeed);
+            newRotation.x = pitch - Math.PI / 2;
         }
     }
 

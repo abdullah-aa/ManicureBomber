@@ -70,16 +70,14 @@ export class B2Bomber {
     }
 
     private createFuselage(): void {
-        // Main body - diamond shaped from top view
-        const fuselage = MeshBuilder.CreateBox('fuselage', {
-            width: 10,
-            height: 1.5,
-            depth: 22
+        // Main body - cylindrical shape instead of box
+        const fuselage = MeshBuilder.CreateCylinder('fuselage', {
+            height: 22,
+            diameter: 3,
+            tessellation: 16
         }, this.scene);
 
-        // Scale to make it more diamond-like
-        fuselage.scaling.x = 0.4;
-        fuselage.scaling.y = 0.6;
+        fuselage.rotation.x = Math.PI / 2; // Orient horizontally
         fuselage.position.y = 0;
         fuselage.parent = this.bomberGroup;
 
@@ -88,6 +86,24 @@ export class B2Bomber {
         fuselageMaterial.specularColor = new Color3(0.3, 0.3, 0.4);
         fuselageMaterial.emissiveColor = new Color3(0.05, 0.05, 0.08);
         fuselage.material = fuselageMaterial;
+
+        // Conical nose cone
+        const noseCone = MeshBuilder.CreateCylinder('noseCone', {
+            height: 6,
+            diameterTop: 0,
+            diameterBottom: 3,
+            tessellation: 16
+        }, this.scene);
+
+        noseCone.rotation.x = Math.PI / 2; // Orient horizontally
+        noseCone.position.z = 14; // Front of fuselage
+        noseCone.parent = this.bomberGroup;
+
+        const noseMaterial = new StandardMaterial('noseMaterial', this.scene);
+        noseMaterial.diffuseColor = new Color3(0.12, 0.15, 0.18); // Slightly darker than fuselage
+        noseMaterial.specularColor = new Color3(0.4, 0.4, 0.5);
+        noseMaterial.emissiveColor = new Color3(0.03, 0.03, 0.05);
+        noseCone.material = noseMaterial;
     }
 
     private createWings(): void {
@@ -158,10 +174,10 @@ export class B2Bomber {
         // Scale it to make it more hemisphere-like (flatten the bottom)
         cockpit.scaling.y = 0.5;
         
-        // Position it on top of the fuselage, slightly forward
+        // Position it on top of the cylindrical fuselage, slightly forward
         cockpit.position.x = 0;
-        cockpit.position.y = 0.5; // Above the fuselage
-        cockpit.position.z = 9; // Forward on the fuselage
+        cockpit.position.y = 1.5; // Above the cylindrical fuselage (radius is 1.5)
+        cockpit.position.z = 8; // Forward on the fuselage, but not as far as before
         cockpit.parent = this.bomberGroup;
 
         // Create cockpit material - turquoise blue with some transparency
@@ -177,17 +193,22 @@ export class B2Bomber {
         const bayMaterial = new StandardMaterial('bayMaterial', this.scene);
         bayMaterial.diffuseColor = new Color3(0.1, 0.1, 0.12);
 
+        // Create bomb bay doors that open outward and downward
+        // Left door - positioned on the left side of the cylindrical fuselage
         this.bombBayLeft = MeshBuilder.CreateBox('bombBayLeft', { width: 1.8, height: 0.2, depth: 8 }, this.scene);
-        this.bombBayLeft.position = new Vector3(-1, 0, -10);
+        this.bombBayLeft.position = new Vector3(-1.5, -1.3, -8); // Further out and lower for cylindrical fuselage
         this.bombBayLeft.parent = this.bomberGroup;
         this.bombBayLeft.material = bayMaterial;
-        this.bombBayLeft.rotation.x = 0;
+        // Set pivot point for rotation (left edge of door)
+        this.bombBayLeft.rotation.z = 0; // Will rotate around Z axis for outward swing
 
+        // Right door - positioned on the right side of the cylindrical fuselage
         this.bombBayRight = MeshBuilder.CreateBox('bombBayRight', { width: 1.8, height: 0.2, depth: 8 }, this.scene);
-        this.bombBayRight.position = new Vector3(1, 0, -10);
+        this.bombBayRight.position = new Vector3(1.5, -1.3, -8); // Further out and lower for cylindrical fuselage
         this.bombBayRight.parent = this.bomberGroup;
         this.bombBayRight.material = bayMaterial;
-        this.bombBayRight.rotation.x = 0;
+        // Set pivot point for rotation (right edge of door)
+        this.bombBayRight.rotation.z = 0; // Will rotate around Z axis for outward swing
     }
 
     private createEngines(): void {
@@ -388,29 +409,49 @@ export class B2Bomber {
     }
 
     public openBombBay(): void {
-        const openAnimation = new Animation('openBombBay', 'rotation.x', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        const keys = [
+        // Create animation for left door (swing outward and down)
+        const openLeftAnimation = new Animation('openBombBayLeft', 'rotation.z', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
+        const leftKeys = [
             { frame: 0, value: 0 },
-            { frame: 20, value: Math.PI / 2.5 }
+            { frame: 20, value: Math.PI / 3 } // Swing outward and down
         ];
-        openAnimation.setKeys(keys);
-        this.bombBayLeft.animations.push(openAnimation);
-        this.bombBayRight.animations.push(openAnimation.clone());
-        this.scene.beginDirectAnimation(this.bombBayLeft, [openAnimation], 0, 20, false);
-        this.scene.beginDirectAnimation(this.bombBayRight, [openAnimation], 0, 20, false);
+        openLeftAnimation.setKeys(leftKeys);
+        
+        // Create animation for right door (swing outward and down in opposite direction)
+        const openRightAnimation = new Animation('openBombBayRight', 'rotation.z', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
+        const rightKeys = [
+            { frame: 0, value: 0 },
+            { frame: 20, value: -Math.PI / 3 } // Swing outward and down in opposite direction
+        ];
+        openRightAnimation.setKeys(rightKeys);
+        
+        this.bombBayLeft.animations.push(openLeftAnimation);
+        this.bombBayRight.animations.push(openRightAnimation);
+        this.scene.beginDirectAnimation(this.bombBayLeft, [openLeftAnimation], 0, 20, false);
+        this.scene.beginDirectAnimation(this.bombBayRight, [openRightAnimation], 0, 20, false);
     }
 
     public closeBombBay(): void {
-        const closeAnimation = new Animation('closeBombBay', 'rotation.x', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        const keys = [
-            { frame: 0, value: this.bombBayLeft.rotation.x },
+        // Create animation for left door (swing back to closed position)
+        const closeLeftAnimation = new Animation('closeBombBayLeft', 'rotation.z', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
+        const leftKeys = [
+            { frame: 0, value: this.bombBayLeft.rotation.z },
             { frame: 20, value: 0 }
         ];
-        closeAnimation.setKeys(keys);
-        this.bombBayLeft.animations.push(closeAnimation);
-        this.bombBayRight.animations.push(closeAnimation.clone());
-        this.scene.beginDirectAnimation(this.bombBayLeft, [closeAnimation], 0, 20, false);
-        this.scene.beginDirectAnimation(this.bombBayRight, [closeAnimation], 0, 20, false);
+        closeLeftAnimation.setKeys(leftKeys);
+        
+        // Create animation for right door (swing back to closed position)
+        const closeRightAnimation = new Animation('closeBombBayRight', 'rotation.z', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
+        const rightKeys = [
+            { frame: 0, value: this.bombBayRight.rotation.z },
+            { frame: 20, value: 0 }
+        ];
+        closeRightAnimation.setKeys(rightKeys);
+        
+        this.bombBayLeft.animations.push(closeLeftAnimation);
+        this.bombBayRight.animations.push(closeRightAnimation);
+        this.scene.beginDirectAnimation(this.bombBayLeft, [closeLeftAnimation], 0, 20, false);
+        this.scene.beginDirectAnimation(this.bombBayRight, [closeRightAnimation], 0, 20, false);
     }
 
     // Missile system methods
