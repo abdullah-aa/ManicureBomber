@@ -36,6 +36,22 @@ export class Game {
     private destroyedBuildings: number = 0;
     private destroyedTargets: number = 0;
 
+    // Performance optimization: frame rate control and caching
+    private lastFrameTime: number = 0;
+    private targetFrameRate: number = 60;
+    private frameInterval: number = 1000 / 60; // 16.67ms for 60 FPS
+    private lastTerrainUpdateTime: number = 0;
+    private terrainUpdateInterval: number = 100; // Update terrain every 100ms
+    private lastDefenseUpdateTime: number = 0;
+    private defenseUpdateInterval: number = 50; // Update defense every 50ms
+    private lastUIUpdateTime: number = 0;
+    private uiUpdateInterval: number = 50; // Update UI every 50ms
+    private lastRadarUpdateTime: number = 0;
+    private radarUpdateInterval: number = 100; // Update radar every 100ms
+    private cachedBomberPosition: Vector3 = new Vector3();
+    private positionCacheValid: boolean = false;
+    private positionCacheThreshold: number = 5; // Recalculate if moved more than 5 units
+
     constructor(scene: Scene, canvas: HTMLCanvasElement) {
         this.scene = scene;
         this.canvas = canvas;
@@ -126,6 +142,12 @@ export class Game {
         this.scene.registerBeforeRender(() => {
             try {
                 const currentTime = performance.now();
+                
+                // Performance optimization: frame rate limiting
+                if (currentTime - lastFrameTime < this.frameInterval) {
+                    return;
+                }
+                
                 const deltaTime = this.scene.getEngine().getDeltaTime() / 1000;
                 
                 const frameTime = currentTime - lastFrameTime;
@@ -138,35 +160,53 @@ export class Game {
                 const safeDeltaTime = Math.min(deltaTime, 0.1);
                 const safeCurrentTime = currentTime / 1000;
 
+                // Always update critical systems
                 this.handleBombing(safeCurrentTime);
-                
                 this.handleMissileLaunch();
-
                 this.handleCameraToggle(safeCurrentTime);
-                
                 this.bomber.update(safeDeltaTime, this.inputManager);
-                
                 this.cameraController.update(safeDeltaTime, this.inputManager);
-                
-                this.uiManager.update();
-                
-                this.radarManager.update(this.bomber, this.terrainManager, this.destroyedBuildings, this.destroyedTargets);
-                
+                this.updateBombs(safeDeltaTime);
                 this.updateGroundCrosshair();
 
-                this.terrainManager.update(this.bomber.getPosition());
-                
-                // Update defense launchers
-                this.terrainManager.updateDefenseLaunchers(
-                    this.bomber.getPosition(), 
-                    safeCurrentTime, 
-                    safeDeltaTime
-                );
-                
-                const maxBuildingHeight = this.terrainManager.getMaxBuildingHeight();
-                this.bomber.setMinimumAltitude(maxBuildingHeight);
+                // Update terrain less frequently
+                if (currentTime - this.lastTerrainUpdateTime > this.terrainUpdateInterval) {
+                    this.terrainManager.update(this.bomber.getPosition());
+                    this.lastTerrainUpdateTime = currentTime;
+                }
 
-                this.updateBombs(safeDeltaTime);
+                // Update defense launchers less frequently
+                if (currentTime - this.lastDefenseUpdateTime > this.defenseUpdateInterval) {
+                    this.terrainManager.updateDefenseLaunchers(
+                        this.bomber.getPosition(), 
+                        safeCurrentTime, 
+                        safeDeltaTime
+                    );
+                    this.lastDefenseUpdateTime = currentTime;
+                }
+
+                // Update UI less frequently
+                if (currentTime - this.lastUIUpdateTime > this.uiUpdateInterval) {
+                    this.uiManager.update();
+                    this.lastUIUpdateTime = currentTime;
+                }
+
+                // Update radar less frequently
+                if (currentTime - this.lastRadarUpdateTime > this.radarUpdateInterval) {
+                    this.radarManager.update(this.bomber, this.terrainManager, this.destroyedBuildings, this.destroyedTargets);
+                    this.lastRadarUpdateTime = currentTime;
+                }
+
+                // Update minimum altitude based on building height (cached)
+                const bomberPosition = this.bomber.getPosition();
+                const distanceMoved = Vector3.Distance(bomberPosition, this.cachedBomberPosition);
+                
+                if (!this.positionCacheValid || distanceMoved > this.positionCacheThreshold) {
+                    const maxBuildingHeight = this.terrainManager.getMaxBuildingHeight();
+                    this.bomber.setMinimumAltitude(maxBuildingHeight);
+                    this.cachedBomberPosition.copyFrom(bomberPosition);
+                    this.positionCacheValid = true;
+                }
 
                 this.inputManager.endFrame();
                 

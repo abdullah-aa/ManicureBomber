@@ -4,6 +4,12 @@ import { B2Bomber } from '../game/B2Bomber';
 import { TerrainManager } from '../game/TerrainManager';
 import { DefenseMissile } from '../game/DefenseMissile';
 
+interface RadarMarker {
+    element: HTMLElement;
+    type: string;
+    inUse: boolean;
+}
+
 export class RadarManager {
     private radarDisplay: HTMLElement;
     private buildingCountElement: HTMLElement;
@@ -14,11 +20,63 @@ export class RadarManager {
     private pulseInterval: number = 2000; // 2 seconds
     private activeMissiles: DefenseMissile[] = []; // Track active defense missiles
 
+    // Performance optimization: object pooling and caching
+    private markerPool: RadarMarker[] = [];
+    private maxMarkers: number = 50; // Maximum markers to show
+    private lastUpdateTime: number = 0;
+    private updateInterval: number = 100; // Update every 100ms instead of every frame
+    private cachedBuildings: Building[] = [];
+    private cachedBomberPosition: Vector3 = new Vector3();
+    private cachedBomberRotation: number = 0;
+    private positionCacheValid: boolean = false;
+    private positionCacheThreshold: number = 10; // Recalculate if moved more than 10 units
+
     constructor() {
         this.radarDisplay = document.getElementById('radarDisplay')!;
         this.buildingCountElement = document.getElementById('buildingCount')!;
         this.targetCountElement = document.getElementById('targetCount')!;
         this.createRadarPulseStyles();
+        this.initializeMarkerPool();
+    }
+
+    private initializeMarkerPool(): void {
+        // Pre-create marker elements for object pooling
+        for (let i = 0; i < this.maxMarkers; i++) {
+            const marker = document.createElement('div');
+            marker.style.position = 'absolute';
+            marker.style.width = '4px';
+            marker.style.height = '4px';
+            marker.style.borderRadius = '50%';
+            marker.style.transform = 'translate(-50%, -50%)';
+            marker.style.pointerEvents = 'none';
+            
+            this.markerPool.push({
+                element: marker,
+                type: '',
+                inUse: false
+            });
+        }
+    }
+
+    private getMarkerFromPool(type: string): RadarMarker | null {
+        // Find an unused marker
+        for (const marker of this.markerPool) {
+            if (!marker.inUse) {
+                marker.inUse = true;
+                marker.type = type;
+                
+                // Set the appropriate class
+                marker.element.className = `radar-${type}`;
+                
+                return marker;
+            }
+        }
+        return null; // No available markers
+    }
+
+    private returnMarkerToPool(marker: RadarMarker): void {
+        marker.inUse = false;
+        marker.element.style.display = 'none';
     }
 
     private createRadarPulseStyles(): void {
@@ -51,14 +109,23 @@ export class RadarManager {
     }
 
     public update(bomber: B2Bomber, terrainManager: TerrainManager, destroyedBuildings: number, destroyedTargets: number): void {
-        // Clear existing building markers
-        const existingMarkers = this.radarDisplay.querySelectorAll('.radar-target, .radar-building, .radar-defense-launcher, .radar-missile');
-        existingMarkers.forEach(marker => marker.remove());
+        // Performance optimization: limit update frequency
+        const currentTime = performance.now();
+        if (currentTime - this.lastUpdateTime < this.updateInterval) {
+            return;
+        }
+        this.lastUpdateTime = currentTime;
+
+        // Return all markers to pool
+        this.markerPool.forEach(marker => {
+            if (marker.inUse) {
+                this.returnMarkerToPool(marker);
+            }
+        });
 
         // Handle radar pulse
-        const now = performance.now();
-        if (now - this.lastPulseTime > this.pulseInterval) {
-            this.lastPulseTime = now;
+        if (currentTime - this.lastPulseTime > this.pulseInterval) {
+            this.lastPulseTime = currentTime;
             const pulse = document.createElement('div');
             pulse.className = 'radar-pulse';
             this.radarDisplay.appendChild(pulse);
@@ -71,15 +138,26 @@ export class RadarManager {
         const bomberPosition = bomber.getPosition();
         const bomberRotationY = bomber.getRotation().y;
 
-        // Get all buildings in radar range
-        const nearbyBuildings = terrainManager.getBuildingsInRadius(bomberPosition, this.radarRadius);
+        // Check if we need to recalculate cached data
+        const distanceMoved = Vector3.Distance(bomberPosition, this.cachedBomberPosition);
+        const rotationChanged = Math.abs(bomberRotationY - this.cachedBomberRotation) > 0.1;
+        
+        if (!this.positionCacheValid || distanceMoved > this.positionCacheThreshold || rotationChanged) {
+            this.cachedBomberPosition.copyFrom(bomberPosition);
+            this.cachedBomberRotation = bomberRotationY;
+            this.cachedBuildings = terrainManager.getBuildingsInRadius(bomberPosition, this.radarRadius);
+            this.positionCacheValid = true;
+        }
 
         // Pre-calculate sin and cos for rotation
         const cosY = Math.cos(bomberRotationY);
         const sinY = Math.sin(bomberRotationY);
 
-        // Add building markers to radar
-        nearbyBuildings.forEach(building => {
+        // Add building markers to radar (limited by pool size)
+        let markerCount = 0;
+        for (const building of this.cachedBuildings) {
+            if (markerCount >= this.maxMarkers) break;
+            
             const buildingPosition = building.getPosition();
             const relativePosition = buildingPosition.subtract(bomberPosition);
             
@@ -95,34 +173,41 @@ export class RadarManager {
             // Only show if within radar circle
             const distance = Math.sqrt(radarX * radarX + radarZ * radarZ);
             if (distance <= this.radarPixelRadius) {
-                const marker = document.createElement('div');
-                
-                // Determine marker class based on building type
+                // Determine marker type based on building type
+                let markerType: string;
                 if (building.isTarget()) {
-                    marker.className = 'radar-target';
+                    markerType = 'target';
                 } else if (building.isDefenseLauncher()) {
-                    marker.className = 'radar-defense-launcher';
+                    markerType = 'defense-launcher';
                 } else {
-                    marker.className = 'radar-building';
+                    markerType = 'building';
                 }
                 
-                // Position relative to radar center
-                marker.style.left = `${this.radarPixelRadius + radarX}px`;
-                marker.style.top = `${this.radarPixelRadius - radarZ}px`; // Flip Z for screen coordinates
-                
-                this.radarDisplay.appendChild(marker);
+                const marker = this.getMarkerFromPool(markerType);
+                if (marker) {
+                    // Position relative to radar center
+                    marker.element.style.left = `${this.radarPixelRadius + radarX}px`;
+                    marker.element.style.top = `${this.radarPixelRadius - radarZ}px`; // Flip Z for screen coordinates
+                    marker.element.style.display = 'block';
+                    
+                    if (!marker.element.parentNode) {
+                        this.radarDisplay.appendChild(marker.element);
+                    }
+                    
+                    markerCount++;
+                }
             }
-        });
+        }
 
         // Update active missiles list and add missile markers
-        this.updateMissileMarkers(bomberPosition, bomberRotationY, cosY, sinY, terrainManager);
+        this.updateMissileMarkers(bomberPosition, bomberRotationY, cosY, sinY, terrainManager, markerCount);
 
         // Update score display
         this.buildingCountElement.textContent = destroyedBuildings.toString();
         this.targetCountElement.textContent = destroyedTargets.toString();
     }
 
-    private updateMissileMarkers(bomberPosition: Vector3, bomberRotationY: number, cosY: number, sinY: number, terrainManager: TerrainManager): void {
+    private updateMissileMarkers(bomberPosition: Vector3, bomberRotationY: number, cosY: number, sinY: number, terrainManager: TerrainManager, currentMarkerCount: number): void {
         // Get all buildings to collect their active missiles
         const allBuildings = terrainManager.getBuildingsInRadius(bomberPosition, this.radarRadius);
         this.activeMissiles = [];
@@ -135,8 +220,11 @@ export class RadarManager {
             }
         });
 
-        // Add missile markers to radar
-        this.activeMissiles.forEach(missile => {
+        // Add missile markers to radar (limited by remaining pool space)
+        let markerCount = currentMarkerCount;
+        for (const missile of this.activeMissiles) {
+            if (markerCount >= this.maxMarkers) break;
+            
             if (!missile.hasExploded()) {
                 const missilePosition = missile.getPosition();
                 const relativePosition = missilePosition.subtract(bomberPosition);
@@ -152,16 +240,21 @@ export class RadarManager {
                 // Only show if within radar circle
                 const distance = Math.sqrt(radarX * radarX + radarZ * radarZ);
                 if (distance <= this.radarPixelRadius) {
-                    const marker = document.createElement('div');
-                    marker.className = 'radar-missile';
-                    
-                    // Position relative to radar center
-                    marker.style.left = `${this.radarPixelRadius + radarX}px`;
-                    marker.style.top = `${this.radarPixelRadius - radarZ}px`;
-                    
-                    this.radarDisplay.appendChild(marker);
+                    const marker = this.getMarkerFromPool('missile');
+                    if (marker) {
+                        // Position relative to radar center
+                        marker.element.style.left = `${this.radarPixelRadius + radarX}px`;
+                        marker.element.style.top = `${this.radarPixelRadius - radarZ}px`;
+                        marker.element.style.display = 'block';
+                        
+                        if (!marker.element.parentNode) {
+                            this.radarDisplay.appendChild(marker.element);
+                        }
+                        
+                        markerCount++;
+                    }
                 }
             }
-        });
+        }
     }
 } 

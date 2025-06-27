@@ -24,6 +24,13 @@ export class TerrainManager {
     private lastBomberPosition: Vector3 = new Vector3(0, 0, 0);
     private bomber: any = null; // Reference to bomber for cache invalidation
 
+    // Performance optimization: spatial partitioning and caching
+    private buildingSpatialGrid: Map<string, Building[]> = new Map();
+    private gridCellSize: number = 100; // 100 unit grid cells
+    private buildingCache: Map<string, Building[]> = new Map();
+    private cacheTimeout: number = 1000; // Cache for 1 second
+    private lastCacheTime: number = 0;
+
     constructor(scene: Scene) {
         this.scene = scene;
         this.noiseGenerator = new NoiseGenerator();
@@ -471,6 +478,17 @@ export class TerrainManager {
     }
 
     public getBuildingsInRadius(position: Vector3, radius: number): Building[] {
+        // Performance optimization: use cached results if available
+        const cacheKey = `${Math.floor(position.x / 50)}_${Math.floor(position.z / 50)}_${radius}`;
+        const currentTime = performance.now();
+        
+        if (this.buildingCache.has(cacheKey) && (currentTime - this.lastCacheTime) < this.cacheTimeout) {
+            return this.buildingCache.get(cacheKey)!.filter(building => {
+                const distance = Vector3.Distance(position, building.getPosition());
+                return distance <= radius;
+            });
+        }
+
         const buildings: Building[] = [];
         
         // Calculate which chunks might contain buildings in range
@@ -505,6 +523,10 @@ export class TerrainManager {
                 }
             }
         }
+        
+        // Cache the result
+        this.buildingCache.set(cacheKey, buildings);
+        this.lastCacheTime = currentTime;
         
         return buildings;
     }

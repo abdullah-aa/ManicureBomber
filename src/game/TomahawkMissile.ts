@@ -35,6 +35,13 @@ export class TomahawkMissile {
     private pathTime: number = 0;
     private pathSpeed: number = 0.5; // Speed along the curved path
 
+    // Performance optimization: cached calculations
+    private lastUpdateTime: number = 0;
+    private updateInterval: number = 1/60; // 60 FPS max updates
+    private cachedCurvePosition: Vector3 = new Vector3();
+    private curveCacheValid: boolean = false;
+    private lastCurveTime: number = -1;
+
     constructor(scene: Scene, launchPosition: Vector3, targetBuilding: Building, launchRotation: Vector3) {
         this.scene = scene;
         this.position = launchPosition.clone();
@@ -60,6 +67,11 @@ export class TomahawkMissile {
     }
 
     private getCurvedPathPosition(t: number): Vector3 {
+        // Use cached result if available
+        if (this.curveCacheValid && Math.abs(t - this.lastCurveTime) < 0.01) {
+            return this.cachedCurvePosition.clone();
+        }
+
         // Create a simple curved path using parametric equations
         const startPos = this.waypoints[0];
         const endPos = this.waypoints[1];
@@ -76,11 +88,16 @@ export class TomahawkMissile {
         const curveZ = Math.cos(t * Math.PI * 1.5) * curveAmplitude;
         const curveY = Math.sin(t * Math.PI) * 50; // Height variation
         
-        return new Vector3(
+        // Cache the result
+        this.cachedCurvePosition.set(
             basePos.x + curveX,
             basePos.y + curveY,
             basePos.z + curveZ
         );
+        this.lastCurveTime = t;
+        this.curveCacheValid = true;
+        
+        return this.cachedCurvePosition.clone();
     }
 
     private createMissileModel(): void {
@@ -173,8 +190,8 @@ export class TomahawkMissile {
     }
 
     private setupParticleEffects(): void {
-        // Enhanced engine exhaust particles for more dramatic effect
-        this.exhaustParticles = new ParticleSystem('missileExhaust', 150, this.scene);
+        // Optimized engine exhaust particles - reduced count and complexity
+        this.exhaustParticles = new ParticleSystem('missileExhaust', 80, this.scene); // Reduced from 150
         this.exhaustParticles.particleTexture = new Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==", this.scene);
         
         // Create emitter at rear of missile
@@ -192,7 +209,7 @@ export class TomahawkMissile {
         this.exhaustParticles.color2 = new Color4(1, 0.2, 0.05, 0.9); // Deep orange
         this.exhaustParticles.colorDead = new Color4(0.3, 0.1, 0.02, 0.1);
         
-        this.exhaustParticles.emitRate = 150;
+        this.exhaustParticles.emitRate = 80; // Reduced from 150
         this.exhaustParticles.minLifeTime = 0.3;
         this.exhaustParticles.maxLifeTime = 0.6;
         this.exhaustParticles.minSize = 0.3;
@@ -206,8 +223,8 @@ export class TomahawkMissile {
         this.exhaustParticles.gravity = new Vector3(0, 0, 0);
         this.exhaustParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
 
-        // Enhanced vapor trail particles for more distinct trail
-        this.trailParticles = new ParticleSystem('missileTrail', 300, this.scene);
+        // Optimized vapor trail particles - reduced count
+        this.trailParticles = new ParticleSystem('missileTrail', 150, this.scene); // Reduced from 300
         this.trailParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/flare.png', this.scene);
         this.trailParticles.emitter = emitterMesh;
         this.trailParticles.minEmitBox = new Vector3(0, 0, 0);
@@ -218,7 +235,7 @@ export class TomahawkMissile {
         this.trailParticles.color2 = new Color4(0.6, 0.7, 0.9, 0.4); // Medium blue
         this.trailParticles.colorDead = new Color4(0.2, 0.3, 0.5, 0.0);
         
-        this.trailParticles.emitRate = 120;
+        this.trailParticles.emitRate = 80; // Reduced from 120
         this.trailParticles.minLifeTime = 1.5;
         this.trailParticles.maxLifeTime = 3.0;
         this.trailParticles.minSize = 0.8;
@@ -232,8 +249,8 @@ export class TomahawkMissile {
         this.trailParticles.gravity = new Vector3(0, -1, 0);
         this.trailParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
         
-        // Add a secondary smoke trail for more dramatic effect
-        this.flightSmokeParticles = new ParticleSystem('missileSmoke', 100, this.scene);
+        // Optimized smoke trail - reduced count
+        this.flightSmokeParticles = new ParticleSystem('missileSmoke', 50, this.scene); // Reduced from 100
         this.flightSmokeParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/explosion/Smoke_11.png', this.scene);
         this.flightSmokeParticles.emitter = emitterMesh;
         this.flightSmokeParticles.minEmitBox = new Vector3(0, 0, 0);
@@ -243,7 +260,7 @@ export class TomahawkMissile {
         this.flightSmokeParticles.color2 = new Color4(0.6, 0.6, 0.6, 0.2);
         this.flightSmokeParticles.colorDead = new Color4(0.2, 0.2, 0.2, 0.0);
         
-        this.flightSmokeParticles.emitRate = 50;
+        this.flightSmokeParticles.emitRate = 30; // Reduced from 50
         this.flightSmokeParticles.minLifeTime = 2.0;
         this.flightSmokeParticles.maxLifeTime = 4.0;
         this.flightSmokeParticles.minSize = 1.0;
@@ -259,8 +276,8 @@ export class TomahawkMissile {
     }
 
     private setupExplosionEffects(): void {
-        // Fire explosion particles
-        this.fireParticles = new ParticleSystem('missileExplosionFire', 3000, this.scene);
+        // Optimized fire explosion particles - reduced count
+        this.fireParticles = new ParticleSystem('missileExplosionFire', 1500, this.scene); // Reduced from 3000
         this.fireParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/flare.png', this.scene);
         this.fireParticles.emitter = this.position;
         this.fireParticles.minEmitBox = new Vector3(-2, 0, -2);
@@ -274,7 +291,7 @@ export class TomahawkMissile {
         this.fireParticles.maxSize = 8.0;
         this.fireParticles.minLifeTime = 0.4;
         this.fireParticles.maxLifeTime = 0.8;
-        this.fireParticles.emitRate = 3000;
+        this.fireParticles.emitRate = 1500; // Reduced from 3000
         this.fireParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
         this.fireParticles.gravity = new Vector3(0, -5, 0);
         this.fireParticles.direction1 = new Vector3(-15, 10, -15);
@@ -282,11 +299,11 @@ export class TomahawkMissile {
         this.fireParticles.minEmitPower = 8;
         this.fireParticles.maxEmitPower = 20;
         this.fireParticles.updateSpeed = 0.005;
-        this.fireParticles.manualEmitCount = 3000;
+        this.fireParticles.manualEmitCount = 1500; // Reduced from 3000
         this.fireParticles.stop();
 
-        // Explosion smoke
-        this.explosionSmokeParticles = new ParticleSystem('missileExplosionSmoke', 1500, this.scene);
+        // Optimized explosion smoke - reduced count
+        this.explosionSmokeParticles = new ParticleSystem('missileExplosionSmoke', 800, this.scene); // Reduced from 1500
         this.explosionSmokeParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/explosion/Smoke_11.png', this.scene);
         this.explosionSmokeParticles.emitter = this.position;
         this.explosionSmokeParticles.minEmitBox = new Vector3(-3, 0, -3);
@@ -300,7 +317,7 @@ export class TomahawkMissile {
         this.explosionSmokeParticles.maxSize = 15.0;
         this.explosionSmokeParticles.minLifeTime = 3.0;
         this.explosionSmokeParticles.maxLifeTime = 6.0;
-        this.explosionSmokeParticles.emitRate = 1500;
+        this.explosionSmokeParticles.emitRate = 800; // Reduced from 1500
         this.explosionSmokeParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
         this.explosionSmokeParticles.gravity = new Vector3(0, -1, 0);
         this.explosionSmokeParticles.direction1 = new Vector3(-2, 5, -2);
@@ -308,7 +325,7 @@ export class TomahawkMissile {
         this.explosionSmokeParticles.minEmitPower = 2;
         this.explosionSmokeParticles.maxEmitPower = 5;
         this.explosionSmokeParticles.updateSpeed = 0.01;
-        this.explosionSmokeParticles.manualEmitCount = 1500;
+        this.explosionSmokeParticles.manualEmitCount = 800; // Reduced from 1500
         this.explosionSmokeParticles.stop();
 
         // Explosion sound
@@ -361,6 +378,13 @@ export class TomahawkMissile {
 
     public update(deltaTime: number): void {
         if (!this.launched || this.exploded) return;
+
+        // Performance optimization: limit update frequency
+        const currentTime = performance.now() / 1000;
+        if (currentTime - this.lastUpdateTime < this.updateInterval) {
+            return;
+        }
+        this.lastUpdateTime = currentTime;
 
         // Update curved path navigation
         this.pathTime += deltaTime * this.pathSpeed;
@@ -431,16 +455,16 @@ export class TomahawkMissile {
         // Hide missile model
         this.fuselage.setEnabled(false);
         
-        // Clean up after explosion
+        // Clean up after explosion - reduced cleanup time
         setTimeout(() => {
             this.fireParticles.dispose();
             this.trailParticles.dispose();
             this.exhaustParticles.dispose();
-        }, 1500);
+        }, 1000); // Reduced from 1500
         
         setTimeout(() => {
             this.explosionSmokeParticles.dispose();
-        }, 8000);
+        }, 6000); // Reduced from 8000
     }
 
     public getPosition(): Vector3 {

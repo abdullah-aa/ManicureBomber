@@ -19,6 +19,14 @@ export class UIManager {
     private lastTargetCheckTime: number = 0;
     private targetCheckInterval: number = 0.2; // Check every 200ms instead of every frame
 
+    // Performance optimization: change detection and batching
+    private lastBombCooldown: number = -1;
+    private lastMissileCooldown: number = -1;
+    private lastHasTarget: boolean = false;
+    private lastLockMode: CameraLockMode = CameraLockMode.BOMBER;
+    private updateBatchTimeout: ReturnType<typeof setTimeout> | null = null;
+    private pendingUpdates: Set<string> = new Set();
+
     constructor(game: Game, inputManager: InputManager) {
         this.game = game;
         this.inputManager = inputManager;
@@ -223,26 +231,72 @@ export class UIManager {
     }
 
     public update(): void {
-        // Update bomb button
-        const cooldownStatus = this.game.getBombCooldownStatus();
-        const fillHeight = cooldownStatus * 100;
-        this.bombButtonCooldown.style.height = `${fillHeight}%`;
+        // Performance optimization: batch updates to reduce DOM manipulation
+        this.scheduleUpdate('bomb');
+        this.scheduleUpdate('missile');
+        this.scheduleUpdate('camera');
+    }
 
-        if (cooldownStatus >= 1) {
-            this.bombButton.classList.remove('unavailable');
-        } else {
-            this.bombButton.classList.add('unavailable');
+    private scheduleUpdate(type: string): void {
+        this.pendingUpdates.add(type);
+        
+        if (this.updateBatchTimeout === null) {
+            this.updateBatchTimeout = setTimeout(() => {
+                this.processBatchedUpdates();
+                this.updateBatchTimeout = null;
+            }, 16); // ~60 FPS
         }
+    }
 
-        // Update missile button
+    private processBatchedUpdates(): void {
+        if (this.pendingUpdates.has('bomb')) {
+            this.updateBombButton();
+        }
+        
+        if (this.pendingUpdates.has('missile')) {
+            this.updateMissileButton();
+        }
+        
+        if (this.pendingUpdates.has('camera')) {
+            this.updateCameraButton();
+        }
+        
+        this.pendingUpdates.clear();
+    }
+
+    private updateBombButton(): void {
+        const cooldownStatus = this.game.getBombCooldownStatus();
+        
+        // Only update if changed
+        if (Math.abs(cooldownStatus - this.lastBombCooldown) > 0.01) {
+            const fillHeight = cooldownStatus * 100;
+            this.bombButtonCooldown.style.height = `${fillHeight}%`;
+
+            if (cooldownStatus >= 1) {
+                this.bombButton.classList.remove('unavailable');
+            } else {
+                this.bombButton.classList.add('unavailable');
+            }
+            
+            this.lastBombCooldown = cooldownStatus;
+        }
+    }
+
+    private updateMissileButton(): void {
         const missileCooldownStatus = this.game.getBomber().getMissileCooldownStatus();
-        const missileFillHeight = missileCooldownStatus * 100;
-        this.missileButtonCooldown.style.height = `${missileFillHeight}%`;
+        
+        // Only update cooldown if changed
+        if (Math.abs(missileCooldownStatus - this.lastMissileCooldown) > 0.01) {
+            const missileFillHeight = missileCooldownStatus * 100;
+            this.missileButtonCooldown.style.height = `${missileFillHeight}%`;
 
-        if (missileCooldownStatus >= 1) {
-            this.missileButton.classList.remove('unavailable');
-        } else {
-            this.missileButton.classList.add('unavailable');
+            if (missileCooldownStatus >= 1) {
+                this.missileButton.classList.remove('unavailable');
+            } else {
+                this.missileButton.classList.add('unavailable');
+            }
+            
+            this.lastMissileCooldown = missileCooldownStatus;
         }
 
         // Update missile button target indicator
@@ -254,14 +308,26 @@ export class UIManager {
             this.lastTargetCheckTime = currentTime;
         }
         
-        if (this.cachedHasValidTarget && missileCooldownStatus >= 1) {
-            this.missileButton.classList.add('has-target');
-        } else {
-            this.missileButton.classList.remove('has-target');
+        const hasTarget = this.cachedHasValidTarget && missileCooldownStatus >= 1;
+        
+        // Only update target indicator if changed
+        if (hasTarget !== this.lastHasTarget) {
+            if (hasTarget) {
+                this.missileButton.classList.add('has-target');
+            } else {
+                this.missileButton.classList.remove('has-target');
+            }
+            this.lastHasTarget = hasTarget;
         }
+    }
 
-        // Update camera toggle button appearance
+    private updateCameraButton(): void {
         const lockMode = this.game.getCameraController().getLockMode();
-        this.cameraToggleButton.setAttribute('data-mode', lockMode);
+        
+        // Only update if changed
+        if (lockMode !== this.lastLockMode) {
+            this.cameraToggleButton.setAttribute('data-mode', lockMode);
+            this.lastLockMode = lockMode;
+        }
     }
 } 
