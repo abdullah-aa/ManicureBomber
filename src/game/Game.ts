@@ -7,6 +7,7 @@ import { Bomb } from './Bomb';
 import { TomahawkMissile } from './TomahawkMissile';
 import { UIManager } from '../ui/UIManager';
 import { RadarManager } from '../ui/RadarManager';
+import { WorkerManager } from './WorkerManager';
 
 export class Game {
     private scene: Scene;
@@ -19,6 +20,7 @@ export class Game {
     private uiManager!: UIManager;
     private radarManager!: RadarManager;
     private groundCrosshair!: Mesh;
+    private workerManager!: WorkerManager;
 
     // Bombing properties
     private bombs: Bomb[] = [];
@@ -52,6 +54,10 @@ export class Game {
     private positionCacheValid: boolean = false;
     private positionCacheThreshold: number = 5; // Recalculate if moved more than 5 units
 
+    // Worker-based performance monitoring
+    private lastWorkerStatsTime: number = 0;
+    private workerStatsInterval: number = 5000; // Log worker stats every 5 seconds
+
     constructor(scene: Scene, canvas: HTMLCanvasElement) {
         this.scene = scene;
         this.canvas = canvas;
@@ -61,8 +67,11 @@ export class Game {
         this.setupLighting();
         this.setupCamera();
         
+        // Initialize worker manager first
+        this.workerManager = new WorkerManager();
+        
         this.bomber = new B2Bomber(this.scene);
-        this.terrainManager = new TerrainManager(this.scene);
+        this.terrainManager = new TerrainManager(this.scene, this.workerManager);
         this.bomber.setTerrainManager(this.terrainManager);
         this.terrainManager.setBomber(this.bomber);
         this.inputManager = new InputManager(this.scene, this.canvas);
@@ -195,6 +204,12 @@ export class Game {
                 if (currentTime - this.lastRadarUpdateTime > this.radarUpdateInterval) {
                     this.radarManager.update(this.bomber, this.terrainManager, this.destroyedBuildings, this.destroyedTargets);
                     this.lastRadarUpdateTime = currentTime;
+                }
+
+                // Monitor worker performance
+                if (currentTime - this.lastWorkerStatsTime > this.workerStatsInterval) {
+                    this.workerManager.logWorkerPerformance();
+                    this.lastWorkerStatsTime = currentTime;
                 }
 
                 // Update minimum altitude based on building height (cached)

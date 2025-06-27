@@ -165,9 +165,15 @@ export class CameraController {
             return; // Cooldown not yet complete
         }
 
-        // Reset camera to initial state
+        // Get bomber position and set camera height to just below bomber height
+        const bomberPos = this.bomber.getPosition();
+        this.followHeight = bomberPos.y - 10; // 10 units below bomber height
+        
+        // Keep height within reasonable bounds
+        this.followHeight = Math.max(this.minFollowHeight, Math.min(this.maxFollowHeight, this.followHeight));
+        
+        // Reset other camera properties to initial state
         this.followDistance = this.initialFollowDistance;
-        this.followHeight = this.initialFollowHeight;
         this.lockMode = this.initialLockMode;
         
         // Reset pan offset to center the camera

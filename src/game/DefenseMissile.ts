@@ -152,6 +152,22 @@ export class DefenseMissile {
         this.position.addInPlace(this.velocity.scale(deltaTime));
         this.missileGroup.position = this.position;
 
+        // Update rotation to match velocity direction for proper orientation
+        if (this.velocity.lengthSquared() > 0.01) {
+            // Calculate yaw (horizontal rotation around Y axis)
+            const yaw = Math.atan2(this.velocity.x, this.velocity.z);
+            
+            // Calculate pitch (vertical rotation around X axis) 
+            const horizontalSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
+            const pitch = Math.atan2(this.velocity.y, horizontalSpeed);
+            
+            // Apply rotation to missile group
+            // Note: Since the missile model is built horizontally (rotated 90° around X),
+            // we need to adjust the pitch calculation for proper orientation
+            this.missileGroup.rotation.y = yaw;
+            this.missileGroup.rotation.x = pitch - Math.PI / 2; // Adjust for model's initial horizontal orientation
+        }
+
         // Check if we've reached the target or maximum lifetime
         const distanceToTarget = Vector3.Distance(this.position, this.targetPosition);
         if (distanceToTarget < 5 || this.lifeTime > this.maxLifeTime) {
