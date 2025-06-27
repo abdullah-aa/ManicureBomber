@@ -47,6 +47,8 @@ export class Game {
         
         this.bomber = new B2Bomber(this.scene);
         this.terrainManager = new TerrainManager(this.scene);
+        this.bomber.setTerrainManager(this.terrainManager);
+        this.terrainManager.setBomber(this.bomber);
         this.inputManager = new InputManager(this.scene, this.canvas);
         this.cameraController = new CameraController(this.camera, this.bomber);
         this.uiManager = new UIManager(this, this.inputManager);
@@ -195,7 +197,7 @@ export class Game {
     }
 
     private handleMissileLaunch(): void {
-        if (this.inputManager.isMissileKeyPressed() && this.bomber.canLaunchMissile()) {
+        if (this.inputManager.isMissileKeyPressed() && this.bomber.canLaunchMissile() && this.bomber.hasValidTarget()) {
             this.bomber.launchMissile();
         }
     }

@@ -13,6 +13,11 @@ export class UIManager {
     private missileButtonCooldown!: HTMLElement;
     private cameraToggleButton!: HTMLElement;
     private cameraToggleIcon!: HTMLElement;
+    
+    // Performance optimization: cache target status
+    private cachedHasValidTarget: boolean = false;
+    private lastTargetCheckTime: number = 0;
+    private targetCheckInterval: number = 0.2; // Check every 200ms instead of every frame
 
     constructor(game: Game, inputManager: InputManager) {
         this.game = game;
@@ -30,7 +35,7 @@ export class UIManager {
 
         // Listen for missile button clicks
         this.missileButton.addEventListener('click', () => {
-            if (this.game.getBomber().canLaunchMissile()) {
+            if (this.game.getBomber().canLaunchMissile() && this.game.getBomber().hasValidTarget()) {
                 this.inputManager.triggerMissileKeyPress();
             }
         });
@@ -151,6 +156,11 @@ export class UIManager {
                 justify-content: center;
                 overflow: hidden;
                 border: 2px solid #ff4444;
+                transition: border-color 0.3s ease, box-shadow 0.3s ease;
+            }
+            #missile-button.has-target {
+                border-color: #00ff00;
+                box-shadow: 0 0 15px rgba(0, 255, 0, 0.6);
             }
             #missile-icon {
                 width: 50px;
@@ -160,6 +170,10 @@ export class UIManager {
                 background-repeat: no-repeat;
                 background-position: center;
                 z-index: 2;
+                transition: filter 0.3s ease;
+            }
+            #missile-button.has-target #missile-icon {
+                filter: hue-rotate(120deg) brightness(1.2);
             }
             #missile-cooldown {
                 position: absolute;
@@ -229,6 +243,21 @@ export class UIManager {
             this.missileButton.classList.remove('unavailable');
         } else {
             this.missileButton.classList.add('unavailable');
+        }
+
+        // Update missile button target indicator
+        const currentTime = Date.now();
+        const shouldCheckTarget = missileCooldownStatus >= 1; // Only check when cooldown is ready
+        
+        if (shouldCheckTarget && (currentTime - this.lastTargetCheckTime > this.targetCheckInterval)) {
+            this.cachedHasValidTarget = this.game.getBomber().hasValidTarget();
+            this.lastTargetCheckTime = currentTime;
+        }
+        
+        if (this.cachedHasValidTarget && missileCooldownStatus >= 1) {
+            this.missileButton.classList.add('has-target');
+        } else {
+            this.missileButton.classList.remove('has-target');
         }
 
         // Update camera toggle button appearance

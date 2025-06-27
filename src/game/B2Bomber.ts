@@ -1,6 +1,8 @@
 import { Scene, Mesh, Vector3, Color3, Color4, StandardMaterial, MeshBuilder, TransformNode, ParticleSystem, Texture, Animation } from '@babylonjs/core';
 import { InputManager } from './InputManager';
 import { TomahawkMissile } from './TomahawkMissile';
+import { TerrainManager } from './TerrainManager';
+import { Building } from './Building';
 
 export class B2Bomber {
     private scene: Scene;
@@ -27,6 +29,14 @@ export class B2Bomber {
     private missiles: TomahawkMissile[] = [];
     private lastMissileLaunchTime: number = -Infinity;
     private missileCooldownTime: number = 10; // 10 seconds cooldown
+    private terrainManager: TerrainManager | null = null; // Reference to terrain manager for targeting
+    
+    // Target detection caching for performance
+    private cachedTarget: Building | null = null;
+    private lastTargetCheckTime: number = 0;
+    private targetCheckInterval: number = 0.5; // Check for targets every 0.5 seconds instead of every frame
+    private lastTargetCheckPosition: Vector3 = new Vector3();
+    private targetCheckPositionThreshold: number = 50; // Recheck if moved more than 50 units
     
     // Performance optimizations: cache trigonometric calculations
     private lastRotationY: number = 0;
@@ -415,22 +425,66 @@ export class B2Bomber {
         return Math.min(timeSinceLastLaunch / this.missileCooldownTime, 1);
     }
 
+    public findClosestDefenseBuilding(): Building | null {
+        if (!this.terrainManager) return null;
+        
+        const currentTime = performance.now() / 1000;
+        const distanceMoved = Vector3.Distance(this.position, this.lastTargetCheckPosition);
+        
+        // Use cached result if recent enough and position hasn't changed significantly
+        if (this.cachedTarget && 
+            (currentTime - this.lastTargetCheckTime) < this.targetCheckInterval &&
+            distanceMoved < this.targetCheckPositionThreshold) {
+            
+            // Verify cached target is still valid
+            if (!this.cachedTarget.getIsDestroyed() && 
+                Vector3.Distance(this.position, this.cachedTarget.getPosition()) <= 300) {
+                return this.cachedTarget;
+            }
+        }
+        
+        // Perform expensive target detection
+        this.lastTargetCheckTime = currentTime;
+        this.lastTargetCheckPosition.copyFrom(this.position);
+        
+        const defenseRange = 300; // Same range as defense buildings
+        const nearbyBuildings = this.terrainManager.getBuildingsInRadius(this.position, defenseRange);
+        
+        let closestBuilding: Building | null = null;
+        let closestDistance = Infinity;
+        
+        for (const building of nearbyBuildings) {
+            if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
+                const distance = Vector3.Distance(this.position, building.getPosition());
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    closestBuilding = building;
+                }
+            }
+        }
+        
+        this.cachedTarget = closestBuilding;
+        return closestBuilding;
+    }
+
+    public hasValidTarget(): boolean {
+        return this.findClosestDefenseBuilding() !== null;
+    }
+
+    public invalidateTargetCache(): void {
+        this.cachedTarget = null;
+        this.lastTargetCheckTime = 0;
+    }
+
     public launchMissile(): boolean {
         if (!this.canLaunchMissile()) return false;
 
+        // Find the closest defense building
+        const targetBuilding = this.findClosestDefenseBuilding();
+        if (!targetBuilding) return false; // No valid target in range
+
         const currentTime = performance.now() / 1000;
         this.lastMissileLaunchTime = currentTime;
-
-        // Generate random target in front of bomber
-        const targetDistance = 800 + Math.random() * 1200; // 800-2000 units ahead
-        const targetAngleSpread = Math.PI / 3; // 60 degree spread
-        const targetAngle = this.rotation.y + (Math.random() - 0.5) * targetAngleSpread;
-        
-        const targetX = this.position.x + Math.sin(targetAngle) * targetDistance;
-        const targetZ = this.position.z + Math.cos(targetAngle) * targetDistance;
-        const targetY = 0; // Ground level
-        
-        const targetPosition = new Vector3(targetX, targetY, targetZ);
 
         // Alternate between left and right launchers
         const useLeftLauncher = this.missiles.length % 2 === 0;
@@ -438,11 +492,11 @@ export class B2Bomber {
             ? this.bomberGroup.position.add(new Vector3(-12, -1, 0))
             : this.bomberGroup.position.add(new Vector3(12, -1, 0));
 
-        // Create and launch missile
+        // Create and launch missile targeting the defense building
         const missile = new TomahawkMissile(
             this.scene,
             launcherPosition,
-            targetPosition,
+            targetBuilding,
             this.rotation.clone()
         );
 
@@ -470,5 +524,9 @@ export class B2Bomber {
                 }, 10000); // 10 seconds after explosion
             }
         }
+    }
+
+    public setTerrainManager(terrainManager: TerrainManager): void {
+        this.terrainManager = terrainManager;
     }
 } 

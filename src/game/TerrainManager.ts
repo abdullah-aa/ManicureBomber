@@ -22,6 +22,7 @@ export class TerrainManager {
     private heightmapCache: Map<string, Float32Array> = new Map();
     private subdivisions = 64;
     private lastBomberPosition: Vector3 = new Vector3(0, 0, 0);
+    private bomber: any = null; // Reference to bomber for cache invalidation
 
     constructor(scene: Scene) {
         this.scene = scene;
@@ -255,6 +256,16 @@ export class TerrainManager {
             
             // Create and add building
             const building = new Building(this.scene, buildingConfig);
+            
+            // Set destruction callback for defense buildings to invalidate target cache
+            if (buildingConfig.isDefenseLauncher && this.bomber) {
+                building.setOnDestroyedCallback(() => {
+                    if (this.bomber && this.bomber.invalidateTargetCache) {
+                        this.bomber.invalidateTargetCache();
+                    }
+                });
+            }
+            
             chunk.buildings.push(building);
             generatedCount++;
 
@@ -515,5 +526,9 @@ export class TerrainManager {
                 building.updateDefenseLauncher(bomberPosition, currentTime, deltaTime);
             }
         });
+    }
+
+    public setBomber(bomber: any): void {
+        this.bomber = bomber;
     }
 } 

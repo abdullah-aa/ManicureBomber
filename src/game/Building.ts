@@ -38,6 +38,9 @@ export class Building {
     private lastMissileLaunchTime: number = 0;
     private missileLaunchInterval: number = 8; // Launch every 8 seconds
     private radarScanRange: number = 300; // Detection range
+    
+    // Callback for destruction notification
+    private onDestroyedCallback: (() => void) | null = null;
 
     constructor(scene: Scene, config: BuildingConfig) {
         this.scene = scene;
@@ -381,6 +384,11 @@ export class Building {
     private destroyBuilding(): void {
         this.isDestroyed = true;
 
+        // Trigger destruction callback if set
+        if (this.onDestroyedCallback) {
+            this.onDestroyedCallback();
+        }
+
         // Create destruction explosion
         const explosionParticles = new ParticleSystem('buildingExplosion', 1000, this.scene);
         explosionParticles.particleTexture = new Texture('https://raw.githubusercontent.com/BabylonJS/Particles/master/assets/textures/flare.png', this.scene);
@@ -419,21 +427,16 @@ export class Building {
         return this.config.isTarget || false;
     }
 
+    public getIsDestroyed(): boolean {
+        return this.isDestroyed;
+    }
+
+    public setOnDestroyedCallback(callback: () => void): void {
+        this.onDestroyedCallback = callback;
+    }
+
     public getMaxHeight(): number {
-        // Return maximum height including any attachments (like smokestacks)
-        let maxHeight = this.config.height;
-        
-        // Add extra height for industrial buildings with smokestacks
-        if (this.config.type === BuildingType.INDUSTRIAL) {
-            maxHeight += this.config.height * 0.8; // Smokestack height
-        }
-        
-        // Add extra height for skyscrapers with tiers
-        if (this.config.type === BuildingType.SKYSCRAPER) {
-            maxHeight += this.config.height * 0.5; // Tier heights
-        }
-        
-        return maxHeight;
+        return this.config.height;
     }
 
     public updateDefenseLauncher(bomberPosition: Vector3, currentTime: number, deltaTime: number): void {

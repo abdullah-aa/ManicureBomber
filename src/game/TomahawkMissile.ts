@@ -1,4 +1,5 @@
 import { Scene, Mesh, Vector3, MeshBuilder, StandardMaterial, Color3, ParticleSystem, Texture, Sound, Color4, PointLight, TransformNode, Animation, AnimationGroup } from '@babylonjs/core';
+import { Building } from './Building';
 
 export class TomahawkMissile {
     private scene: Scene;
@@ -8,6 +9,7 @@ export class TomahawkMissile {
     private velocity: Vector3;
     private rotation: Vector3;
     private targetPosition: Vector3;
+    private targetBuilding: Building | null = null;
     private speed: number = 150; // Cruise missile speed
     private turnRate: number = 2.0; // How fast the missile can turn
     private launched: boolean = false;
@@ -19,11 +21,20 @@ export class TomahawkMissile {
     private explosionSound!: Sound;
     private light!: PointLight;
     private launchAnimationGroup!: AnimationGroup;
+    
+    // Curved path navigation properties
+    private pathProgress: number = 0;
+    private pathDuration: number = 8; // Time to reach target in seconds
+    private pathStartTime: number = 0;
+    private waypoints: Vector3[] = [];
+    private currentWaypointIndex: number = 0;
+    private waypointReachedDistance: number = 10;
 
-    constructor(scene: Scene, launchPosition: Vector3, targetPosition: Vector3, launchRotation: Vector3) {
+    constructor(scene: Scene, launchPosition: Vector3, targetBuilding: Building, launchRotation: Vector3) {
         this.scene = scene;
         this.position = launchPosition.clone();
-        this.targetPosition = targetPosition.clone();
+        this.targetBuilding = targetBuilding;
+        this.targetPosition = targetBuilding.getPosition().clone();
         this.rotation = launchRotation.clone();
         this.velocity = new Vector3(0, 0, 0); // Start stationary
         
@@ -35,6 +46,38 @@ export class TomahawkMissile {
         this.setupParticleEffects();
         this.setupExplosionEffects();
         this.createLaunchAnimation();
+        this.generateCurvedPath();
+    }
+
+    private generateCurvedPath(): void {
+        // Generate a curved winding path to the target
+        const startPos = this.position.clone();
+        const endPos = this.targetPosition.clone();
+        
+        const distance = Vector3.Distance(startPos, endPos);
+        
+        // Reduce waypoint count for better performance - use fewer waypoints for shorter distances
+        const maxWaypoints = Math.min(5, Math.max(2, Math.floor(distance / 200))); // Max 5 waypoints, min 2
+        
+        this.waypoints = [startPos];
+        
+        for (let i = 1; i < maxWaypoints; i++) {
+            const t = i / (maxWaypoints - 1);
+            const basePos = Vector3.Lerp(startPos, endPos, t);
+            
+            // Simplified curved deviation - use fewer trigonometric calculations
+            const deviation = Math.sin(t * Math.PI) * (distance * 0.1); // Reduced to 10% of distance
+            const heightVariation = Math.sin(t * Math.PI) * 30; // Reduced height variation
+            
+            const waypoint = basePos.clone();
+            waypoint.x += Math.cos(t * Math.PI * 2) * deviation;
+            waypoint.z += Math.sin(t * Math.PI * 2) * deviation;
+            waypoint.y += heightVariation;
+            
+            this.waypoints.push(waypoint);
+        }
+        
+        this.waypoints.push(endPos);
     }
 
     private createMissileModel(): void {
@@ -263,6 +306,7 @@ export class TomahawkMissile {
         if (this.launched) return;
         
         this.launched = true;
+        this.pathStartTime = performance.now() / 1000;
         
         // Start particle effects
         this.exhaustParticles.start();
@@ -278,26 +322,45 @@ export class TomahawkMissile {
     }
 
     private startGuidedFlight(): void {
-        // Calculate initial velocity toward target
-        const directionToTarget = this.targetPosition.subtract(this.position).normalize();
-        this.velocity = directionToTarget.scale(this.speed);
+        // Calculate initial velocity toward first waypoint
+        if (this.waypoints.length > 1) {
+            const directionToWaypoint = this.waypoints[1].subtract(this.position).normalize();
+            this.velocity = directionToWaypoint.scale(this.speed);
+        }
     }
 
     public update(deltaTime: number): void {
         if (!this.launched || this.exploded) return;
 
-        // Update guided navigation toward target
-        const distanceToTarget = Vector3.Distance(this.position, this.targetPosition);
-        
-        if (distanceToTarget > 5) {
-            // Continue guiding toward target
-            const directionToTarget = this.targetPosition.subtract(this.position).normalize();
-            const desiredVelocity = directionToTarget.scale(this.speed);
+        // Update curved path navigation
+        if (this.waypoints.length > 0 && this.currentWaypointIndex < this.waypoints.length) {
+            const currentWaypoint = this.waypoints[this.currentWaypointIndex];
+            const distanceToWaypoint = Vector3.Distance(this.position, currentWaypoint);
             
-            // Smoothly turn toward target
-            this.velocity = Vector3.Lerp(this.velocity, desiredVelocity, this.turnRate * deltaTime);
-            
-            // Update rotation to match velocity direction
+            if (distanceToWaypoint <= this.waypointReachedDistance) {
+                // Move to next waypoint
+                this.currentWaypointIndex++;
+                
+                if (this.currentWaypointIndex < this.waypoints.length) {
+                    // Calculate direction to next waypoint
+                    const nextWaypoint = this.waypoints[this.currentWaypointIndex];
+                    const directionToNext = nextWaypoint.subtract(this.position).normalize();
+                    this.velocity = directionToNext.scale(this.speed);
+                }
+            } else {
+                // Continue toward current waypoint - simplified calculation
+                const directionToWaypoint = currentWaypoint.subtract(this.position).normalize();
+                const desiredVelocity = directionToWaypoint.scale(this.speed);
+                
+                // Use simpler interpolation for better performance
+                this.velocity.x = this.velocity.x + (desiredVelocity.x - this.velocity.x) * this.turnRate * deltaTime;
+                this.velocity.y = this.velocity.y + (desiredVelocity.y - this.velocity.y) * this.turnRate * deltaTime;
+                this.velocity.z = this.velocity.z + (desiredVelocity.z - this.velocity.z) * this.turnRate * deltaTime;
+            }
+        }
+
+        // Update rotation to match velocity direction - simplified calculation
+        if (this.velocity.lengthSquared() > 0.01) { // Use lengthSquared for better performance
             // Calculate yaw (horizontal rotation around Y axis)
             this.rotation.y = Math.atan2(this.velocity.x, this.velocity.z);
             
@@ -307,11 +370,14 @@ export class TomahawkMissile {
         }
 
         // Update position
-        this.position.addInPlace(this.velocity.scale(deltaTime));
+        this.position.x += this.velocity.x * deltaTime;
+        this.position.y += this.velocity.y * deltaTime;
+        this.position.z += this.velocity.z * deltaTime;
         this.missileGroup.position = this.position.clone();
         this.missileGroup.rotation = this.rotation.clone();
 
         // Check if reached target or ground
+        const distanceToTarget = Vector3.Distance(this.position, this.targetPosition);
         if (distanceToTarget <= 5 || this.position.y <= 0) {
             this.explode();
         }
@@ -333,6 +399,11 @@ export class TomahawkMissile {
         this.fireParticles.start();
         this.smokeParticles.start();
         this.explosionSound.play();
+        
+        // Destroy the target building if it exists and is close enough
+        if (this.targetBuilding && Vector3.Distance(this.position, this.targetBuilding.getPosition()) <= 20) {
+            this.targetBuilding.takeDamage(100); // Destroy building instantly
+        }
         
         // Hide missile model
         this.fuselage.setEnabled(false);
