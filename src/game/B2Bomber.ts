@@ -1,4 +1,4 @@
-import { Scene, Mesh, Vector3, Color3, Color4, StandardMaterial, MeshBuilder, TransformNode, ParticleSystem, Texture, Animation, PointLight } from '@babylonjs/core';
+import { Scene, Mesh, Vector3, Color3, Color4, StandardMaterial, MeshBuilder, TransformNode, ParticleSystem, Texture, Animation, PointLight, DynamicTexture } from '@babylonjs/core';
 import { InputManager } from './InputManager';
 import { TomahawkMissile } from './TomahawkMissile';
 import { TerrainManager } from './TerrainManager';
@@ -64,6 +64,8 @@ export class B2Bomber {
     private activeFlares: Vector3[] = [];
     private flareLifetime: number = 5; // Flares last 5 seconds
     private flareDetectionRange: number = 80; // Range for Iskander missiles to detect flares
+    private flareParticleSystems: ParticleSystem[] = []; // Visual effects for flares
+    private flareMeshes: Mesh[] = []; // Visual flare meshes
 
     constructor(scene: Scene) {
         this.scene = scene;
@@ -806,15 +808,104 @@ export class B2Bomber {
             this.position.add(new Vector3(0, -8, -15))
         ];
 
+        // Create visual effects for each flare
+        flarePositions.forEach((flarePos, index) => {
+            // Create flare mesh
+            const flareMesh = MeshBuilder.CreateSphere(`flare${index}`, { diameter: 0.5 }, this.scene);
+            flareMesh.position = flarePos.clone();
+            
+            const flareMaterial = new StandardMaterial(`flareMaterial${index}`, this.scene);
+            flareMaterial.diffuseColor = new Color3(1, 0.8, 0.2); // Bright orange-yellow
+            flareMaterial.emissiveColor = new Color3(1, 0.6, 0.1); // Glowing effect
+            flareMaterial.specularColor = new Color3(1, 1, 1);
+            flareMesh.material = flareMaterial;
+            
+            // Add point light to flare
+            const flareLight = new PointLight(`flareLight${index}`, flarePos.clone(), this.scene);
+            flareLight.diffuse = new Color3(1, 0.8, 0.2);
+            flareLight.specular = new Color3(1, 0.8, 0.2);
+            flareLight.intensity = 3;
+            flareLight.range = 20;
+            
+            // Create flare particle system
+            const flareParticles = this.createFlareParticleSystem(flarePos.clone(), index);
+            
+            // Store references for cleanup
+            this.flareMeshes.push(flareMesh);
+            this.flareParticleSystems.push(flareParticles);
+        });
+
         // Add flares to active list
         this.activeFlares.push(...flarePositions);
 
         // Remove flares after lifetime
         setTimeout(() => {
+            // Remove flare positions
             this.activeFlares.splice(0, flarePositions.length);
+            
+            // Clean up visual effects
+            this.flareMeshes.forEach(mesh => {
+                if (mesh) {
+                    mesh.dispose();
+                }
+            });
+            this.flareMeshes = [];
+            
+            this.flareParticleSystems.forEach(particles => {
+                if (particles) {
+                    particles.dispose();
+                }
+            });
+            this.flareParticleSystems = [];
         }, this.flareLifetime * 1000);
 
         return true;
+    }
+
+    private createFlareParticleSystem(flarePosition: Vector3, index: number): ParticleSystem {
+        // Create procedural flare texture
+        const flareTexture = new DynamicTexture(`flareTexture${index}`, {width: 32, height: 32}, this.scene);
+        const flareContext = flareTexture.getContext();
+        
+        // Create bright flare effect
+        const flareGradient = flareContext.createRadialGradient(16, 16, 0, 16, 16, 16);
+        flareGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        flareGradient.addColorStop(0.3, 'rgba(255, 255, 200, 0.9)');
+        flareGradient.addColorStop(0.7, 'rgba(255, 200, 100, 0.6)');
+        flareGradient.addColorStop(1, 'rgba(255, 150, 50, 0)');
+        
+        flareContext.fillStyle = flareGradient;
+        flareContext.fillRect(0, 0, 32, 32);
+        flareTexture.update();
+
+        // Create flare particle system
+        const flareParticles = new ParticleSystem(`flareParticles${index}`, 100, this.scene);
+        flareParticles.particleTexture = flareTexture;
+        flareParticles.emitter = flarePosition;
+        flareParticles.minEmitBox = new Vector3(-0.2, -0.2, -0.2);
+        flareParticles.maxEmitBox = new Vector3(0.2, 0.2, 0.2);
+        
+        // Bright orange-yellow flare colors
+        flareParticles.color1 = new Color4(1, 0.9, 0.3, 1.0);
+        flareParticles.color2 = new Color4(1, 0.7, 0.2, 0.8);
+        flareParticles.colorDead = new Color4(1, 0.5, 0.1, 0.0);
+        
+        flareParticles.minSize = 0.5;
+        flareParticles.maxSize = 1.5;
+        flareParticles.minLifeTime = 0.5;
+        flareParticles.maxLifeTime = 1.0;
+        flareParticles.emitRate = 100;
+        flareParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        flareParticles.gravity = new Vector3(0, -2, 0);
+        flareParticles.direction1 = new Vector3(-1, 1, -1);
+        flareParticles.direction2 = new Vector3(1, 2, 1);
+        flareParticles.minEmitPower = 2;
+        flareParticles.maxEmitPower = 5;
+        flareParticles.updateSpeed = 0.01;
+        
+        flareParticles.start();
+        
+        return flareParticles;
     }
 
     public getActiveFlares(): Vector3[] {
@@ -827,5 +918,43 @@ export class B2Bomber {
 
     public getFlareDetectionRange(): number {
         return this.flareDetectionRange;
+    }
+
+    public dispose(): void {
+        // Clean up flare resources
+        this.flareMeshes.forEach(mesh => {
+            if (mesh) {
+                mesh.dispose();
+            }
+        });
+        this.flareMeshes = [];
+        
+        this.flareParticleSystems.forEach(particles => {
+            if (particles) {
+                particles.dispose();
+            }
+        });
+        this.flareParticleSystems = [];
+        
+        // Clear active flares
+        this.activeFlares = [];
+        
+        // Clean up damage effects
+        this.damageEffects.forEach(ps => ps.dispose());
+        this.damageEffects = [];
+        
+        if (this.damageLight) {
+            this.damageLight.dispose();
+            this.damageLight = null;
+        }
+        
+        // Clean up engine particles
+        this.particleSystems.forEach(ps => ps.dispose());
+        this.particleSystems = [];
+        
+        // Clean up bomber mesh
+        if (this.bomberGroup) {
+            this.bomberGroup.dispose();
+        }
     }
 } 

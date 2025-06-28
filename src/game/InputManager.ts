@@ -90,6 +90,10 @@ export class InputManager {
         return this.isKeyPressed('Period');
     }
 
+    public isCountermeasureKeyPressed(): boolean {
+        return this.isKeyPressed('Slash');
+    }
+
     public triggerBombKeyPress(): void {
         this.keys['Comma'] = true;
         // Reset after a short time to simulate a single press

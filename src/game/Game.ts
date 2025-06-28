@@ -341,7 +341,7 @@ export class Game {
     }
 
     private handleCountermeasures(): void {
-        if (this.inputManager.isKeyPressed('Slash') && this.bomber.canLaunchFlares()) {
+        if (this.inputManager.isCountermeasureKeyPressed() && this.bomber.canLaunchFlares()) {
             this.bomber.launchFlares();
         }
     }
@@ -366,7 +366,7 @@ export class Game {
                     if (index > -1) {
                         this.iskanderMissiles.splice(index, 1);
                     }
-                }, 10000); // 10 seconds after explosion
+                }, 2000); // Reduced from 10 seconds to 2 seconds for faster cleanup
             }
         }
     }

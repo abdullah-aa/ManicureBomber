@@ -38,7 +38,7 @@ export class IskanderMissile {
     // Countermeasure flare targeting
     private flareTargets: Vector3[] = [];
     private currentTargetIndex: number = 0;
-    private flareDetectionRange: number = 50; // Range to detect flares
+    private flareDetectionRange: number = 80; // Increased from 50 to 80 for better effectiveness
     private flareAttractionStrength: number = 0.7; // How strongly flares attract the missile
     private originalTargetPosition: Vector3;
     private isTargetingFlare: boolean = false;
@@ -518,18 +518,31 @@ export class IskanderMissile {
     }
 
     private checkForFlareTargets(): void {
+        // Clear old flare targets that are too far away
+        this.flareTargets = this.flareTargets.filter(flarePos => {
+            const distanceToFlare = Vector3.Distance(this.position, flarePos);
+            return distanceToFlare <= this.flareDetectionRange * 2; // Keep flares within 2x detection range
+        });
+
         // Check if any flares are within detection range
+        let closestFlare: Vector3 | null = null;
+        let closestDistance = Infinity;
+        
         for (let i = 0; i < this.flareTargets.length; i++) {
             const flarePos = this.flareTargets[i];
             const distanceToFlare = Vector3.Distance(this.position, flarePos);
             
-            if (distanceToFlare <= this.flareDetectionRange) {
-                // Switch to targeting this flare
-                this.targetPosition = flarePos.clone();
-                this.isTargetingFlare = true;
-                this.currentTargetIndex = i;
-                return;
+            if (distanceToFlare <= this.flareDetectionRange && distanceToFlare < closestDistance) {
+                closestFlare = flarePos;
+                closestDistance = distanceToFlare;
             }
+        }
+        
+        if (closestFlare) {
+            // Switch to targeting the closest flare
+            this.targetPosition = closestFlare.clone();
+            this.isTargetingFlare = true;
+            return;
         }
         
         // If no flares in range, return to original target (bomber)
@@ -551,7 +564,10 @@ export class IskanderMissile {
 
         // Update target position periodically for better performance
         if (currentTime - this.lastTargetUpdateTime > this.targetUpdateInterval) {
-            this.targetPosition = this.bomber.getPosition().clone();
+            if (!this.isTargetingFlare) {
+                this.targetPosition = this.bomber.getPosition().clone();
+                this.originalTargetPosition = this.targetPosition.clone();
+            }
             this.lastTargetUpdateTime = currentTime;
         }
 
@@ -706,7 +722,7 @@ export class IskanderMissile {
         }
         
         // Hide missile model
-        this.fuselage.setEnabled(false);
+        this.missileGroup.setEnabled(false);
         
         // Clean up after explosion
         setTimeout(() => {
@@ -715,6 +731,11 @@ export class IskanderMissile {
             this.exhaustParticles.dispose();
             this.shockwaveParticles.dispose();
             this.sparkParticles.dispose();
+            
+            // Dispose of the entire missile group to remove all visual components
+            if (this.missileGroup) {
+                this.missileGroup.dispose();
+            }
         }, 1000);
         
         setTimeout(() => {
