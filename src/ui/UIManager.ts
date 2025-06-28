@@ -8,6 +8,7 @@ export class UIManager {
     private bombButton!: HTMLElement;
     private bombButtonIcon!: HTMLElement;
     private bombButtonCooldown!: HTMLElement;
+    private bombBayStatus!: HTMLElement;
     private missileButton!: HTMLElement;
     private missileButtonIcon!: HTMLElement;
     private missileButtonCooldown!: HTMLElement;
@@ -84,11 +85,13 @@ export class UIManager {
         this.bombButton.innerHTML = `
             <div id="bomb-icon"></div>
             <div id="bomb-cooldown"></div>
+            <div id="bomb-bay-status"></div>
         `;
         document.body.appendChild(this.bombButton);
 
         this.bombButtonIcon = document.getElementById('bomb-icon')!;
         this.bombButtonCooldown = document.getElementById('bomb-cooldown')!;
+        this.bombBayStatus = document.getElementById('bomb-bay-status')!;
 
         // Add some basic styling
         this.addStyles();
@@ -270,8 +273,47 @@ export class UIManager {
             #bomb-button.unavailable {
                 cursor: not-allowed;
             }
-             #bomb-button.unavailable #bomb-icon {
+            #bomb-button.unavailable #bomb-icon {
                 opacity: 0.5;
+            }
+            #bomb-bay-status {
+                position: absolute;
+                top: -25px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(255, 165, 0, 0.9);
+                color: white;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 10px;
+                font-weight: bold;
+                white-space: nowrap;
+                opacity: 0;
+                transition: opacity 0.3s ease;
+                pointer-events: none;
+            }
+            
+            #bomb-bay-status.show {
+                opacity: 1;
+            }
+            
+            #bomb-bay-status.opening {
+                background: rgba(255, 165, 0, 0.9);
+                animation: pulse 1s infinite;
+            }
+            
+            #bomb-bay-status.closing {
+                background: rgba(255, 100, 0, 0.9);
+                animation: pulse 1s infinite;
+            }
+            
+            #bomb-bay-status.open {
+                background: rgba(0, 255, 0, 0.9);
+            }
+            
+            @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.7; }
             }
             #missile-button {
                 position: fixed;
@@ -500,6 +542,24 @@ export class UIManager {
             }
             
             this.lastBombCooldown = cooldownStatus;
+        }
+
+        // Update bomb bay status
+        const bomber = this.game.getBomber();
+        const isBombingRun = this.game.isBombingRunActive();
+        
+        if (isBombingRun) {
+            if (bomber.isBombBayOpening()) {
+                this.bombBayStatus.className = 'show opening';
+            } else if (bomber.isBombBayClosing()) {
+                this.bombBayStatus.className = 'show closing';
+            } else if (bomber.isBombBayOpen()) {
+                this.bombBayStatus.className = 'show open';
+            } else {
+                this.bombBayStatus.className = '';
+            }
+        } else {
+            this.bombBayStatus.className = '';
         }
     }
 

@@ -256,12 +256,14 @@ export class Game {
             this.startBombingRun();
         }
 
-        if (this.isBombingRun && this.bombsToDrop > 0 && (currentTime - this.lastBombDropTime) >= 1) {
+        // Only drop bombs if we're in a bombing run AND the bomb bay is fully open
+        if (this.isBombingRun && this.bombsToDrop > 0 && this.bomber.isBombBayOpen() && (currentTime - this.lastBombDropTime) >= 1) {
             this.dropBomb();
             this.bombsToDrop--;
             this.lastBombDropTime = currentTime;
         }
 
+        // End bombing run when all bombs are dropped
         if (this.isBombingRun && this.bombsToDrop === 0) {
             this.isBombingRun = false;
             this.bomber.closeBombBay();
@@ -397,13 +399,17 @@ export class Game {
             this.bombsToDrop = 9;
             this.lastBombDropTime = performance.now() / 1000;
             this.bomber.openBombBay();
-            this.dropBomb();
+            // Don't drop bomb immediately - wait for doors to open
         }
     }
 
     public isBombingAvailable(): boolean {
         const currentTime = performance.now() / 1000;
         return !this.isBombingRun && (currentTime - this.lastBombingRunTime) > this.bombingRunCooldown;
+    }
+
+    public isBombingRunActive(): boolean {
+        return this.isBombingRun;
     }
 
     public getBombCooldownStatus(): number {

@@ -18,6 +18,15 @@ export class Bomber {
     private bombBayLeft!: Mesh;
     private bombBayRight!: Mesh;
     
+    // Bomb bay state tracking
+    private bombBayState: 'closed' | 'opening' | 'open' | 'closing' = 'closed';
+    private bombBayOpenProgress: number = 0; // 0 = closed, 1 = fully open
+    private bombBayOpenTime: number = 1.0; // Time in seconds for doors to fully open
+    private bombBayOpenStartTime: number = 0;
+    private bombBayLights: PointLight[] = [];
+    private bombBayParticles: ParticleSystem[] = [];
+    private bombBayGlowMaterial: StandardMaterial | null = null;
+    
     // Banking/roll properties for realistic turning
     private maxBankAngle: number = Math.PI / 6; // 30 degrees max bank (symmetric)
     private maxClimbBankAngle: number = Math.PI / 12; // 15 degrees for altitude changes (symmetric)
@@ -229,23 +238,103 @@ export class Bomber {
     private createBombBay(): void {
         const bayMaterial = new StandardMaterial('bayMaterial', this.scene);
         bayMaterial.diffuseColor = new Color3(0.1, 0.1, 0.12);
+        bayMaterial.specularColor = new Color3(0.3, 0.3, 0.4);
+        bayMaterial.emissiveColor = new Color3(0.02, 0.02, 0.03);
 
         // Create bomb bay doors that open outward and downward
         // Left door - positioned on the left side of the cylindrical fuselage
-        this.bombBayLeft = MeshBuilder.CreateBox('bombBayLeft', { width: 1.8, height: 0.2, depth: 8 }, this.scene);
-        this.bombBayLeft.position = new Vector3(-1, -1, -3); // Further out and lower for cylindrical fuselage
+        this.bombBayLeft = MeshBuilder.CreateBox('bombBayLeft', { width: 2.0, height: 0.3, depth: 10 }, this.scene);
+        this.bombBayLeft.position = new Vector3(-1.2, -1.2, -3); // Further out and lower for cylindrical fuselage
         this.bombBayLeft.parent = this.bomberGroup;
         this.bombBayLeft.material = bayMaterial;
         // Set pivot point for rotation (left edge of door)
         this.bombBayLeft.rotation.z = 0; // Will rotate around Z axis for outward swing
 
         // Right door - positioned on the right side of the cylindrical fuselage
-        this.bombBayRight = MeshBuilder.CreateBox('bombBayRight', { width: 1.8, height: 0.2, depth: 8 }, this.scene);
-        this.bombBayRight.position = new Vector3(1, -1, -3); // Further out and lower for cylindrical fuselage
+        this.bombBayRight = MeshBuilder.CreateBox('bombBayRight', { width: 2.0, height: 0.3, depth: 10 }, this.scene);
+        this.bombBayRight.position = new Vector3(1.2, -1.2, -3); // Further out and lower for cylindrical fuselage
         this.bombBayRight.parent = this.bomberGroup;
         this.bombBayRight.material = bayMaterial;
         // Set pivot point for rotation (right edge of door)
         this.bombBayRight.rotation.z = 0; // Will rotate around Z axis for outward swing
+
+        // Create bomb bay interior lighting
+        this.createBombBayLighting();
+        
+        // Create bomb bay particle effects
+        this.createBombBayParticles();
+        
+        // Create glow material for when bay is open
+        this.createBombBayGlowMaterial();
+    }
+
+    private createBombBayLighting(): void {
+        // Create multiple lights inside the bomb bay for dramatic effect
+        const lightPositions = [
+            new Vector3(0, -2, -1),
+            new Vector3(0, -2, -5),
+            new Vector3(0, -2, -9)
+        ];
+
+        lightPositions.forEach((pos, index) => {
+            const light = new PointLight(`bombBayLight${index}`, pos, this.scene);
+            light.diffuse = new Color3(1, 0.8, 0.6); // Warm orange light
+            light.specular = new Color3(1, 0.8, 0.6);
+            light.intensity = 0; // Start off
+            light.range = 15;
+            light.parent = this.bomberGroup;
+            this.bombBayLights.push(light);
+        });
+    }
+
+    private createBombBayParticles(): void {
+        // Create procedural particle texture
+        const particleTexture = new DynamicTexture('bombBayParticleTexture', {width: 32, height: 32}, this.scene);
+        const particleContext = particleTexture.getContext();
+        
+        // Create bright particle effect
+        const particleGradient = particleContext.createRadialGradient(16, 16, 0, 16, 16, 16);
+        particleGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        particleGradient.addColorStop(0.5, 'rgba(255, 200, 100, 0.8)');
+        particleGradient.addColorStop(1, 'rgba(255, 150, 50, 0)');
+        
+        particleContext.fillStyle = particleGradient;
+        particleContext.fillRect(0, 0, 32, 32);
+        particleTexture.update();
+
+        // Create particle system for bomb bay effects
+        const bayParticles = new ParticleSystem('bombBayParticles', 100, this.scene);
+        bayParticles.particleTexture = particleTexture;
+        bayParticles.emitter = this.bomberGroup.position.add(new Vector3(0, -2, -3));
+        bayParticles.minEmitBox = new Vector3(-1, 0, -2);
+        bayParticles.maxEmitBox = new Vector3(1, 0, 2);
+        
+        bayParticles.color1 = new Color4(1, 0.9, 0.6, 1.0);
+        bayParticles.color2 = new Color4(1, 0.7, 0.3, 0.8);
+        bayParticles.colorDead = new Color4(1, 0.5, 0.1, 0.0);
+        
+        bayParticles.minSize = 0.2;
+        bayParticles.maxSize = 0.8;
+        bayParticles.minLifeTime = 0.5;
+        bayParticles.maxLifeTime = 1.0;
+        bayParticles.emitRate = 0; // Start stopped
+        bayParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        bayParticles.gravity = new Vector3(0, -1, 0);
+        bayParticles.direction1 = new Vector3(-0.5, 0.5, -0.5);
+        bayParticles.direction2 = new Vector3(0.5, 1, 0.5);
+        bayParticles.minEmitPower = 1;
+        bayParticles.maxEmitPower = 3;
+        bayParticles.updateSpeed = 0.01;
+        
+        this.bombBayParticles.push(bayParticles);
+    }
+
+    private createBombBayGlowMaterial(): void {
+        this.bombBayGlowMaterial = new StandardMaterial('bombBayGlowMaterial', this.scene);
+        this.bombBayGlowMaterial.diffuseColor = new Color3(0.15, 0.15, 0.18);
+        this.bombBayGlowMaterial.specularColor = new Color3(0.5, 0.5, 0.6);
+        this.bombBayGlowMaterial.emissiveColor = new Color3(0.1, 0.08, 0.12); // Subtle glow
+        this.bombBayGlowMaterial.alpha = 0.9;
     }
 
     private createEngines(): void {
@@ -427,6 +516,9 @@ export class Bomber {
         this.tempRotation.z = this.currentBankAngle; // Apply banking to Z rotation (roll)
         this.bomberGroup.rotation.copyFrom(this.tempRotation);
 
+        // Update bomb bay state and effects
+        this.updateBombBay(deltaTime);
+
         // Update missiles
         this.updateMissiles(deltaTime);
     }
@@ -448,49 +540,142 @@ export class Bomber {
     }
 
     public openBombBay(): void {
-        // Create animation for left door (swing outward and down)
-        const openLeftAnimation = new Animation('openBombBayLeft', 'rotation.z', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        const leftKeys = [
-            { frame: 0, value: 0 },
-            { frame: 20, value: Math.PI / 3 } // Swing outward and down
-        ];
-        openLeftAnimation.setKeys(leftKeys);
-        
-        // Create animation for right door (swing outward and down in opposite direction)
-        const openRightAnimation = new Animation('openBombBayRight', 'rotation.z', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        const rightKeys = [
-            { frame: 0, value: 0 },
-            { frame: 20, value: -Math.PI / 3 } // Swing outward and down in opposite direction
-        ];
-        openRightAnimation.setKeys(rightKeys);
-        
-        this.bombBayLeft.animations.push(openLeftAnimation);
-        this.bombBayRight.animations.push(openRightAnimation);
-        this.scene.beginDirectAnimation(this.bombBayLeft, [openLeftAnimation], 0, 20, false);
-        this.scene.beginDirectAnimation(this.bombBayRight, [openRightAnimation], 0, 20, false);
+        if (this.bombBayState === 'closed') {
+            this.bombBayState = 'opening';
+            this.bombBayOpenStartTime = performance.now() / 1000;
+            this.bombBayOpenProgress = 0;
+            
+            // Start visual effects
+            this.startBombBayEffects();
+        }
     }
 
     public closeBombBay(): void {
-        // Create animation for left door (swing back to closed position)
-        const closeLeftAnimation = new Animation('closeBombBayLeft', 'rotation.z', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        const leftKeys = [
-            { frame: 0, value: this.bombBayLeft.rotation.z },
-            { frame: 20, value: 0 }
-        ];
-        closeLeftAnimation.setKeys(leftKeys);
+        if (this.bombBayState === 'open') {
+            this.bombBayState = 'closing';
+            this.bombBayOpenStartTime = performance.now() / 1000; // Set the start time for closing animation
+            this.bombBayOpenProgress = 1; // Start from fully open position
+            
+            // Don't stop effects immediately - let them fade out during closing animation
+        }
+    }
+
+    public updateBombBay(deltaTime: number): void {
+        const currentTime = performance.now() / 1000;
         
-        // Create animation for right door (swing back to closed position)
-        const closeRightAnimation = new Animation('closeBombBayRight', 'rotation.z', 30, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        const rightKeys = [
-            { frame: 0, value: this.bombBayRight.rotation.z },
-            { frame: 20, value: 0 }
-        ];
-        closeRightAnimation.setKeys(rightKeys);
+        if (this.bombBayState === 'opening') {
+            const elapsed = currentTime - this.bombBayOpenStartTime;
+            this.bombBayOpenProgress = Math.min(elapsed / this.bombBayOpenTime, 1);
+            
+            // Update door rotations based on progress
+            const maxRotation = Math.PI / 3; // 60 degrees
+            this.bombBayLeft.rotation.z = this.bombBayOpenProgress * maxRotation;
+            this.bombBayRight.rotation.z = -this.bombBayOpenProgress * maxRotation;
+            
+            // Update visual effects intensity
+            this.updateBombBayEffects(this.bombBayOpenProgress);
+            
+            if (this.bombBayOpenProgress >= 1) {
+                this.bombBayState = 'open';
+            }
+        } else if (this.bombBayState === 'closing') {
+            const elapsed = currentTime - this.bombBayOpenStartTime;
+            this.bombBayOpenProgress = Math.max(1 - (elapsed / this.bombBayOpenTime), 0);
+            
+            // Update door rotations based on progress
+            const maxRotation = Math.PI / 3; // 60 degrees
+            this.bombBayLeft.rotation.z = this.bombBayOpenProgress * maxRotation;
+            this.bombBayRight.rotation.z = -this.bombBayOpenProgress * maxRotation;
+            
+            // Update visual effects intensity - fade out during closing
+            this.updateBombBayEffects(this.bombBayOpenProgress);
+            
+            if (this.bombBayOpenProgress <= 0) {
+                this.bombBayState = 'closed';
+                // Now stop all effects since doors are fully closed
+                this.stopBombBayEffects();
+            }
+        }
+    }
+
+    private startBombBayEffects(): void {
+        // Start particle effects
+        this.bombBayParticles.forEach(particles => {
+            particles.start();
+        });
         
-        this.bombBayLeft.animations.push(closeLeftAnimation);
-        this.bombBayRight.animations.push(closeRightAnimation);
-        this.scene.beginDirectAnimation(this.bombBayLeft, [closeLeftAnimation], 0, 20, false);
-        this.scene.beginDirectAnimation(this.bombBayRight, [closeRightAnimation], 0, 20, false);
+        // Start lights
+        this.bombBayLights.forEach(light => {
+            light.intensity = 2;
+        });
+        
+        // Apply glow material to doors
+        if (this.bombBayGlowMaterial) {
+            this.bombBayLeft.material = this.bombBayGlowMaterial;
+            this.bombBayRight.material = this.bombBayGlowMaterial;
+        }
+    }
+
+    private stopBombBayEffects(): void {
+        // Stop particle effects
+        this.bombBayParticles.forEach(particles => {
+            particles.stop();
+        });
+        
+        // Stop lights
+        this.bombBayLights.forEach(light => {
+            light.intensity = 0;
+        });
+        
+        // Restore original material
+        const originalMaterial = new StandardMaterial('bayMaterial', this.scene);
+        originalMaterial.diffuseColor = new Color3(0.1, 0.1, 0.12);
+        originalMaterial.specularColor = new Color3(0.3, 0.3, 0.4);
+        originalMaterial.emissiveColor = new Color3(0.02, 0.02, 0.03);
+        
+        this.bombBayLeft.material = originalMaterial;
+        this.bombBayRight.material = originalMaterial;
+    }
+
+    private updateBombBayEffects(intensity: number): void {
+        // Update light intensity
+        this.bombBayLights.forEach(light => {
+            light.intensity = intensity * 2;
+        });
+        
+        // Update particle emission rate
+        this.bombBayParticles.forEach(particles => {
+            particles.emitRate = intensity * 100;
+        });
+        
+        // Update glow material intensity
+        if (this.bombBayGlowMaterial) {
+            this.bombBayGlowMaterial.emissiveColor = new Color3(
+                0.1 * intensity,
+                0.08 * intensity,
+                0.12 * intensity
+            );
+        }
+    }
+
+    public isBombBayOpen(): boolean {
+        return this.bombBayState === 'open';
+    }
+
+    public isBombBayOpening(): boolean {
+        return this.bombBayState === 'opening';
+    }
+
+    public isBombBayClosing(): boolean {
+        return this.bombBayState === 'closing';
+    }
+
+    public isBombBayActive(): boolean {
+        return this.bombBayState === 'opening' || this.bombBayState === 'closing';
+    }
+
+    public getBombBayOpenProgress(): number {
+        return this.bombBayOpenProgress;
     }
 
     // Missile system methods
@@ -951,6 +1136,26 @@ export class Bomber {
     }
 
     public dispose(): void {
+        // Clean up bomb bay resources
+        this.bombBayLights.forEach(light => {
+            if (light) {
+                light.dispose();
+            }
+        });
+        this.bombBayLights = [];
+        
+        this.bombBayParticles.forEach(particles => {
+            if (particles) {
+                particles.dispose();
+            }
+        });
+        this.bombBayParticles = [];
+        
+        if (this.bombBayGlowMaterial) {
+            this.bombBayGlowMaterial.dispose();
+            this.bombBayGlowMaterial = null;
+        }
+        
         // Clean up flare resources
         this.flareMeshes.forEach(mesh => {
             if (mesh) {
