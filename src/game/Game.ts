@@ -246,7 +246,7 @@ export class Game {
 
                 // Update radar less frequently
                 if (currentTime - this.lastRadarUpdateTime > this.radarUpdateInterval) {
-                    this.radarManager.update(this.bomber, this.terrainManager, this.destroyedBuildings, this.destroyedTargets, this.iskanderMissiles);
+                    this.radarManager.update(this.bomber, this.terrainManager, this.destroyedTargets, this.iskanderMissiles);
                     this.lastRadarUpdateTime = currentTime;
                 }
 

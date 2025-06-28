@@ -13,7 +13,6 @@ interface RadarMarker {
 
 export class RadarManager {
     private radarDisplay: HTMLElement;
-    private buildingCountElement: HTMLElement;
     private targetCountElement: HTMLElement;
     private radarRadius: number = 500; // Radar range in game units
     private radarPixelRadius: number = 88; // Radar display radius in pixels
@@ -35,7 +34,6 @@ export class RadarManager {
 
     constructor() {
         this.radarDisplay = document.getElementById('radarDisplay')!;
-        this.buildingCountElement = document.getElementById('buildingCount')!;
         this.targetCountElement = document.getElementById('targetCount')!;
         this.createRadarPulseStyles();
         this.initializeMarkerPool();
@@ -110,7 +108,7 @@ export class RadarManager {
         document.head.appendChild(style);
     }
 
-    public update(bomber: B2Bomber, terrainManager: TerrainManager, destroyedBuildings: number, destroyedTargets: number, iskanderMissiles: IskanderMissile[] = []): void {
+    public update(bomber: B2Bomber, terrainManager: TerrainManager, destroyedTargets: number, iskanderMissiles: IskanderMissile[] = []): void {
         // Performance optimization: limit update frequency
         const currentTime = performance.now();
         if (currentTime - this.lastUpdateTime < this.updateInterval) {
@@ -212,7 +210,6 @@ export class RadarManager {
         this.updateMissileMarkers(bomberPosition, bomberRotationY, cosY, sinY, terrainManager, markerCount);
 
         // Update score display
-        this.buildingCountElement.textContent = destroyedBuildings.toString();
         this.targetCountElement.textContent = destroyedTargets.toString();
     }
 
