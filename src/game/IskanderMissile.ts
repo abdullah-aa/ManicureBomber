@@ -1,5 +1,6 @@
 import { Scene, Mesh, Vector3, MeshBuilder, StandardMaterial, Color3, ParticleSystem, Texture, Color4, PointLight, TransformNode, DynamicTexture } from '@babylonjs/core';
 import { B2Bomber } from './B2Bomber';
+import { WorkerManager } from './WorkerManager';
 
 export class IskanderMissile {
     private scene: Scene;
@@ -56,7 +57,12 @@ export class IskanderMissile {
     // Lock establishment callback
     private onLockEstablishedCallback: (() => void) | null = null;
 
-    constructor(scene: Scene, launchPosition: Vector3, bomber: B2Bomber) {
+    // Worker integration
+    private workerManager: WorkerManager;
+    private pendingPhysicsUpdate: boolean = false;
+    private lastPhysicsResult: any = null;
+
+    constructor(scene: Scene, launchPosition: Vector3, bomber: B2Bomber, workerManager: WorkerManager) {
         this.scene = scene;
         this.position = launchPosition.clone();
         this.bomber = bomber;
@@ -64,6 +70,7 @@ export class IskanderMissile {
         this.originalTargetPosition = this.targetPosition.clone();
         this.rotation = new Vector3(0, 0, 0);
         this.velocity = new Vector3(0, 0, 0); // Start stationary
+        this.workerManager = workerManager;
         
         this.missileGroup = new TransformNode('iskanderGroup', this.scene);
         this.missileGroup.position = this.position.clone();
@@ -507,6 +514,23 @@ export class IskanderMissile {
         
         this.launched = true;
         
+        // Set initial velocity toward target
+        const directionToTarget = this.targetPosition.subtract(this.position).normalize();
+        this.velocity = directionToTarget.scale(this.speed * 0.5); // Start at half speed
+        
+        // Calculate initial rotation to face target
+        if (this.velocity.lengthSquared() > 0.01) {
+            this.rotation.y = Math.atan2(this.velocity.x, this.velocity.z);
+            const horizontalSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
+            if (horizontalSpeed > 0.001) {
+                this.rotation.x = Math.atan2(-this.velocity.y, horizontalSpeed);
+            }
+        }
+        
+        // Update visual representation
+        this.missileGroup.position = this.position.clone();
+        this.missileGroup.rotation = this.rotation.clone();
+        
         // Start all particle effects
         this.exhaustParticles.start();
         this.trailParticles.start();
@@ -571,30 +595,36 @@ export class IskanderMissile {
             this.lastTargetUpdateTime = currentTime;
         }
 
-        // Check for flare targets
+        // Use simple, reliable physics that works
+        this.updatePhysicsSimple(deltaTime, currentTime);
+    }
+
+    private updatePhysicsSimple(deltaTime: number, currentTime: number): void {
+        // Simple, reliable physics that guarantees movement
+        
+        // Check for flare targets (countermeasures)
         this.checkForFlareTargets();
-
-        // Lock-on system
-        this.updateLockOnSystem(deltaTime);
-
-        // Update missile guidance based on lock status
-        if (this.isLockedOn) {
-            this.updateLockedOnGuidance(deltaTime);
-        } else {
-            this.updateInitialGuidance(deltaTime);
+        
+        // Basic guidance: move toward target
+        const directionToTarget = this.targetPosition.subtract(this.position).normalize();
+        const desiredVelocity = directionToTarget.scale(this.speed);
+        
+        // Simple velocity interpolation
+        this.velocity.x += (desiredVelocity.x - this.velocity.x) * this.turnRate * deltaTime;
+        this.velocity.y += (desiredVelocity.y - this.velocity.y) * this.turnRate * deltaTime;
+        this.velocity.z += (desiredVelocity.z - this.velocity.z) * this.turnRate * deltaTime;
+        
+        // Ensure minimum velocity
+        if (this.velocity.lengthSquared() < this.speed * 0.1) {
+            this.velocity = directionToTarget.scale(this.speed * 0.5);
         }
         
         // Update rotation based on velocity
         if (this.velocity.lengthSquared() > 0.01) {
-            // Calculate yaw (horizontal rotation around Y axis)
             this.rotation.y = Math.atan2(this.velocity.x, this.velocity.z);
-            
-            // Calculate pitch (vertical rotation around X axis)
             const horizontalSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
             if (horizontalSpeed > 0.001) {
                 this.rotation.x = Math.atan2(-this.velocity.y, horizontalSpeed);
-            } else {
-                this.rotation.x = 0;
             }
         }
 
@@ -605,89 +635,26 @@ export class IskanderMissile {
         this.missileGroup.position = this.position.clone();
         this.missileGroup.rotation = this.rotation.clone();
 
-        // Check if reached target or ground
+        // Simple lock-on system
         const distanceToTarget = Vector3.Distance(this.position, this.targetPosition);
-        if (distanceToTarget <= 5 || this.position.y <= 0) {
-            this.explode();
-        }
-    }
-
-    private updateLockOnSystem(deltaTime: number): void {
-        const distanceToTarget = Vector3.Distance(this.position, this.targetPosition);
-        
         if (distanceToTarget <= this.lockOnRange) {
             if (!this.isLockedOn) {
                 this.lockOnTime += deltaTime;
                 if (this.lockOnTime >= this.lockOnDuration) {
                     this.isLockedOn = true;
-                    // Notify that lock has been established
-                    this.onLockEstablished();
+                    if (this.onLockEstablishedCallback) {
+                        this.onLockEstablishedCallback();
+                    }
                 }
             }
         } else {
-            // Reset lock if target is out of range
             this.isLockedOn = false;
             this.lockOnTime = 0;
         }
-    }
 
-    private updateLockedOnGuidance(deltaTime: number): void {
-        // Calculate direction to target
-        const directionToTarget = this.targetPosition.subtract(this.position).normalize();
-        
-        // Calculate desired velocity toward target
-        const desiredVelocity = directionToTarget.scale(this.speed);
-        
-        // Calculate velocity change needed
-        const velocityChange = desiredVelocity.subtract(this.velocity);
-        
-        // Apply guidance with turn rate limiting
-        const maxVelocityChange = this.maxTurnRate * this.speed * deltaTime;
-        const velocityChangeMagnitude = velocityChange.length();
-        
-        if (velocityChangeMagnitude > maxVelocityChange) {
-            velocityChange.normalize().scaleInPlace(maxVelocityChange);
-        }
-        
-        // Apply guidance strength
-        velocityChange.scaleInPlace(this.guidanceStrength * deltaTime);
-        
-        // Update velocity
-        this.velocity.addInPlace(velocityChange);
-        
-        // Ensure velocity doesn't exceed maximum speed
-        if (this.velocity.length() > this.speed) {
-            this.velocity.normalize().scaleInPlace(this.speed);
-        }
-    }
-
-    private updateInitialGuidance(deltaTime: number): void {
-        // Initial guidance before lock-on - follow a ballistic trajectory toward target
-        const directionToTarget = this.targetPosition.subtract(this.position).normalize();
-        const desiredVelocity = directionToTarget.scale(this.speed);
-        
-        // Gradually turn toward target
-        const turnRate = this.maxTurnRate * 0.5; // Slower initial turn rate
-        const velocityChange = desiredVelocity.subtract(this.velocity);
-        const maxVelocityChange = turnRate * this.speed * deltaTime;
-        
-        if (velocityChange.length() > maxVelocityChange) {
-            velocityChange.normalize().scaleInPlace(maxVelocityChange);
-        }
-        
-        this.velocity.addInPlace(velocityChange);
-        
-        // Ensure velocity doesn't exceed maximum speed
-        if (this.velocity.length() > this.speed) {
-            this.velocity.normalize().scaleInPlace(this.speed);
-        }
-    }
-
-    private onLockEstablished(): void {
-        // This will be called when the missile establishes lock
-        // The Game class will handle the alert notification
-        if (this.onLockEstablishedCallback) {
-            this.onLockEstablishedCallback();
+        // Check if reached target or ground
+        if (distanceToTarget <= 5 || this.position.y <= 0) {
+            this.explode();
         }
     }
 

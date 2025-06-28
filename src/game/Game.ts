@@ -71,6 +71,21 @@ export class Game {
     // Worker-based performance monitoring
     private lastWorkerStatsTime: number = 0;
     private workerStatsInterval: number = 5000; // Log worker stats every 5 seconds
+    private iskanderPhysicsPerformance: {
+        totalUpdates: number;
+        workerUpdates: number;
+        mainThreadUpdates: number;
+        averageWorkerTime: number;
+        averageMainThreadTime: number;
+        lastUpdateTime: number;
+    } = {
+        totalUpdates: 0,
+        workerUpdates: 0,
+        mainThreadUpdates: 0,
+        averageWorkerTime: 0,
+        averageMainThreadTime: 0,
+        lastUpdateTime: 0
+    };
 
     constructor(scene: Scene, canvas: HTMLCanvasElement) {
         this.scene = scene;
@@ -236,10 +251,7 @@ export class Game {
                 }
 
                 // Monitor worker performance
-                if (currentTime - this.lastWorkerStatsTime > this.workerStatsInterval) {
-                    this.workerManager.logWorkerPerformance();
-                    this.lastWorkerStatsTime = currentTime;
-                }
+                this.logWorkerPerformanceStats();
 
                 // Update minimum altitude based on building height (cached)
                 const bomberPosition = this.bomber.getPosition();
@@ -328,7 +340,7 @@ export class Game {
             const launchPosition = farthestLauncher.getPosition().clone();
             launchPosition.y += 5; // Launch from above the launcher
             
-            const missile = new IskanderMissile(this.scene, launchPosition, this.bomber);
+            const missile = new IskanderMissile(this.scene, launchPosition, this.bomber, this.workerManager);
             
             // Set up lock-on notification callback
             missile.setOnLockEstablishedCallback(() => {
@@ -350,8 +362,10 @@ export class Game {
         // Update all Iskander missiles
         for (let i = this.iskanderMissiles.length - 1; i >= 0; i--) {
             const missile = this.iskanderMissiles[i];
+            
+            // Update missile physics (now handled by worker)
             missile.update(deltaTime);
-
+            
             // Add active flares to missile for targeting
             const activeFlares = this.bomber.getActiveFlares();
             activeFlares.forEach(flare => {
@@ -616,6 +630,38 @@ export class Game {
                     }
                 }
             }
+        }
+    }
+
+    private logWorkerPerformanceStats(): void {
+        const currentTime = performance.now();
+        if (currentTime - this.lastWorkerStatsTime > this.workerStatsInterval) {
+            const workerStats = this.workerManager.getWorkerStats();
+            
+            console.log('=== Worker Performance Statistics ===');
+            console.log('Missile Physics Worker:');
+            console.log(`  Messages sent: ${workerStats.missilePhysicsWorker.messagesSent}`);
+            console.log(`  Messages received: ${workerStats.missilePhysicsWorker.messagesReceived}`);
+            console.log(`  Total time: ${workerStats.missilePhysicsWorker.totalTime.toFixed(2)}ms`);
+            console.log(`  Average time per message: ${(workerStats.missilePhysicsWorker.totalTime / Math.max(workerStats.missilePhysicsWorker.messagesSent, 1)).toFixed(2)}ms`);
+            
+            console.log('Iskander Physics Performance:');
+            console.log(`  Total updates: ${this.iskanderPhysicsPerformance.totalUpdates}`);
+            console.log(`  Worker updates: ${this.iskanderPhysicsPerformance.workerUpdates}`);
+            console.log(`  Main thread updates: ${this.iskanderPhysicsPerformance.mainThreadUpdates}`);
+            console.log(`  Worker success rate: ${((this.iskanderPhysicsPerformance.workerUpdates / Math.max(this.iskanderPhysicsPerformance.totalUpdates, 1)) * 100).toFixed(1)}%`);
+            
+            if (this.iskanderPhysicsPerformance.workerUpdates > 0) {
+                console.log(`  Average worker time: ${this.iskanderPhysicsPerformance.averageWorkerTime.toFixed(2)}ms`);
+            }
+            if (this.iskanderPhysicsPerformance.mainThreadUpdates > 0) {
+                console.log(`  Average main thread time: ${this.iskanderPhysicsPerformance.averageMainThreadTime.toFixed(2)}ms`);
+            }
+            
+            console.log('Active Iskander missiles:', this.iskanderMissiles.length);
+            console.log('=====================================');
+            
+            this.lastWorkerStatsTime = currentTime;
         }
     }
 } 
