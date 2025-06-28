@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>✈️💅🚀💥 - Manicure Bomber</title><style>body {
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>💅✈️🚀💥 Manicure Bomber</title><style>body {
             margin: 0;
             padding: 0;
             background: #000;
@@ -51,7 +51,7 @@
         }
         #instructionsContent {
             padding: 16px;
-            max-height: 360px;
+            max-height: 380px;
             overflow: hidden;
             transition: max-height 0.3s ease, padding 0.3s ease;
         }
@@ -223,7 +223,7 @@
         
         #scoreDisplay div {
             margin-bottom: 4px;
-        }</style><script defer="defer" src="bundle.js"></script></head><body><canvas id="renderCanvas"></canvas><div id="instructionsOverlay"><div id="instructionsHeader"><div id="instructionsTitle">Controls</div><div id="toggleButton">▼</div></div><div id="instructionsContent"><div>Arrow Keys: Turn Left/Right, Climb/Descend</div><div>, (Comma): Drop Bombs</div><div>. (Period): Launch Missile</div><div>/ (Slash): Launch Flares</div><div>' (Quote): Toggle Camera Lock</div><div>Shift + Up/Down: Adjust Camera Height</div><div>Shift + Left/Right: Pan Camera</div><div>; (Semicolon): Reset Camera</div><div id="radarLegend"><div>Radar Legend:</div><div style="font-size: 10px; margin-top: 8px;"><div style="color: #00ff00;">● Bomber</div><div style="color: #ff0000;">● Target</div><div style="color: #ff6600;">● Defense</div><div style="color: #ff00ff;">● Missile</div><div style="color: #0066ff;">● Iskander</div></div></div></div></div><div id="radarOverlay"><div id="radarHeader"><div>RADAR</div><div id="radarToggle">▼</div></div><div id="radarContent"><div id="radarDisplay"><div class="radar-sweep"></div><div class="radar-bomber"></div></div><div id="scoreDisplay"><div>Targets: <span id="targetCount">0</span></div></div></div></div><script>document.getElementById('instructionsHeader').addEventListener('click', function() {
+        }</style><script defer="defer" src="bundle.js"></script></head><body><canvas id="renderCanvas"></canvas><div id="instructionsOverlay"><div id="instructionsHeader"><div id="instructionsTitle">Controls</div><div id="toggleButton">▼</div></div><div id="instructionsContent"><div>Arrow Keys: Turn, Climb/Descend</div><div>, (Comma): Drop Bombs</div><div>. (Period): Launch Missile</div><div>/ (Slash): Launch Flares</div><div>' (Quote): Toggle Camera Lock</div><div>Shift + Up/Down: Adjust Camera Height</div><div>Shift + Left/Right: Pan Camera</div><div>Ctrl + Up/Down: Adjust Camera Height</div><div>; (Semicolon): Reset Camera</div><div id="radarLegend"><div>Radar Legend:</div><div style="font-size: 10px; margin-top: 8px;"><div style="color: #00ff00;">● Bomber</div><div style="color: #ff0000;">● Target</div><div style="color: #ff6600;">● Defense</div><div style="color: #ff00ff;">● Missile</div><div style="color: #0066ff;">● Iskander</div></div></div></div></div><div id="radarOverlay"><div id="radarHeader"><div>RADAR</div><div id="radarToggle">▼</div></div><div id="radarContent"><div id="radarDisplay"><div class="radar-sweep"></div><div class="radar-bomber"></div></div><div id="scoreDisplay"><div>Targets: <span id="targetCount">0</span></div></div></div></div><script>document.getElementById('instructionsHeader').addEventListener('click', function() {
             const content = document.getElementById('instructionsContent');
             const toggleButton = document.getElementById('toggleButton');
             
