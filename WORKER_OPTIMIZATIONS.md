@@ -57,14 +57,6 @@ const collisions = await workerManager.detectCollisions(collisionData);
 const particles = await workerManager.updateParticleSystem(particleData);
 ```
 
-### Performance Monitoring
-
-Built-in performance monitoring tracks:
-- Messages sent/received per worker
-- Total processing time per worker
-- Average response time per worker
-- Automatic performance logging every 5 seconds
-
 ### Error Handling and Fallbacks
 
 Each worker operation includes:
@@ -205,14 +197,6 @@ handleCollisions(collisions);
 - **Worker Response Time:** < 5ms average
 - **Memory Usage:** < 100MB for large scenes
 
-### Monitoring
-
-Performance is continuously monitored with:
-- Real-time FPS tracking
-- Worker response time logging
-- Memory usage monitoring
-- Automatic performance warnings
-
 ## Future Optimizations
 
 ### Planned Improvements
@@ -242,26 +226,19 @@ Performance is continuously monitored with:
 ### Common Issues
 
 1. **Worker Not Responding**
-   - Check browser console for errors
    - Verify worker file paths
    - Ensure proper message format
+   - Check browser compatibility
 
 2. **Performance Degradation**
-   - Monitor worker response times
    - Check for memory leaks
    - Verify fallback mechanisms
+   - Test on target hardware
 
 3. **Browser Compatibility**
    - Test fallback functionality
    - Verify feature detection
    - Check for polyfills
-
-### Debug Tools
-
-- Worker performance logging
-- Message flow tracing
-- Memory usage monitoring
-- Automatic error reporting
 
 ## Conclusion
 

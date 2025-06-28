@@ -30,7 +30,6 @@ This document summarizes all the files created and modified to implement compreh
 4. **`src/game/WorkerManager.ts`**
    - Centralized worker management
    - Promise-based communication with timeouts
-   - Performance monitoring and statistics
    - Error handling and fallback mechanisms
 
 5. **`WORKER_OPTIMIZATIONS.md`**
@@ -46,7 +45,6 @@ This document summarizes all the files created and modified to implement compreh
 ### Core Game Files
 1. **`src/game/Game.ts`**
    - Added WorkerManager integration
-   - Added worker performance monitoring
    - Integrated worker-based optimizations
 
 2. **`src/game/TerrainManager.ts`**
@@ -65,7 +63,6 @@ This document summarizes all the files created and modified to implement compreh
 ### Worker Architecture
 - **4 Specialized Workers**: Each handling specific computational domains
 - **Promise-based Communication**: Async/await pattern for clean code
-- **Performance Monitoring**: Built-in statistics and logging
 - **Error Handling**: Robust fallback mechanisms
 
 ### Performance Benefits
@@ -107,23 +104,8 @@ This document summarizes all the files created and modified to implement compreh
 
 ### 5. Worker Manager
 - Centralized communication
-- Performance monitoring
 - Error handling
 - Timeout management
-
-## Performance Monitoring
-
-### Built-in Statistics
-- Messages sent/received per worker
-- Total processing time per worker
-- Average response time per worker
-- Automatic logging every 5 seconds
-
-### Error Handling
-- Promise timeouts (5 seconds default)
-- Automatic fallback to synchronous operations
-- Graceful error recovery
-- Console logging for debugging
 
 ## Testing and Validation
 
@@ -161,6 +143,5 @@ The Web Worker optimizations provide significant performance improvements while 
 - ✅ Moved all computationally expensive operations to workers
 - ✅ Maintained 60fps gameplay during intensive operations
 - ✅ Implemented robust error handling and fallbacks
-- ✅ Added comprehensive performance monitoring
 - ✅ Ensured browser compatibility and progressive enhancement
 - ✅ Created scalable architecture for future optimizations 

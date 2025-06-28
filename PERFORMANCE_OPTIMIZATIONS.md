@@ -49,7 +49,6 @@ This document outlines the comprehensive performance optimizations implemented t
   - Non-critical: Terrain (100ms), Defense (50ms), UI (50ms), Radar (100ms)
 - Added position caching for building height calculations
 - Reduced expensive terrain and defense updates
-- **NEW: Added worker performance monitoring**
 
 ### 4. TerrainManager.ts - Building Query Overhead
 **Issues:**
@@ -118,7 +117,6 @@ The application now uses 4 specialized Web Workers to handle computationally exp
 ### Worker Manager (`WorkerManager.ts`)
 Centralized worker management with:
 - Promise-based communication with timeouts
-- Performance monitoring and statistics
 - Automatic fallback to synchronous operations
 - Error handling and graceful degradation
 
@@ -129,12 +127,6 @@ Centralized worker management with:
 - **Scalability**: Can handle multiple missiles and particles simultaneously
 
 ## Additional Optimizations
-
-### Performance Monitoring
-- Added real-time FPS display
-- Frame time warnings for performance debugging
-- Console logging for performance issues
-- **NEW: Worker performance statistics logging every 5 seconds**
 
 ### Memory Management
 - Reduced particle system cleanup times
@@ -180,7 +172,6 @@ The optimizations include configurable parameters that can be adjusted based on 
 - `cacheTimeouts`: Balance between performance and accuracy
 - `maxMarkers`: Limit DOM elements for radar
 - **NEW: Worker timeout settings (5 seconds default)**
-- **NEW: Worker performance monitoring intervals**
 
 ## Future Optimization Opportunities
 
@@ -201,8 +192,7 @@ The optimizations include configurable parameters that can be adjusted based on 
 4. Check memory usage over extended gameplay sessions
 5. Test on lower-end devices to ensure performance targets are met
 6. **NEW: Test worker fallback functionality in browsers without Web Worker support**
-7. **NEW: Monitor worker performance statistics during gameplay**
-8. **NEW: Test with maximum particle and missile counts**
+7. **NEW: Test with maximum particle and missile counts**
 
 ## Browser Compatibility
 
@@ -457,7 +447,7 @@ private async updatePhysicsWithWorker(deltaTime: number, currentTime: number): P
         const result = await this.workerManager.updateMissilePhysics(physicsData);
         this.applyPhysicsResult(result);
     } catch (error) {
-        console.warn('Worker physics update failed, falling back to main thread:', error);
+        // Silent fallback to main thread processing
         this.updatePhysicsMainThread(deltaTime, currentTime);
     }
 }

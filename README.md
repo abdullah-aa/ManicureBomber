@@ -95,12 +95,6 @@ npm run build
 ### Running
 Open `index.html` in a modern web browser with WebGL support.
 
-### Performance Monitoring
-- Built-in performance logging
-- Worker statistics tracking
-- Frame rate monitoring
-- Memory usage optimization
-
 ## Browser Requirements
 - WebGL 2.0 support
 - SharedArrayBuffer support (requires HTTPS or localhost)
