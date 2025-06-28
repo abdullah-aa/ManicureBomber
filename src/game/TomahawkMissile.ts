@@ -43,6 +43,11 @@ export class TomahawkMissile {
     private curveCacheValid: boolean = false;
     private lastCurveTime: number = -1;
 
+    // Look-ahead orientation properties
+    private lookAheadDistance: number = 0.4; // How far ahead to look on the curve (0-1) - increased for better path following
+    private lastSegmentChangeTime: number = 0;
+    private orientationUpdateThreshold: number = 0.15; // When to update orientation (segment progress) - increased threshold
+
     constructor(scene: Scene, launchPosition: Vector3, targetBuilding: Building, launchRotation: Vector3) {
         this.scene = scene;
         this.position = launchPosition.clone();
@@ -82,23 +87,60 @@ export class TomahawkMissile {
         
         // Add curved deviation
         const distance = Vector3.Distance(startPos, endPos);
-        const curveAmplitude = distance * 0.2; // 20% curve amplitude
+        const curveAmplitude = distance * 0.15; // Reduced curve amplitude
         
-        // Create a winding curve using sine waves
+        // Create a winding curve using sine waves - keep it low to the ground
         const curveX = Math.sin(t * Math.PI * 2) * curveAmplitude;
         const curveZ = Math.cos(t * Math.PI * 1.5) * curveAmplitude;
-        const curveY = Math.sin(t * Math.PI) * 50; // Height variation
+        
+        // Reduced height variation - cruise missiles stay low
+        const maxHeightVariation = 15; // Much smaller height variation
+        const curveY = Math.sin(t * Math.PI) * maxHeightVariation;
+        
+        // Ensure the missile never goes above the launch altitude
+        const maxAltitude = startPos.y + 10; // Never more than 10 units above launch
+        const calculatedY = basePos.y + curveY;
+        const clampedY = Math.min(calculatedY, maxAltitude);
+        
+        // Additional safety: ensure missile stays well below bomber altitude (bomber at ~100, missile should stay below 90)
+        const bomberAltitude = 100;
+        const safeMissileAltitude = Math.min(clampedY, bomberAltitude - 10);
         
         // Cache the result
         this.cachedCurvePosition.set(
             basePos.x + curveX,
-            basePos.y + curveY,
+            safeMissileAltitude,
             basePos.z + curveZ
         );
         this.lastCurveTime = t;
         this.curveCacheValid = true;
         
         return this.cachedCurvePosition.clone();
+    }
+
+    private getLookAheadPosition(): Vector3 {
+        // Get position ahead on the curve for orientation targeting
+        const lookAheadTime = Math.min(this.pathTime + this.lookAheadDistance, 1.0);
+        return this.getCurvedPathPosition(lookAheadTime);
+    }
+
+    private updateOrientationToLookAhead(): void {
+        // Update missile orientation to look ahead to the end of the current curve segment
+        const lookAheadPos = this.getLookAheadPosition();
+        const directionToLookAhead = lookAheadPos.subtract(this.position).normalize();
+        
+        if (directionToLookAhead.lengthSquared() > 0.01) {
+            // Calculate yaw (horizontal rotation around Y axis)
+            this.rotation.y = Math.atan2(directionToLookAhead.x, directionToLookAhead.z);
+            
+            // Calculate pitch (vertical rotation around X axis) - fixed calculation
+            const horizontalSpeed = Math.sqrt(directionToLookAhead.x * directionToLookAhead.x + directionToLookAhead.z * directionToLookAhead.z);
+            if (horizontalSpeed > 0.001) {
+                this.rotation.x = Math.atan2(-directionToLookAhead.y, horizontalSpeed); // Negative Y for correct pitch
+            } else {
+                this.rotation.x = 0; // No pitch if no horizontal movement
+            }
+        }
     }
 
     private createMissileModel(): void {
@@ -494,11 +536,11 @@ export class TomahawkMissile {
         // Create launch animation that moves missile from launcher to flight path
         const launchAnimation = new Animation('missileLaunch', 'position.y', 30, Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
         
-        // Start slightly below launch position, then accelerate forward
+        // Start from beneath the bomber, then move forward and establish cruise altitude
         const keys = [
             { frame: 0, value: this.position.clone() },
-            { frame: 15, value: this.position.add(new Vector3(0, -2, 0)) }, // Drop slightly
-            { frame: 30, value: this.position.add(new Vector3(15, 0, 15)) } // Accelerate forward
+            { frame: 15, value: this.position.add(new Vector3(10, -1, 10)) }, // Move forward and slightly down
+            { frame: 30, value: this.position.add(new Vector3(20, -2, 20)) } // Continue forward and establish cruise altitude
         ];
         
         launchAnimation.setKeys(keys);
@@ -528,10 +570,17 @@ export class TomahawkMissile {
     }
 
     private startGuidedFlight(): void {
+        // Initialize path time for curved navigation
+        this.pathTime = 0;
+        this.lastSegmentChangeTime = performance.now() / 1000;
+        
         // Calculate initial velocity toward first point on the curve
         const firstCurvePoint = this.getCurvedPathPosition(0.1);
         const directionToCurve = firstCurvePoint.subtract(this.position).normalize();
         this.velocity = directionToCurve.scale(this.speed);
+        
+        // Set initial orientation to look ahead
+        this.updateOrientationToLookAhead();
     }
 
     public update(deltaTime: number): void {
@@ -546,6 +595,22 @@ export class TomahawkMissile {
 
         // Update curved path navigation
         this.pathTime += deltaTime * this.pathSpeed;
+        
+        // Check if we should update orientation at curve segment boundaries
+        // Update orientation every 0.2 progress units (5 segments total)
+        const segmentSize = 0.2;
+        const currentSegment = Math.floor(this.pathTime / segmentSize);
+        const segmentProgress = (this.pathTime % segmentSize) / segmentSize;
+        
+        // Update orientation at the start of each segment and more frequently for better responsiveness
+        const shouldUpdateOrientation = (segmentProgress <= this.orientationUpdateThreshold || 
+                                        segmentProgress >= 0.9) && 
+                                       (currentTime - this.lastSegmentChangeTime) > 0.2; // More frequent updates
+        
+        if (shouldUpdateOrientation) {
+            this.updateOrientationToLookAhead();
+            this.lastSegmentChangeTime = currentTime;
+        }
         
         if (this.pathTime <= 1.0) {
             // Follow the curved path
@@ -562,15 +627,19 @@ export class TomahawkMissile {
             const directionToTarget = this.targetPosition.subtract(this.position).normalize();
             this.velocity = directionToTarget.scale(this.speed);
         }
-
-        // Update rotation to match velocity direction for smooth curved flight
-        if (this.velocity.lengthSquared() > 0.01) {
+        
+        // Update rotation based on velocity (only if not updating orientation to look ahead)
+        if (!shouldUpdateOrientation && this.velocity.lengthSquared() > 0.01) {
             // Calculate yaw (horizontal rotation around Y axis)
             this.rotation.y = Math.atan2(this.velocity.x, this.velocity.z);
             
-            // Calculate pitch (vertical rotation around X axis) 
+            // Calculate pitch (vertical rotation around X axis) - fixed calculation
             const horizontalSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
-            this.rotation.x = Math.atan2(this.velocity.y, horizontalSpeed);
+            if (horizontalSpeed > 0.001) {
+                this.rotation.x = Math.atan2(-this.velocity.y, horizontalSpeed); // Negative Y for correct pitch
+            } else {
+                this.rotation.x = 0; // No pitch if no horizontal movement
+            }
         }
 
         // Update position

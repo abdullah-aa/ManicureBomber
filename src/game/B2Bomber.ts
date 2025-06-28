@@ -539,10 +539,7 @@ export class B2Bomber {
         this.lastMissileLaunchTime = currentTime;
 
         // Alternate between left and right launchers
-        const useLeftLauncher = this.missiles.length % 2 === 0;
-        const launcherPosition = useLeftLauncher 
-            ? this.bomberGroup.position.add(new Vector3(-12, -1, 0))
-            : this.bomberGroup.position.add(new Vector3(12, -1, 0));
+        const launcherPosition = this.bomberGroup.position.add(new Vector3(0, -2, -3)) 
 
         // Create and launch missile targeting the defense building
         const missile = new TomahawkMissile(
