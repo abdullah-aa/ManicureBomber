@@ -334,6 +334,7 @@ export class B2Bomber {
     public update(deltaTime: number, inputManager: InputManager): void {
         // Handle turning (left/right arrows) and banking
         // Only turn if Right Shift is NOT pressed (Right Shift + arrows is for camera panning)
+        // AND if Ctrl is NOT pressed (Ctrl + arrows is for camera distance)
         let isTurning = false;
         let isClimbing = false;
         let isDiving = false;
@@ -353,7 +354,8 @@ export class B2Bomber {
 
         // Handle altitude changes (up/down arrows) with banking (inverted)
         // Only change altitude and bank when Shift is NOT pressed (Shift+Up/Down is for camera)
-        if (inputManager.isKeyPressed('ArrowUp') && !inputManager.isShiftUpPressed()) {
+        // AND when Ctrl+Up/Down is NOT pressed (Ctrl+Up/Down is for camera distance)
+        if (inputManager.isKeyPressed('ArrowUp') && !inputManager.isShiftUpPressed() && !inputManager.isCtrlUpPressed()) {
             this.altitude -= this.climbRate * deltaTime; // Up arrow decreases altitude
             isDiving = true;
             // If not already turning, add slight banking for dive
@@ -361,7 +363,7 @@ export class B2Bomber {
                 this.targetBankAngle = -this.maxClimbBankAngle; // Slight left bank during dive
             }
         }
-        if (inputManager.isKeyPressed('ArrowDown') && !inputManager.isShiftDownPressed()) {
+        if (inputManager.isKeyPressed('ArrowDown') && !inputManager.isShiftDownPressed() && !inputManager.isCtrlDownPressed()) {
             this.altitude += this.climbRate * deltaTime; // Down arrow increases altitude
             isClimbing = true;
             // If not already turning, add slight banking for climb

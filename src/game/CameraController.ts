@@ -19,6 +19,11 @@ export class CameraController {
     private zoomSpeed: number = 5;
     private lockMode: CameraLockMode = CameraLockMode.BOMBER;
     
+    // Camera distance adjustment properties
+    private minFollowDistance: number = 50;
+    private maxFollowDistance: number = 500;
+    private distanceSpeed: number = 100; // Units per second
+    
     // Initial camera state for reset functionality
     private initialFollowDistance: number = 200;
     private initialFollowHeight: number = 80;
@@ -81,6 +86,16 @@ export class CameraController {
         if (inputManager.isShiftDownPressed()) {
             this.followHeight += this.zoomSpeed * deltaTime * 60; // Shift+Down raises camera
             this.followHeight = Math.min(this.maxFollowHeight, this.followHeight);
+        }
+
+        // Handle camera distance adjustment with Ctrl + Up/Down arrows
+        if (inputManager.isCtrlUpPressed()) {
+            this.followDistance -= this.distanceSpeed * deltaTime; // Ctrl+Up decreases distance
+            this.followDistance = Math.max(this.minFollowDistance, this.followDistance);
+        }
+        if (inputManager.isCtrlDownPressed()) {
+            this.followDistance += this.distanceSpeed * deltaTime; // Ctrl+Down increases distance
+            this.followDistance = Math.min(this.maxFollowDistance, this.followDistance);
         }
 
         const bomberPos = this.bomber.getPosition();

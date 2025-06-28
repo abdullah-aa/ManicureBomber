@@ -144,6 +144,20 @@ export class InputManager {
         return this.isKeyPressed('Semicolon');
     }
 
+    public isCtrlUpPressed(): boolean {
+        return this.isKeyPressed('ControlLeft') && this.isKeyPressed('ArrowUp') ||
+               this.isKeyPressed('ControlRight') && this.isKeyPressed('ArrowUp');
+    }
+
+    public isCtrlDownPressed(): boolean {
+        return this.isKeyPressed('ControlLeft') && this.isKeyPressed('ArrowDown') ||
+               this.isKeyPressed('ControlRight') && this.isKeyPressed('ArrowDown');
+    }
+
+    public isAnyCtrlPressed(): boolean {
+        return this.isKeyPressed('ControlLeft') || this.isKeyPressed('ControlRight');
+    }
+
     public getKeys(): { [key: string]: boolean } {
         return { ...this.keys };
     }
