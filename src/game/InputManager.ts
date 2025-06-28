@@ -83,26 +83,26 @@ export class InputManager {
     }
 
     public isBombKeyPressed(): boolean {
-        return this.isKeyPressed('KeyB');
+        return this.isKeyPressed('Comma');
     }
 
     public isMissileKeyPressed(): boolean {
-        return this.isKeyPressed('KeyM');
+        return this.isKeyPressed('Period');
     }
 
     public triggerBombKeyPress(): void {
-        this.keys['KeyB'] = true;
+        this.keys['Comma'] = true;
         // Reset after a short time to simulate a single press
         setTimeout(() => {
-            this.keys['KeyB'] = false;
+            this.keys['Comma'] = false;
         }, 100);
     }
 
     public triggerMissileKeyPress(): void {
-        this.keys['KeyM'] = true;
+        this.keys['Period'] = true;
         // Reset after a short time to simulate a single press
         setTimeout(() => {
-            this.keys['KeyM'] = false;
+            this.keys['Period'] = false;
         }, 100);
     }
 
@@ -117,7 +117,7 @@ export class InputManager {
     }
 
     public isCameraTogglePressed(): boolean {
-        return this.isKeyPressed('KeyN');
+        return this.isKeyPressed('Quote');
     }
 
     public isRightShiftLeftPressed(): boolean {
@@ -129,7 +129,7 @@ export class InputManager {
     }
 
     public isCameraResetPressed(): boolean {
-        return this.isKeyPressed('KeyC');
+        return this.isKeyPressed('Semicolon');
     }
 
     public getKeys(): { [key: string]: boolean } {
