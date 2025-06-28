@@ -29,12 +29,12 @@ export class DefenseMissile {
         this.missileGroup.position = this.position.clone();
         
         // Orient missile toward target with both yaw and pitch
-        const yaw = Math.atan2(direction.x, direction.z);
+        const yaw = Math.atan2(direction.x, direction.z) + Math.PI; // Add 180° to flip missile
         const horizontalSpeed = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
-        const pitch = Math.atan2(direction.y, horizontalSpeed);
+        const pitch = Math.atan2(direction.y, horizontalSpeed) + Math.PI;
         
         this.missileGroup.rotation.y = yaw;
-        this.missileGroup.rotation.x = pitch - Math.PI / 2; // Adjust for model's initial horizontal orientation
+        this.missileGroup.rotation.x = pitch;
         
         this.createMissileModel();
         this.setupParticleEffects();
@@ -166,17 +166,15 @@ export class DefenseMissile {
             // Update rotation to match velocity direction for proper orientation
             if (this.velocity.lengthSquared() > 0.01) {
                 // Calculate yaw (horizontal rotation around Y axis)
-                const yaw = Math.atan2(this.velocity.x, this.velocity.z);
+                const yaw = Math.atan2(this.velocity.x, this.velocity.z) + Math.PI; // Add 180° to flip missile
                 
                 // Calculate pitch (vertical rotation around X axis) 
                 const horizontalSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
-                const pitch = Math.atan2(this.velocity.y, horizontalSpeed);
+                const pitch = Math.atan2(this.velocity.y, horizontalSpeed) + Math.PI;
                 
                 // Apply rotation to missile group
-                // Note: Since the missile model is built horizontally (rotated 90° around X),
-                // we need to adjust the pitch calculation for proper orientation
                 this.missileGroup.rotation.y = yaw;
-                this.missileGroup.rotation.x = pitch - Math.PI / 2; // Adjust for model's initial horizontal orientation
+                this.missileGroup.rotation.x = pitch;
             }
             
             // Mark target as set to avoid future recalculations

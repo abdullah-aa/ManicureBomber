@@ -114,14 +114,11 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
             newVelocity = vector3Scale(vector3Normalize(vector3Subtract(data.targetPosition, newPosition)), data.speed);
             
             // Calculate yaw (horizontal rotation around Y axis)
-            newRotation.y = Math.atan2(newVelocity.x, newVelocity.z);
+            newRotation.y = Math.atan2(newVelocity.x, newVelocity.z) + Math.PI; // Add 180° to flip missile
                 
             // Calculate pitch (vertical rotation around X axis) 
             const horizontalSpeed = Math.sqrt(newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z);
-            const pitch = Math.atan2(newVelocity.y, horizontalSpeed);
-            
-            // Apply rotation adjustment for defense missile model orientation
-            newRotation.x = pitch - Math.PI / 2; // Adjust for model's initial horizontal orientation
+            newRotation.x = Math.atan2(newVelocity.y, horizontalSpeed) + Math.PI;
             
             // Mark target as set to avoid future recalculations
             data.targetSet = true;

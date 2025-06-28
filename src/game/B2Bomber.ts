@@ -178,7 +178,7 @@ export class B2Bomber {
     private createCockpit(): void {
         // Create a small hemisphere for the cockpit
         const cockpit = MeshBuilder.CreateSphere('cockpit', {
-            diameter: 3,
+            diameter: 2,
             segments: 16
         }, this.scene);
 
@@ -187,8 +187,8 @@ export class B2Bomber {
         
         // Position it on top of the cylindrical fuselage, slightly forward
         cockpit.position.x = 0;
-        cockpit.position.y = 1.5; // Above the cylindrical fuselage (radius is 1.5)
-        cockpit.position.z = 8; // Forward on the fuselage, but not as far as before
+        cockpit.position.y = 1.2; // Above the cylindrical fuselage (radius is 1.5)
+        cockpit.position.z = 11; // Forward on the fuselage, but not as far as before
         cockpit.parent = this.bomberGroup;
 
         // Create cockpit material - turquoise blue with some transparency
