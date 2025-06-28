@@ -160,6 +160,11 @@ export class RadarManager {
         for (const building of this.cachedBuildings) {
             if (markerCount >= this.maxMarkers) break;
             
+            // Only show targets and defense launchers on radar
+            if (!building.isTarget() && !building.isDefenseLauncher()) {
+                continue; // Skip regular buildings
+            }
+            
             const buildingPosition = building.getPosition();
             const relativePosition = buildingPosition.subtract(bomberPosition);
             
@@ -182,7 +187,8 @@ export class RadarManager {
                 } else if (building.isDefenseLauncher()) {
                     markerType = 'defense-launcher';
                 } else {
-                    markerType = 'building';
+                    // This should never happen due to the filter above, but keeping for safety
+                    continue;
                 }
                 
                 const marker = this.getMarkerFromPool(markerType);
