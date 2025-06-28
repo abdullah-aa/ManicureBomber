@@ -332,7 +332,7 @@ export class Game {
             
             // Set up lock-on notification callback
             missile.setOnLockEstablishedCallback(() => {
-                this.uiManager.showAlert('ISKANDER MISSILE LOCK DETECTED!', 'iskander-lock', 8000);
+                this.uiManager.showAlert('MISSILE LOCK DETECTED!', 'iskander-lock', 8000);
             });
             
             missile.launch();

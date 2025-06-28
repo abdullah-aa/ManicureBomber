@@ -284,9 +284,8 @@ export class RadarManager {
             // Only show if within radar circle
             const distance = Math.sqrt(radarX * radarX + radarZ * radarZ);
             if (distance <= this.radarPixelRadius) {
-                // Use special marker type for Iskander missiles
-                const markerType = missile.getIsLockedOn() ? 'iskander-locked' : 'iskander';
-                const marker = this.getMarkerFromPool(markerType);
+                // Use single marker type for Iskander missiles
+                const marker = this.getMarkerFromPool('iskander');
                 if (marker) {
                     // Position relative to radar center
                     marker.element.style.left = `${this.radarPixelRadius + radarX}px`;
