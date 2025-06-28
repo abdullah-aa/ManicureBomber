@@ -34,8 +34,8 @@ export class Game {
     // Iskander missile system
     private iskanderMissiles: IskanderMissile[] = [];
     private lastIskanderLaunchTime: number = -Infinity;
-    private iskanderLaunchInterval: number = 15; // Base 15 seconds
-    private iskanderRandomInterval: number = 10; // Additional random time up to 10 seconds
+    private iskanderLaunchInterval: number = 25; // Base 15 seconds
+    private iskanderRandomInterval: number = 20; // Additional random time up to 10 seconds
 
     // Camera toggle properties
     private lastCameraToggleTime: number = 0;

@@ -160,23 +160,17 @@ function updateIskanderLockOnSystem(
     lockOnDuration: number,
     deltaTime: number
 ): { isLockedOn: boolean; lockOnTime: number; lockEstablished: boolean } {
-    const distanceToTarget = vector3Distance(position, targetPosition);
+    // Always allow lock establishment regardless of distance
     let newLockOnTime = lockOnTime;
     let newIsLockedOn = isLockedOn;
     let lockEstablished = false;
     
-    if (distanceToTarget <= lockOnRange) {
-        if (!isLockedOn) {
-            newLockOnTime += deltaTime;
-            if (newLockOnTime >= lockOnDuration) {
-                newIsLockedOn = true;
-                lockEstablished = true;
-            }
+    if (!isLockedOn) {
+        newLockOnTime += deltaTime;
+        if (newLockOnTime >= lockOnDuration) {
+            newIsLockedOn = true;
+            lockEstablished = true;
         }
-    } else {
-        // Reset lock if target is out of range
-        newIsLockedOn = false;
-        newLockOnTime = 0;
     }
     
     return {
@@ -341,19 +335,13 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
             }
         }
         
-        // Simple lock-on system (simplified)
-        const distanceToTarget = vector3Distance(newPosition, data.targetPosition);
-        if (distanceToTarget <= (data.lockOnRange || 400)) {
-            if (!isLockedOn) {
-                lockOnTime += data.deltaTime;
-                if (lockOnTime >= (data.lockOnDuration || 1.0)) {
-                    isLockedOn = true;
-                    lockEstablished = true;
-                }
+        // Simple lock-on system - always allow lock regardless of distance
+        if (!isLockedOn) {
+            lockOnTime += data.deltaTime;
+            if (lockOnTime >= (data.lockOnDuration || 1.0)) {
+                isLockedOn = true;
+                lockEstablished = true;
             }
-        } else {
-            isLockedOn = false;
-            lockOnTime = 0;
         }
         
     } else if (data.missileType === 'tomahawk') {

@@ -45,7 +45,7 @@ export class IskanderMissile {
     private isTargetingFlare: boolean = false;
 
     // Lock-on system properties
-    private lockOnRange: number = 400; // Range at which missile can lock onto bomber
+    private lockOnRange: number = Infinity; // Remove distance limitation - always allow lock
     private isLockedOn: boolean = false;
     private lockOnTime: number = 0;
     private lockOnDuration: number = 1.0; // Time required to establish lock
@@ -635,21 +635,16 @@ export class IskanderMissile {
         this.missileGroup.position = this.position.clone();
         this.missileGroup.rotation = this.rotation.clone();
 
-        // Simple lock-on system
+        // Simple lock-on system - always allow lock regardless of distance
         const distanceToTarget = Vector3.Distance(this.position, this.targetPosition);
-        if (distanceToTarget <= this.lockOnRange) {
-            if (!this.isLockedOn) {
-                this.lockOnTime += deltaTime;
-                if (this.lockOnTime >= this.lockOnDuration) {
-                    this.isLockedOn = true;
-                    if (this.onLockEstablishedCallback) {
-                        this.onLockEstablishedCallback();
-                    }
+        if (!this.isLockedOn) {
+            this.lockOnTime += deltaTime;
+            if (this.lockOnTime >= this.lockOnDuration) {
+                this.isLockedOn = true;
+                if (this.onLockEstablishedCallback) {
+                    this.onLockEstablishedCallback();
                 }
             }
-        } else {
-            this.isLockedOn = false;
-            this.lockOnTime = 0;
         }
 
         // Check if reached target or ground
