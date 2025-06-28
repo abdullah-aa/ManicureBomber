@@ -334,6 +334,7 @@ self.onmessage = (event) => {
             break;
             
         default:
-            console.warn('Unknown message type in collision detection worker:', type);
+            // Silent handling of unknown message types
+            break;
     }
 }; 

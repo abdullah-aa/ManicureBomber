@@ -88,13 +88,13 @@ export class CameraController {
             this.followHeight = Math.min(this.maxFollowHeight, this.followHeight);
         }
 
-        // Handle camera distance adjustment with Ctrl + Up/Down arrows
-        if (inputManager.isCtrlUpPressed()) {
-            this.followDistance -= this.distanceSpeed * deltaTime; // Ctrl+Up decreases distance
+        // Handle camera distance adjustment with Shift + [ and ]
+        if (inputManager.isShiftLeftBracketPressed()) {
+            this.followDistance -= this.distanceSpeed * deltaTime; // Shift+[ decreases distance
             this.followDistance = Math.max(this.minFollowDistance, this.followDistance);
         }
-        if (inputManager.isCtrlDownPressed()) {
-            this.followDistance += this.distanceSpeed * deltaTime; // Ctrl+Down increases distance
+        if (inputManager.isShiftRightBracketPressed()) {
+            this.followDistance += this.distanceSpeed * deltaTime; // Shift+] increases distance
             this.followDistance = Math.min(this.maxFollowDistance, this.followDistance);
         }
 

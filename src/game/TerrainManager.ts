@@ -31,6 +31,11 @@ export class TerrainManager {
     private workerManager: WorkerManager;
     private noiseGenerator: NoiseGenerator; // Kept for fallback height calculation
 
+    private isDisposing: boolean = false;
+
+    // Track active worker calls to prevent overlapping requests
+    private activeWorkerCalls: Set<string> = new Set();
+
     constructor(scene: Scene, workerManager: WorkerManager) {
         this.scene = scene;
         this.workerManager = workerManager;
@@ -43,15 +48,39 @@ export class TerrainManager {
         const chunkKey = `${chunkX}_${chunkZ}`;
         if (this.chunks.has(chunkKey)) return;
 
+        // Check if this chunk is already being generated
+        if (this.activeWorkerCalls.has(chunkKey)) {
+            return; // Already being processed
+        }
+
         this.chunks.set(chunkKey, null); // Placeholder to prevent re-generation
+        this.activeWorkerCalls.add(chunkKey); // Track this worker call
+
+        // Use synchronous generation during cleanup to avoid worker timeouts
+        if (this.isDisposing) {
+            this.generateChunkSynchronously(chunkX, chunkZ);
+            this.activeWorkerCalls.delete(chunkKey);
+            return;
+        }
 
         try {
+            // Use async/await with timeout
             const result = await this.workerManager.generateTerrainChunk(chunkX, chunkZ, this.chunkSize, this.subdivisions);
-            this.processTerrainChunkResult(result, chunkX, chunkZ);
+            
+            // Only process result if we're still not disposing
+            if (!this.isDisposing) {
+                this.processTerrainChunkResult(result, chunkX, chunkZ);
+            }
         } catch (error) {
-            console.error('Error generating terrain chunk:', error);
-            // Fallback to synchronous generation if worker fails
+            // Don't log timeout errors during disposal to reduce console noise
+            if (!this.isDisposing) {
+                // Silent error handling - no console logging
+            }
+            // Always fallback to synchronous generation if worker fails
             this.generateChunkSynchronously(chunkX, chunkZ);
+        } finally {
+            // Always clean up the tracking
+            this.activeWorkerCalls.delete(chunkKey);
         }
     }
 
@@ -374,6 +403,11 @@ export class TerrainManager {
     }
 
     public async generateInitialTerrain(center: Vector3): Promise<void> {
+        // Don't generate initial terrain if not safe for worker calls
+        if (!this.isSafeForWorkerCalls()) {
+            return;
+        }
+        
         const chunkX = Math.floor(center.x / this.chunkSize);
         const chunkZ = Math.floor(center.z / this.chunkSize);
         for (let x = chunkX - 1; x <= chunkX + 1; x++) {
@@ -439,7 +473,8 @@ export class TerrainManager {
     public update(bomberPosition: Vector3): void {
         const currentChunkX = Math.floor(bomberPosition.x / this.chunkSize);
         const currentChunkZ = Math.floor(bomberPosition.z / this.chunkSize);
-
+        
+        // Performance optimization: limit update frequency and prevent updates during game over
         const currentTime = performance.now();
         if (currentTime - this.lastTerrainUpdateTime < 100) {
             if (this.skyMesh) {
@@ -449,6 +484,16 @@ export class TerrainManager {
             return;
         }
         this.lastTerrainUpdateTime = currentTime;
+
+        // Check if we're in a safe state for worker calls
+        if (!this.isSafeForWorkerCalls()) {
+            // Don't generate new terrain when not safe
+            if (this.skyMesh) {
+                this.skyMesh.position.x = bomberPosition.x;
+                this.skyMesh.position.z = bomberPosition.z;
+            }
+            return;
+        }
 
         const distanceToChunkEdge = this.getDistanceToNearestChunkEdge(bomberPosition);
         
@@ -504,6 +549,11 @@ export class TerrainManager {
     }
 
     private generateChunksNearPlayer(currentChunkX: number, currentChunkZ: number, bomberPosition: Vector3): void {
+        // Don't generate chunks if not safe for worker calls
+        if (!this.isSafeForWorkerCalls()) {
+            return;
+        }
+        
         const maxTotalChunks = 25;
         if (this.chunks.size >= maxTotalChunks) {
             return;
@@ -635,5 +685,47 @@ export class TerrainManager {
 
     public setBomber(bomber: any): void {
         this.bomber = bomber;
+    }
+
+    private isSafeForWorkerCalls(): boolean {
+        return !this.isDisposing && this.bomber && !this.bomber.isBomberDestroyed();
+    }
+
+    public dispose(): void {
+        try {
+            // Set disposing flag to prevent worker calls
+            this.isDisposing = true;
+            
+            // Clear active worker calls
+            this.activeWorkerCalls.clear();
+            
+            // Dispose of all chunks and their buildings
+            this.chunks.forEach((chunk, key) => {
+                if (chunk) {
+                    chunk.buildings.forEach(building => building.dispose());
+                    chunk.buildings.length = 0;
+                    chunk.mesh.dispose();
+                }
+            });
+            
+            // Clear all maps
+            this.chunks.clear();
+            this.heightmapCache.clear();
+            this.buildingCache.clear();
+            
+            // Dispose of terrain material
+            if (this.terrainMaterial) {
+                this.terrainMaterial.dispose();
+            }
+            
+            // Dispose of sky mesh
+            if (this.skyMesh) {
+                this.skyMesh.dispose();
+                this.skyMesh = null;
+            }
+            
+        } catch (error) {
+            // Silent error handling - no console logging
+        }
     }
 }

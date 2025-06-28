@@ -29,7 +29,7 @@ if (process.env.NODE_ENV === 'development') {
                     scene.debugLayer.show();
                 }
             }).catch(error => {
-                console.warn('Babylon Inspector could not be loaded:', error);
+                // Silent error handling - no console logging
             });
         }
     });
@@ -40,9 +40,9 @@ const game = new Game(scene, canvas);
 
 // Initialize the game
 game.initialize().then(() => {
-    console.log('Game initialized successfully');
+    // Silent initialization - no console logging
 }).catch(error => {
-    console.error('Failed to initialize game:', error);
+    // Silent error handling - no console logging
 });
 
 // Register the render loop

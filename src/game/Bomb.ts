@@ -324,7 +324,7 @@ export class Bomb {
                 this.fireParticles.dispose();
                 this.trailParticles.dispose();
             } catch (e) {
-                console.warn('Error disposing fire/trail particles:', e);
+                // Silent error handling - no console logging
             }
         }, 1000);
 
@@ -332,7 +332,7 @@ export class Bomb {
             try {
                 this.smokeParticles.dispose();
             } catch (e) {
-                console.warn('Error disposing smoke particles:', e);
+                // Silent error handling - no console logging
             }
         }, 6000);
     }

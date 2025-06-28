@@ -221,6 +221,7 @@ self.onmessage = (event) => {
             break;
             
         default:
-            console.warn('Unknown message type in particle physics worker:', type);
+            // Silent handling of unknown message types
+            break;
     }
 }; 

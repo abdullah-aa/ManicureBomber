@@ -83,7 +83,7 @@ export class InputManager {
     }
 
     public isBombKeyPressed(): boolean {
-        return this.isKeyPressed('Comma');
+        return this.isKeyPressed('Slash');
     }
 
     public isMissileKeyPressed(): boolean {
@@ -91,14 +91,14 @@ export class InputManager {
     }
 
     public isCountermeasureKeyPressed(): boolean {
-        return this.isKeyPressed('Slash');
+        return this.isKeyPressed('Comma');
     }
 
     public triggerBombKeyPress(): void {
-        this.keys['Comma'] = true;
+        this.keys['Slash'] = true;
         // Reset after a short time to simulate a single press
         setTimeout(() => {
-            this.keys['Comma'] = false;
+            this.keys['Slash'] = false;
         }, 100);
     }
 
@@ -111,10 +111,10 @@ export class InputManager {
     }
 
     public triggerCountermeasureKeyPress(): void {
-        this.keys['Slash'] = true;
+        this.keys['Comma'] = true;
         // Reset after a short time to simulate a single press
         setTimeout(() => {
-            this.keys['Slash'] = false;
+            this.keys['Comma'] = false;
         }, 100);
     }
 
@@ -126,6 +126,16 @@ export class InputManager {
     public isShiftDownPressed(): boolean {
         return this.isKeyPressed('ShiftLeft') && this.isKeyPressed('ArrowDown') ||
                this.isKeyPressed('ShiftRight') && this.isKeyPressed('ArrowDown');
+    }
+
+    public isShiftLeftBracketPressed(): boolean {
+        return this.isKeyPressed('ShiftLeft') && this.isKeyPressed('BracketLeft') ||
+               this.isKeyPressed('ShiftRight') && this.isKeyPressed('BracketLeft');
+    }
+
+    public isShiftRightBracketPressed(): boolean {
+        return this.isKeyPressed('ShiftLeft') && this.isKeyPressed('BracketRight') ||
+               this.isKeyPressed('ShiftRight') && this.isKeyPressed('BracketRight');
     }
 
     public isCameraTogglePressed(): boolean {

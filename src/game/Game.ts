@@ -69,25 +69,6 @@ export class Game {
     private positionCacheValid: boolean = false;
     private positionCacheThreshold: number = 5; // Recalculate if moved more than 5 units
 
-    // Worker-based performance monitoring
-    private lastWorkerStatsTime: number = 0;
-    private workerStatsInterval: number = 5000; // Log worker stats every 5 seconds
-    private iskanderPhysicsPerformance: {
-        totalUpdates: number;
-        workerUpdates: number;
-        mainThreadUpdates: number;
-        averageWorkerTime: number;
-        averageMainThreadTime: number;
-        lastUpdateTime: number;
-    } = {
-        totalUpdates: 0,
-        workerUpdates: 0,
-        mainThreadUpdates: 0,
-        averageWorkerTime: 0,
-        averageMainThreadTime: 0,
-        lastUpdateTime: 0
-    };
-
     constructor(scene: Scene, canvas: HTMLCanvasElement) {
         this.scene = scene;
         this.canvas = canvas;
@@ -188,11 +169,20 @@ export class Game {
 
     public startGameLoop(): void {
         let lastFrameTime = performance.now();
-        let frameCount = 0;
         
         this.scene.registerBeforeRender(() => {
             try {
                 const currentTime = performance.now();
+                
+                // Check for game over condition FIRST, before any frame rate limiting
+                if (this.gameOver) {
+                    const timeSinceGameOver = (currentTime / 1000) - this.gameOverTime;
+                    if (timeSinceGameOver >= this.gameOverDelay) {
+                        // Restart the game
+                        location.reload();
+                        return; // Exit early to prevent further processing
+                    }
+                }
                 
                 // Performance optimization: frame rate limiting
                 if (currentTime - lastFrameTime < this.frameInterval) {
@@ -200,13 +190,6 @@ export class Game {
                 }
                 
                 const deltaTime = this.scene.getEngine().getDeltaTime() / 1000;
-                
-                const frameTime = currentTime - lastFrameTime;
-                frameCount++;
-                
-                if (frameTime > 33 && frameCount % 60 === 0) {
-                    console.warn(`Performance warning: Frame time ${frameTime.toFixed(2)}ms`);
-                }
                 
                 const safeDeltaTime = Math.min(deltaTime, 0.1);
                 const safeCurrentTime = currentTime / 1000;
@@ -258,35 +241,12 @@ export class Game {
                     this.lastRadarUpdateTime = currentTime;
                 }
 
-                // Monitor worker performance
-                this.logWorkerPerformanceStats();
-
-                // Update minimum altitude based on building height (cached)
-                const bomberPosition = this.bomber.getPosition();
-                const distanceMoved = Vector3.Distance(bomberPosition, this.cachedBomberPosition);
-                
-                if (!this.positionCacheValid || distanceMoved > this.positionCacheThreshold) {
-                    const maxBuildingHeight = this.terrainManager.getMaxBuildingHeight();
-                    this.bomber.setMinimumAltitude(maxBuildingHeight);
-                    this.cachedBomberPosition.copyFrom(bomberPosition);
-                    this.positionCacheValid = true;
-                }
-
-                // Check for game over condition
-                if (this.gameOver) {
-                    const timeSinceGameOver = (performance.now() / 1000) - this.gameOverTime;
-                    if (timeSinceGameOver >= this.gameOverDelay) {
-                        // Restart the game
-                        location.reload();
-                    }
-                }
-
                 this.inputManager.endFrame();
                 
                 lastFrameTime = currentTime;
                 
             } catch (error) {
-                console.error('Error in game loop:', error);
+                // Silent error handling - no console logging
             }
         });
     }
@@ -551,11 +511,6 @@ export class Game {
         
         // Show game over message
         this.showGameOverMessage();
-        
-        // Stop the render loop after a delay
-        setTimeout(() => {
-            this.scene.getEngine().stopRenderLoop();
-        }, this.gameOverDelay * 1000);
     }
 
     private showGameOverMessage(): void {
@@ -638,38 +593,6 @@ export class Game {
                     }
                 }
             }
-        }
-    }
-
-    private logWorkerPerformanceStats(): void {
-        const currentTime = performance.now();
-        if (currentTime - this.lastWorkerStatsTime > this.workerStatsInterval) {
-            const workerStats = this.workerManager.getWorkerStats();
-            
-            console.log('=== Worker Performance Statistics ===');
-            console.log('Missile Physics Worker:');
-            console.log(`  Messages sent: ${workerStats.missilePhysicsWorker.messagesSent}`);
-            console.log(`  Messages received: ${workerStats.missilePhysicsWorker.messagesReceived}`);
-            console.log(`  Total time: ${workerStats.missilePhysicsWorker.totalTime.toFixed(2)}ms`);
-            console.log(`  Average time per message: ${(workerStats.missilePhysicsWorker.totalTime / Math.max(workerStats.missilePhysicsWorker.messagesSent, 1)).toFixed(2)}ms`);
-            
-            console.log('Iskander Physics Performance:');
-            console.log(`  Total updates: ${this.iskanderPhysicsPerformance.totalUpdates}`);
-            console.log(`  Worker updates: ${this.iskanderPhysicsPerformance.workerUpdates}`);
-            console.log(`  Main thread updates: ${this.iskanderPhysicsPerformance.mainThreadUpdates}`);
-            console.log(`  Worker success rate: ${((this.iskanderPhysicsPerformance.workerUpdates / Math.max(this.iskanderPhysicsPerformance.totalUpdates, 1)) * 100).toFixed(1)}%`);
-            
-            if (this.iskanderPhysicsPerformance.workerUpdates > 0) {
-                console.log(`  Average worker time: ${this.iskanderPhysicsPerformance.averageWorkerTime.toFixed(2)}ms`);
-            }
-            if (this.iskanderPhysicsPerformance.mainThreadUpdates > 0) {
-                console.log(`  Average main thread time: ${this.iskanderPhysicsPerformance.averageMainThreadTime.toFixed(2)}ms`);
-            }
-            
-            console.log('Active Iskander missiles:', this.iskanderMissiles.length);
-            console.log('=====================================');
-            
-            this.lastWorkerStatsTime = currentTime;
         }
     }
 } 

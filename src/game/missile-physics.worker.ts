@@ -463,6 +463,7 @@ self.onmessage = (event) => {
             break;
             
         default:
-            console.warn('Unknown message type in missile physics worker:', type);
+            // Silent handling of unknown message types
+            break;
     }
 }; 
