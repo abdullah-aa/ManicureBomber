@@ -553,7 +553,7 @@ export class Bomber {
         this.lastMissileLaunchTime = currentTime;
 
         // Alternate between left and right launchers
-        const launcherPosition = this.bomberGroup.position.add(new Vector3(0, -2, -3)) 
+        const launcherPosition = this.bomberGroup.position.add(new Vector3(0, -2, -1)) // Moved closer to center, reduced Z offset from -3 to -1
 
         // Create and launch missile targeting the defense building
         const missile = new TomahawkMissile(

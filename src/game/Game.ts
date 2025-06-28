@@ -405,10 +405,10 @@ export class Game {
                 
                 // Check for direct hit or proximity explosion
                 if (distance <= 8) { // Direct hit radius
-                    this.bomber.takeDamage(30); // 30% of bomber health
+                    this.bomber.takeDamage(50); // Increased from 30% to 50% of bomber health
                     missile.explode();
                 } else if (distance <= 20) { // Proximity explosion
-                    const damage = Math.max(5, 25 - distance);
+                    const damage = Math.max(10, 40 - distance); // Increased from 25 to 40
                     this.bomber.takeDamage(damage);
                     missile.explode();
                 }

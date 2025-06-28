@@ -209,7 +209,7 @@ export class RadarManager {
         this.activeIskanderMissiles = iskanderMissiles.filter(missile => missile.isLaunched() && !missile.hasExploded());
         this.updateMissileMarkers(bomberPosition, bomberRotationY, cosY, sinY, terrainManager, markerCount);
 
-        // Update score display
+        // Update score display - only targets
         this.targetCountElement.textContent = destroyedTargets.toString();
     }
 

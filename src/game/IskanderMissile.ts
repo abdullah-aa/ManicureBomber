@@ -679,7 +679,7 @@ export class IskanderMissile {
         const bomberPosition = this.bomber.getPosition();
         const distanceToBomber = Vector3.Distance(this.position, bomberPosition);
         if (distanceToBomber <= 25) {
-            const damage = Math.max(10, 30 - distanceToBomber); // 30% of bomber health
+            const damage = Math.max(15, 50 - distanceToBomber); // Increased from 30% to 50% of bomber health
             this.bomber.takeDamage(damage);
         }
         
