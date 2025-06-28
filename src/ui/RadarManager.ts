@@ -3,6 +3,7 @@ import { Building } from '../game/Building';
 import { B2Bomber } from '../game/B2Bomber';
 import { TerrainManager } from '../game/TerrainManager';
 import { DefenseMissile } from '../game/DefenseMissile';
+import { IskanderMissile } from '../game/IskanderMissile';
 
 interface RadarMarker {
     element: HTMLElement;
@@ -19,6 +20,7 @@ export class RadarManager {
     private lastPulseTime: number = 0;
     private pulseInterval: number = 2000; // 2 seconds
     private activeMissiles: DefenseMissile[] = []; // Track active defense missiles
+    private activeIskanderMissiles: IskanderMissile[] = []; // Track active Iskander missiles
 
     // Performance optimization: object pooling and caching
     private markerPool: RadarMarker[] = [];
@@ -108,7 +110,7 @@ export class RadarManager {
         document.head.appendChild(style);
     }
 
-    public update(bomber: B2Bomber, terrainManager: TerrainManager, destroyedBuildings: number, destroyedTargets: number): void {
+    public update(bomber: B2Bomber, terrainManager: TerrainManager, destroyedBuildings: number, destroyedTargets: number, iskanderMissiles: IskanderMissile[] = []): void {
         // Performance optimization: limit update frequency
         const currentTime = performance.now();
         if (currentTime - this.lastUpdateTime < this.updateInterval) {
@@ -200,6 +202,7 @@ export class RadarManager {
         }
 
         // Update active missiles list and add missile markers
+        this.activeIskanderMissiles = iskanderMissiles.filter(missile => missile.isLaunched() && !missile.hasExploded());
         this.updateMissileMarkers(bomberPosition, bomberRotationY, cosY, sinY, terrainManager, markerCount);
 
         // Update score display
@@ -220,7 +223,7 @@ export class RadarManager {
             }
         });
 
-        // Add missile markers to radar (limited by remaining pool space)
+        // Add defense missile markers to radar (limited by remaining pool space)
         let markerCount = currentMarkerCount;
         for (const missile of this.activeMissiles) {
             if (markerCount >= this.maxMarkers) break;
@@ -253,6 +256,42 @@ export class RadarManager {
                         
                         markerCount++;
                     }
+                }
+            }
+        }
+
+        // Add Iskander missile markers with special treatment
+        for (const missile of this.activeIskanderMissiles) {
+            if (markerCount >= this.maxMarkers) break;
+            
+            const missilePosition = missile.getPosition();
+            const relativePosition = missilePosition.subtract(bomberPosition);
+            
+            // Rotate the relative position
+            const rotatedX = relativePosition.x * cosY - relativePosition.z * sinY;
+            const rotatedZ = relativePosition.x * sinY + relativePosition.z * cosY;
+            
+            // Convert to radar coordinates
+            const radarX = (rotatedX / this.radarRadius) * this.radarPixelRadius;
+            const radarZ = (rotatedZ / this.radarRadius) * this.radarPixelRadius;
+            
+            // Only show if within radar circle
+            const distance = Math.sqrt(radarX * radarX + radarZ * radarZ);
+            if (distance <= this.radarPixelRadius) {
+                // Use special marker type for Iskander missiles
+                const markerType = missile.getIsLockedOn() ? 'iskander-locked' : 'iskander';
+                const marker = this.getMarkerFromPool(markerType);
+                if (marker) {
+                    // Position relative to radar center
+                    marker.element.style.left = `${this.radarPixelRadius + radarX}px`;
+                    marker.element.style.top = `${this.radarPixelRadius - radarZ}px`;
+                    marker.element.style.display = 'block';
+                    
+                    if (!marker.element.parentNode) {
+                        this.radarDisplay.appendChild(marker.element);
+                    }
+                    
+                    markerCount++;
                 }
             }
         }

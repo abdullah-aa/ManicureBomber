@@ -106,6 +106,14 @@ export class InputManager {
         }, 100);
     }
 
+    public triggerCountermeasureKeyPress(): void {
+        this.keys['Slash'] = true;
+        // Reset after a short time to simulate a single press
+        setTimeout(() => {
+            this.keys['Slash'] = false;
+        }, 100);
+    }
+
     public isShiftUpPressed(): boolean {
         return this.isKeyPressed('ShiftLeft') && this.isKeyPressed('ArrowUp') ||
                this.isKeyPressed('ShiftRight') && this.isKeyPressed('ArrowUp');

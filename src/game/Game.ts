@@ -5,6 +5,7 @@ import { InputManager } from './InputManager';
 import { CameraController, CameraLockMode } from './CameraController';
 import { Bomb } from './Bomb';
 import { TomahawkMissile } from './TomahawkMissile';
+import { IskanderMissile } from './IskanderMissile';
 import { UIManager } from '../ui/UIManager';
 import { RadarManager } from '../ui/RadarManager';
 import { WorkerManager } from './WorkerManager';
@@ -29,6 +30,12 @@ export class Game {
     private lastBombingRunTime: number = -Infinity; // Start with cooldown finished
     private bombsToDrop: number = 0;
     private lastBombDropTime: number = 0;
+
+    // Iskander missile system
+    private iskanderMissiles: IskanderMissile[] = [];
+    private lastIskanderLaunchTime: number = -Infinity;
+    private iskanderLaunchInterval: number = 15; // Base 15 seconds
+    private iskanderRandomInterval: number = 10; // Additional random time up to 10 seconds
 
     // Camera toggle properties
     private lastCameraToggleTime: number = 0;
@@ -184,15 +191,19 @@ export class Game {
                 // Always update critical systems
                 this.handleBombing(safeCurrentTime);
                 this.handleMissileLaunch();
+                this.handleIskanderLaunch(safeCurrentTime);
+                this.handleCountermeasures();
                 this.handleCameraToggle(safeCurrentTime);
                 this.bomber.update(safeDeltaTime, this.inputManager);
                 this.cameraController.update(safeDeltaTime, this.inputManager);
                 this.updateBombs(safeDeltaTime);
+                this.updateIskanderMissiles(safeDeltaTime);
                 this.updateGroundCrosshair();
 
                 // Check for defense missile collisions (high frequency for responsive damage)
                 if (currentTime - this.lastCollisionCheckTime > this.collisionCheckInterval) {
                     this.checkDefenseMissileCollisions();
+                    this.checkIskanderMissileCollisions();
                     this.lastCollisionCheckTime = currentTime;
                 }
 
@@ -220,7 +231,7 @@ export class Game {
 
                 // Update radar less frequently
                 if (currentTime - this.lastRadarUpdateTime > this.radarUpdateInterval) {
-                    this.radarManager.update(this.bomber, this.terrainManager, this.destroyedBuildings, this.destroyedTargets);
+                    this.radarManager.update(this.bomber, this.terrainManager, this.destroyedBuildings, this.destroyedTargets, this.iskanderMissiles);
                     this.lastRadarUpdateTime = currentTime;
                 }
 
@@ -284,6 +295,105 @@ export class Game {
         }
     }
 
+    private handleIskanderLaunch(currentTime: number): void {
+        // Check if it's time to launch an Iskander missile
+        const timeSinceLastLaunch = currentTime - this.lastIskanderLaunchTime;
+        const totalInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
+        
+        if (timeSinceLastLaunch >= totalInterval) {
+            this.launchIskanderMissile();
+            this.lastIskanderLaunchTime = currentTime;
+        }
+    }
+
+    private launchIskanderMissile(): void {
+        // Find the defense launcher farthest from the bomber
+        const bomberPosition = this.bomber.getPosition();
+        const buildings = this.terrainManager.getBuildingsInRadius(bomberPosition, 1000);
+        
+        let farthestLauncher = null;
+        let maxDistance = 0;
+        
+        for (const building of buildings) {
+            if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
+                const distance = Vector3.Distance(bomberPosition, building.getPosition());
+                if (distance > maxDistance) {
+                    maxDistance = distance;
+                    farthestLauncher = building;
+                }
+            }
+        }
+        
+        if (farthestLauncher) {
+            const launchPosition = farthestLauncher.getPosition().clone();
+            launchPosition.y += 5; // Launch from above the launcher
+            
+            const missile = new IskanderMissile(this.scene, launchPosition, this.bomber);
+            
+            // Set up lock-on notification callback
+            missile.setOnLockEstablishedCallback(() => {
+                this.uiManager.showAlert('ISKANDER MISSILE LOCK DETECTED!', 'iskander-lock', 8000);
+            });
+            
+            missile.launch();
+            this.iskanderMissiles.push(missile);
+        }
+    }
+
+    private handleCountermeasures(): void {
+        if (this.inputManager.isKeyPressed('Slash') && this.bomber.canLaunchFlares()) {
+            this.bomber.launchFlares();
+        }
+    }
+
+    private updateIskanderMissiles(deltaTime: number): void {
+        // Update all Iskander missiles
+        for (let i = this.iskanderMissiles.length - 1; i >= 0; i--) {
+            const missile = this.iskanderMissiles[i];
+            missile.update(deltaTime);
+
+            // Add active flares to missile for targeting
+            const activeFlares = this.bomber.getActiveFlares();
+            activeFlares.forEach(flare => {
+                missile.addFlareTarget(flare);
+            });
+
+            // Remove missiles that have exploded
+            if (missile.hasExploded()) {
+                setTimeout(() => {
+                    missile.dispose();
+                    const index = this.iskanderMissiles.indexOf(missile);
+                    if (index > -1) {
+                        this.iskanderMissiles.splice(index, 1);
+                    }
+                }, 10000); // 10 seconds after explosion
+            }
+        }
+    }
+
+    private checkIskanderMissileCollisions(): void {
+        if (this.gameOver || this.bomber.isBomberDestroyed()) return;
+
+        const bomberPosition = this.bomber.getPosition();
+        
+        for (const missile of this.iskanderMissiles) {
+            if (missile.isLaunched() && !missile.hasExploded()) {
+                const missilePosition = missile.getPosition();
+                const distance = Vector3.Distance(bomberPosition, missilePosition);
+                
+                // Check for direct hit or proximity explosion
+                if (distance <= 8) { // Direct hit radius
+                    this.bomber.takeDamage(30); // 30% of bomber health
+                    missile.explode();
+                } else if (distance <= 20) { // Proximity explosion
+                    const damage = Math.max(5, 25 - distance);
+                    this.bomber.takeDamage(damage);
+                    missile.explode();
+                }
+            }
+        }
+    }
+
     private handleCameraToggle(currentTime: number): void {
         if (this.inputManager.isCameraTogglePressed() && 
             (currentTime - this.lastCameraToggleTime) > this.cameraToggleCooldown) {
@@ -343,6 +453,22 @@ export class Game {
 
     public getBomberHealth(): number {
         return this.bomber.getHealthPercentage();
+    }
+
+    public hasIskanderMissilesInRange(): boolean {
+        const bomberPosition = this.bomber.getPosition();
+        const flareDetectionRange = this.bomber.getFlareDetectionRange();
+        
+        for (const missile of this.iskanderMissiles) {
+            if (missile.isLaunched() && !missile.hasExploded()) {
+                const missilePosition = missile.getPosition();
+                const distance = Vector3.Distance(bomberPosition, missilePosition);
+                if (distance <= flareDetectionRange) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public getScene(): Scene {

@@ -11,6 +11,9 @@ export class UIManager {
     private missileButton!: HTMLElement;
     private missileButtonIcon!: HTMLElement;
     private missileButtonCooldown!: HTMLElement;
+    private countermeasureButton!: HTMLElement;
+    private countermeasureButtonIcon!: HTMLElement;
+    private countermeasureButtonCooldown!: HTMLElement;
     private cameraToggleButton!: HTMLElement;
     private cameraToggleIcon!: HTMLElement;
     private healthBar!: HTMLElement;
@@ -25,19 +28,27 @@ export class UIManager {
     // Performance optimization: change detection and batching
     private lastBombCooldown: number = -1;
     private lastMissileCooldown: number = -1;
+    private lastCountermeasureCooldown: number = -1;
     private lastHasTarget: boolean = false;
     private lastLockMode: CameraLockMode = CameraLockMode.BOMBER;
     private lastHealth: number = -1;
     private updateBatchTimeout: ReturnType<typeof setTimeout> | null = null;
     private pendingUpdates: Set<string> = new Set();
 
+    // Alert system
+    private alertContainer!: HTMLElement;
+    private activeAlerts: Map<string, HTMLElement> = new Map();
+    private alertTimeout: number = 5000; // 5 seconds
+
     constructor(game: Game, inputManager: InputManager) {
         this.game = game;
         this.inputManager = inputManager;
         this.createBombButton();
         this.createMissileButton();
+        this.createCountermeasureButton();
         this.createCameraToggleButton();
         this.createHealthBar();
+        this.createAlertSystem();
 
         // Listen for button clicks to start a bombing run
         this.bombButton.addEventListener('click', () => {
@@ -50,6 +61,13 @@ export class UIManager {
         this.missileButton.addEventListener('click', () => {
             if (this.game.getBomber().canLaunchMissile() && this.game.getBomber().hasValidTarget()) {
                 this.inputManager.triggerMissileKeyPress();
+            }
+        });
+
+        // Listen for countermeasure button clicks
+        this.countermeasureButton.addEventListener('click', () => {
+            if (this.game.getBomber().canLaunchFlares()) {
+                this.inputManager.triggerCountermeasureKeyPress();
             }
         });
 
@@ -89,6 +107,19 @@ export class UIManager {
         this.missileButtonCooldown = document.getElementById('missile-cooldown')!;
     }
 
+    private createCountermeasureButton(): void {
+        this.countermeasureButton = document.createElement('div');
+        this.countermeasureButton.id = 'countermeasure-button';
+        this.countermeasureButton.innerHTML = `
+            <div id="countermeasure-icon"></div>
+            <div id="countermeasure-cooldown"></div>
+        `;
+        document.body.appendChild(this.countermeasureButton);
+
+        this.countermeasureButtonIcon = document.getElementById('countermeasure-icon')!;
+        this.countermeasureButtonCooldown = document.getElementById('countermeasure-cooldown')!;
+    }
+
     private createCameraToggleButton(): void {
         this.cameraToggleButton = document.createElement('div');
         this.cameraToggleButton.id = 'camera-toggle-button';
@@ -115,6 +146,77 @@ export class UIManager {
 
         // Add some basic styling
         this.addHealthBarStyles();
+    }
+
+    private createAlertSystem(): void {
+        this.alertContainer = document.createElement('div');
+        this.alertContainer.id = 'alert-container';
+        document.body.appendChild(this.alertContainer);
+        this.addAlertStyles();
+    }
+
+    private addAlertStyles(): void {
+        const style = document.createElement('style');
+        style.textContent = `
+            #alert-container {
+                position: fixed;
+                top: 100px;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 2000;
+                pointer-events: none;
+            }
+            
+            .alert {
+                background: linear-gradient(135deg, rgba(255, 0, 0, 0.9), rgba(200, 0, 0, 0.9));
+                color: white;
+                padding: 12px 20px;
+                margin-bottom: 10px;
+                border-radius: 8px;
+                border: 2px solid rgba(255, 255, 255, 0.3);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+                font-family: 'Courier New', monospace;
+                font-weight: bold;
+                font-size: 14px;
+                text-align: center;
+                min-width: 300px;
+                animation: alertSlideIn 0.3s ease-out;
+                backdrop-filter: blur(5px);
+            }
+            
+            .alert.iskander-lock {
+                background: linear-gradient(135deg, rgba(255, 100, 0, 0.9), rgba(255, 50, 0, 0.9));
+                border-color: rgba(255, 255, 0, 0.5);
+                box-shadow: 0 4px 12px rgba(255, 100, 0, 0.3);
+            }
+            
+            @keyframes alertSlideIn {
+                from {
+                    opacity: 0;
+                    transform: translateX(-50%) translateY(-20px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateX(-50%) translateY(0);
+                }
+            }
+            
+            .alert.fade-out {
+                animation: alertFadeOut 0.5s ease-in forwards;
+            }
+            
+            @keyframes alertFadeOut {
+                from {
+                    opacity: 1;
+                    transform: translateX(-50%) translateY(0);
+                }
+                to {
+                    opacity: 0;
+                    transform: translateX(-50%) translateY(-20px);
+                }
+            }
+        `;
+        document.head.appendChild(style);
     }
 
     public updateCameraToggleIcon(): void {
@@ -220,6 +322,55 @@ export class UIManager {
             #missile-button.unavailable #missile-icon {
                 opacity: 0.5;
             }
+            #countermeasure-button {
+                position: fixed;
+                bottom: 20px;
+                right: 220px;
+                width: 80px;
+                height: 80px;
+                background-color: rgba(0, 0, 0, 0.5);
+                border-radius: 50%;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+                border: 2px solid #ffaa00;
+                transition: border-color 0.3s ease, box-shadow 0.3s ease;
+            }
+            #countermeasure-button.has-iskander {
+                border-color: #ff0000;
+                box-shadow: 0 0 15px rgba(255, 0, 0, 0.6);
+            }
+            #countermeasure-icon {
+                width: 50px;
+                height: 50px;
+                background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%23ffaa00" d="M256 0C114.6 0 0 114.6 0 256s114.6 256 256 256s256-114.6 256-256S397.4 0 256 0zM256 464c-114.7 0-208-93.31-208-208S141.3 48 256 48s208 93.31 208 208S370.7 464 256 464zM256 304c13.25 0 24-10.75 24-24v-128C280 138.8 269.3 128 256 128S232 138.8 232 152v128C232 293.3 242.8 304 256 304zM256 337.1c-17.36 0-31.44 14.08-31.44 31.44C224.6 385.9 238.6 400 256 400s31.44-14.08 31.44-31.44C287.4 351.2 273.4 337.1 256 337.1z"/></svg>');
+                background-size: contain;
+                background-repeat: no-repeat;
+                background-position: center;
+                z-index: 2;
+                transition: filter 0.3s ease;
+            }
+            #countermeasure-button.has-iskander #countermeasure-icon {
+                filter: hue-rotate(0deg) brightness(1.5);
+            }
+            #countermeasure-cooldown {
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 0;
+                background-color: rgba(255, 170, 0, 0.4);
+                z-index: 1;
+                transition: height 0.1s linear;
+            }
+            #countermeasure-button.unavailable {
+                cursor: not-allowed;
+            }
+            #countermeasure-button.unavailable #countermeasure-icon {
+                opacity: 0.5;
+            }
             #camera-toggle-button {
                 position: fixed;
                 top: 20px;
@@ -297,6 +448,7 @@ export class UIManager {
         // Schedule updates for batching
         this.scheduleUpdate('bomb');
         this.scheduleUpdate('missile');
+        this.scheduleUpdate('countermeasure');
         this.scheduleUpdate('camera');
         this.scheduleUpdate('health');
     }
@@ -319,6 +471,9 @@ export class UIManager {
         }
         if (this.pendingUpdates.has('missile')) {
             this.updateMissileButton();
+        }
+        if (this.pendingUpdates.has('countermeasure')) {
+            this.updateCountermeasureButton();
         }
         if (this.pendingUpdates.has('camera')) {
             this.updateCameraButton();
@@ -387,6 +542,37 @@ export class UIManager {
         }
     }
 
+    private updateCountermeasureButton(): void {
+        const countermeasureCooldownStatus = this.game.getBomber().getFlareCooldownStatus();
+        
+        // Only update cooldown if changed
+        if (Math.abs(countermeasureCooldownStatus - this.lastCountermeasureCooldown) > 0.01) {
+            const countermeasureFillHeight = countermeasureCooldownStatus * 100;
+            this.countermeasureButtonCooldown.style.height = `${countermeasureFillHeight}%`;
+
+            if (countermeasureCooldownStatus >= 1) {
+                this.countermeasureButton.classList.remove('unavailable');
+            } else {
+                this.countermeasureButton.classList.add('unavailable');
+            }
+            
+            this.lastCountermeasureCooldown = countermeasureCooldownStatus;
+        }
+
+        // Check if there are Iskander missiles in range to enable countermeasures
+        const bomberPosition = this.game.getBomber().getPosition();
+        const flareDetectionRange = this.game.getBomber().getFlareDetectionRange();
+        
+        // Check if any Iskander missiles are within flare detection range
+        const hasIskanderInRange = this.game.hasIskanderMissilesInRange();
+        
+        if (countermeasureCooldownStatus >= 1 && hasIskanderInRange) {
+            this.countermeasureButton.classList.add('has-iskander');
+        } else {
+            this.countermeasureButton.classList.remove('has-iskander');
+        }
+    }
+
     private updateCameraButton(): void {
         const lockMode = this.game.getCameraController().getLockMode();
         
@@ -416,6 +602,50 @@ export class UIManager {
             }
             
             this.lastHealth = currentHealth;
+        }
+    }
+
+    public showAlert(message: string, type: string = 'default', duration: number = 5000): void {
+        const alertId = `${type}-${Date.now()}`;
+        
+        // Remove existing alert of the same type
+        const existingAlert = this.activeAlerts.get(type);
+        if (existingAlert) {
+            existingAlert.remove();
+            this.activeAlerts.delete(type);
+        }
+        
+        const alertElement = document.createElement('div');
+        alertElement.className = `alert ${type}`;
+        alertElement.textContent = message;
+        
+        this.alertContainer.appendChild(alertElement);
+        this.activeAlerts.set(type, alertElement);
+        
+        // Auto-remove after duration
+        setTimeout(() => {
+            if (this.activeAlerts.has(type)) {
+                alertElement.classList.add('fade-out');
+                setTimeout(() => {
+                    if (alertElement.parentNode) {
+                        alertElement.remove();
+                        this.activeAlerts.delete(type);
+                    }
+                }, 500);
+            }
+        }, duration);
+    }
+
+    public removeAlert(type: string): void {
+        const alertElement = this.activeAlerts.get(type);
+        if (alertElement) {
+            alertElement.classList.add('fade-out');
+            setTimeout(() => {
+                if (alertElement.parentNode) {
+                    alertElement.remove();
+                    this.activeAlerts.delete(type);
+                }
+            }, 500);
         }
     }
 } 

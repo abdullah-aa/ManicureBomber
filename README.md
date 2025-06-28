@@ -1,75 +1,113 @@
-# ManicureBomber
+# ManicureBomber - B2 Stealth Bomber Combat Simulator
 
-Originally inspired by: https://www.youtube.com/watch?v=neGQPynVbsk
-
-A 3D flight simulation featuring a Bomber flying over procedurally generated arid terrain using BabylonJS and TypeScript.
+A high-performance WebGL combat simulator featuring a B2 Stealth Bomber with realistic flight dynamics, terrain generation, and missile combat systems.
 
 ## Features
 
-- **Bomber**: Custom-built 3D model with realistic proportions and exhaust effects
-- **Procedural Terrain**: Dynamically generated rugged, arid landscape with heightmaps
-- **Terrain Chunking**: Efficient terrain streaming as you explore the world
-- **Rock Formations**: Various procedurally placed rock types for realistic terrain
-- **Sparse Vegetation**: Desert-appropriate vegetation scattered across the landscape
-- **Dynamic Camera**: Third-person camera that follows behind and above the bomber
-- **Flight Controls**: 
-  - Arrow Keys: Turn left/right, climb/descend
-  - Smooth flight physics with realistic bomber movement
-- **Horizon Rendering**: Atmospheric horizon effect at the edge of view distance
+### Core Gameplay
+- **Realistic B2 Bomber Flight**: Banking turns, altitude control, and smooth flight dynamics
+- **Dynamic Terrain Generation**: Procedurally generated terrain with buildings and defense systems
+- **Bombing Runs**: Strategic bombing with 9-bomb runs and cooldown system
+- **Tomahawk Missiles**: Cruise missiles with curved flight paths targeting enemy defenses
+- **Iskander Missiles**: Enemy ballistic missiles launched from defense launchers
+- **Countermeasure Flares**: Defensive flares to divert incoming Iskander missiles
 
-## Technical Implementation
+### Combat Systems
+- **Defense Launchers**: Enemy SAM sites that launch missiles at the bomber
+- **Missile Combat**: Realistic missile physics with proximity explosions
+- **Health System**: Bomber damage and destruction mechanics
+- **Countermeasures**: Flare system to distract enemy missiles
 
-- **BabylonJS 6.0**: Modern 3D engine with WebGL rendering
-- **TypeScript**: Type-safe development with modern ES features
-- **Modular Architecture**: Clean separation of game systems
-- **Noise Generation**: Custom noise algorithms for terrain height generation
-- **Efficient Chunking**: Dynamic loading/unloading of terrain chunks
-- **Material System**: Realistic materials for terrain, rocks, and aircraft
-
-## Installation
-
-1. Install dependencies:
-```bash
-npm install
-```
-
-2. Start the development server:
-```bash
-npm start
-```
-
-3. Open your browser to `http://localhost:8080`
-
-## Build for Production
-
-```bash
-npm run build
-```
+### Performance Optimizations
+- **Web Worker Architecture**: Offloaded physics and terrain generation
+- **60 FPS Target**: Optimized for smooth gameplay
+- **Memory Management**: Efficient resource disposal and object pooling
+- **LOD Systems**: Level-of-detail optimization for distant objects
 
 ## Controls
 
-- **Left/Right Arrow Keys**: Turn the bomber left or right
-- **Up/Down Arrow Keys**: Climb or descend
-- **Mouse**: Look around (camera movement)
+### Flight Controls
+- **Arrow Keys**: Control bomber movement
+  - Left/Right: Turn and bank
+  - Up/Down: Change altitude
+- **Shift + Arrow Keys**: Camera panning
+- **Quote Key ('')**: Toggle camera lock mode (bomber/ground)
+- **Semicolon (;)**: Reset camera
 
-## Project Structure
+### Combat Controls
+- **Comma (,)** or **Bomb Button**: Start bombing run
+- **Period (.)** or **Missile Button**: Launch Tomahawk missile
+- **Slash (/)** or **Countermeasure Button**: Launch defensive flares
 
+### UI Elements
+- **Bomb Button**: Bottom right - shows cooldown status
+- **Missile Button**: Bottom right - shows target availability
+- **Countermeasure Button**: Bottom right - shows when Iskander missiles are in range
+- **Health Bar**: Top left - bomber health status
+- **Radar Display**: Top left - terrain and target information
+
+## Game Mechanics
+
+### Iskander Missile System
+- **Launch Timing**: Every 15-25 seconds (15 base + 0-10 random)
+- **Launch Source**: Defense launcher farthest from bomber
+- **Targeting**: Direct targeting of bomber position
+- **Damage**: 30% of bomber health on direct hit
+- **No Time Limit**: Missiles persist until impact or countermeasure diversion
+
+### Countermeasure Flare System
+- **Activation**: Press Slash (/) key or click countermeasure button
+- **Cooldown**: 8 seconds between flare launches
+- **Effect**: Creates 6 flare positions around bomber
+- **Duration**: Flares last 5 seconds
+- **Detection Range**: 80 units for Iskander missiles
+- **Diversion**: Iskander missiles will target flares instead of bomber
+
+### Strategic Elements
+- **Target Priority**: Iskander missiles launch from farthest defense launcher
+- **Timing Management**: Random intervals prevent predictable patterns
+- **Resource Management**: Limited flare availability requires strategic use
+- **Risk Assessment**: Countermeasures only available when Iskander missiles are in range
+
+## Technical Architecture
+
+### Performance-First Design
+- **Web Workers**: Physics, terrain, and collision detection offloaded
+- **SharedArrayBuffer**: Efficient data sharing between main thread and workers
+- **Object Pooling**: Minimizes garbage collection
+- **Frustum Culling**: Only renders visible objects
+- **LOD Systems**: Reduces detail for distant objects
+
+### Babylon.js Integration
+- **Scene Optimization**: Hardware scaling and scene optimizers
+- **Particle Systems**: Realistic missile trails and explosions
+- **Material Management**: Efficient texture and material usage
+- **Animation Groups**: Smooth missile and aircraft animations
+
+## Development
+
+### Building
+```bash
+npm install
+npm run build
 ```
-src/
-├── index.ts              # Application entry point
-├── index.html            # HTML template
-├── game/
-│   ├── Game.ts           # Main game orchestrator
-│   ├── B2Bomber.ts       # Bomber aircraft implementation
-│   ├── TerrainManager.ts # Procedural terrain system
-│   ├── InputManager.ts   # Keyboard input handling
-│   └── CameraController.ts # Camera follow system
-└── utils/
-    └── NoiseGenerator.ts # Noise generation utilities
-```
 
-## Gameplay
+### Running
+Open `index.html` in a modern web browser with WebGL support.
 
-Experience the thrill of piloting a Bomber over an endless, procedurally generated desert landscape. The terrain features realistic height variations, scattered rock formations, and sparse desert vegetation. As you fly, new terrain chunks are generated ahead of you while distant terrain is efficiently removed to maintain performance.
+### Performance Monitoring
+- Built-in performance logging
+- Worker statistics tracking
+- Frame rate monitoring
+- Memory usage optimization
 
-The camera maintains a perfect view of the bomber from behind and above, letting you see the aircraft's exhaust trails as you navigate through the virtual desert environment.
+## Browser Requirements
+- WebGL 2.0 support
+- SharedArrayBuffer support (requires HTTPS or localhost)
+- Modern JavaScript features (ES2020+)
+
+## Performance Notes
+- Target: 60 FPS on modern hardware
+- Optimized for 1080p displays
+- Memory usage: ~100MB typical
+- Network: Single bundle file (~5MB)

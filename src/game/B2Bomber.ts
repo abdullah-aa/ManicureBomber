@@ -58,6 +58,13 @@ export class B2Bomber {
     private damageEffectDuration: number = 2.0; // Damage effects last 2 seconds
     private onDestroyedCallback: (() => void) | null = null;
 
+    // Countermeasure flare system
+    private flareCooldown: number = 8; // 8 seconds cooldown
+    private lastFlareTime: number = -Infinity;
+    private activeFlares: Vector3[] = [];
+    private flareLifetime: number = 5; // Flares last 5 seconds
+    private flareDetectionRange: number = 80; // Range for Iskander missiles to detect flares
+
     constructor(scene: Scene) {
         this.scene = scene;
         this.position = new Vector3(0, this.altitude, 0);
@@ -769,5 +776,56 @@ export class B2Bomber {
 
     public setOnDestroyedCallback(callback: () => void): void {
         this.onDestroyedCallback = callback;
+    }
+
+    // Countermeasure flare system
+    public canLaunchFlares(): boolean {
+        const currentTime = performance.now() / 1000;
+        return (currentTime - this.lastFlareTime) >= this.flareCooldown;
+    }
+
+    public getFlareCooldownStatus(): number {
+        const currentTime = performance.now() / 1000;
+        const timeSinceLastFlare = currentTime - this.lastFlareTime;
+        return Math.min(timeSinceLastFlare / this.flareCooldown, 1);
+    }
+
+    public launchFlares(): boolean {
+        if (!this.canLaunchFlares()) return false;
+
+        const currentTime = performance.now() / 1000;
+        this.lastFlareTime = currentTime;
+
+        // Create multiple flare positions around the bomber
+        const flarePositions = [
+            this.position.add(new Vector3(10, -5, 10)),
+            this.position.add(new Vector3(-10, -5, -10)),
+            this.position.add(new Vector3(10, -5, -10)),
+            this.position.add(new Vector3(-10, -5, 10)),
+            this.position.add(new Vector3(0, -8, 15)),
+            this.position.add(new Vector3(0, -8, -15))
+        ];
+
+        // Add flares to active list
+        this.activeFlares.push(...flarePositions);
+
+        // Remove flares after lifetime
+        setTimeout(() => {
+            this.activeFlares.splice(0, flarePositions.length);
+        }, this.flareLifetime * 1000);
+
+        return true;
+    }
+
+    public getActiveFlares(): Vector3[] {
+        return this.activeFlares.map(flare => flare.clone());
+    }
+
+    public hasActiveFlares(): boolean {
+        return this.activeFlares.length > 0;
+    }
+
+    public getFlareDetectionRange(): number {
+        return this.flareDetectionRange;
     }
 } 

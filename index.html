@@ -184,9 +184,50 @@
             animation: missileBlink 0.5s ease-in-out infinite alternate;
         }
         
+        .radar-iskander {
+            position: absolute;
+            width: 3px;
+            height: 3px;
+            background: #ff6600;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 4px rgba(255, 102, 0, 0.8);
+            animation: iskanderPulse 1s ease-in-out infinite;
+        }
+        
+        .radar-iskander-locked {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: #ff0000;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 8px rgba(255, 0, 0, 1), 0 0 12px rgba(255, 0, 0, 0.6);
+            animation: iskanderLockedPulse 0.3s ease-in-out infinite alternate;
+        }
+        
         @keyframes missileBlink {
             from { opacity: 1; }
             to { opacity: 0.3; }
+        }
+        
+        @keyframes iskanderPulse {
+            0% { opacity: 0.6; transform: translate(-50%, -50%) scale(1); }
+            50% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+            100% { opacity: 0.6; transform: translate(-50%, -50%) scale(1); }
+        }
+        
+        @keyframes iskanderLockedPulse {
+            from { 
+                opacity: 1; 
+                transform: translate(-50%, -50%) scale(1);
+                box-shadow: 0 0 8px rgba(255, 0, 0, 1), 0 0 12px rgba(255, 0, 0, 0.6);
+            }
+            to { 
+                opacity: 0.7; 
+                transform: translate(-50%, -50%) scale(1.3);
+                box-shadow: 0 0 12px rgba(255, 0, 0, 1), 0 0 20px rgba(255, 0, 0, 0.8);
+            }
         }
         
         .radar-bomber {
@@ -206,7 +247,7 @@
         
         #scoreDisplay div {
             margin-bottom: 4px;
-        }</style><script defer="defer" src="bundle.js"></script></head><body><canvas id="renderCanvas"></canvas><div id="instructionsOverlay"><div id="instructionsHeader"><div id="instructionsTitle">Controls</div><div id="toggleButton">▼</div></div><div id="instructionsContent"><div>Arrow Keys: Turn Left/Right, Climb/Descend</div><div>B: Drop Bombs</div><div>N: Toggle Camera Lock</div><div>M: Launch Missile</div><div>Shift + Up/Down: Adjust Camera Height</div><div>Shift + Left/Right: Pan Camera</div><div id="radarLegend"><div>Radr Legend:</div><div style="font-size: 10px; margin-top: 8px;"><div style="color: #00ff00;">● Bomber</div><div style="color: #ff0000;">● Target</div><div style="color: #ffff00;">● Building</div><div style="color: #ff6600;">● Defense</div><div style="color: #ff00ff;">● Missile</div></div></div></div></div><div id="radarOverlay"><div id="radarHeader"><div>RADAR</div><div id="radarToggle">▼</div></div><div id="radarContent"><div id="radarDisplay"><div class="radar-sweep"></div><div class="radar-bomber"></div></div><div id="scoreDisplay"><div>Buildings: <span id="buildingCount">0</span></div><div>Targets: <span id="targetCount">0</span></div></div></div></div><script>document.getElementById('instructionsHeader').addEventListener('click', function() {
+        }</style><script defer="defer" src="bundle.js"></script></head><body><canvas id="renderCanvas"></canvas><div id="instructionsOverlay"><div id="instructionsHeader"><div id="instructionsTitle">Controls</div><div id="toggleButton">▼</div></div><div id="instructionsContent"><div>Arrow Keys: Turn Left/Right, Climb/Descend</div><div>B: Drop Bombs</div><div>N: Toggle Camera Lock</div><div>M: Launch Missile</div><div>Shift + Up/Down: Adjust Camera Height</div><div>Shift + Left/Right: Pan Camera</div><div id="radarLegend"><div>Radr Legend:</div><div style="font-size: 10px; margin-top: 8px;"><div style="color: #00ff00;">● Bomber</div><div style="color: #ff0000;">● Target</div><div style="color: #ffff00;">● Building</div><div style="color: #ff6600;">● Defense</div><div style="color: #ff00ff;">● Missile</div><div style="color: #ff6600;">● Iskander</div><div style="color: #ff0000;">● Iskander (Locked)</div></div></div></div></div><div id="radarOverlay"><div id="radarHeader"><div>RADAR</div><div id="radarToggle">▼</div></div><div id="radarContent"><div id="radarDisplay"><div class="radar-sweep"></div><div class="radar-bomber"></div></div><div id="scoreDisplay"><div>Buildings: <span id="buildingCount">0</span></div><div>Targets: <span id="targetCount">0</span></div></div></div></div><script>document.getElementById('instructionsHeader').addEventListener('click', function() {
             const content = document.getElementById('instructionsContent');
             const toggleButton = document.getElementById('toggleButton');
             
