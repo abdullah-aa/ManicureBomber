@@ -137,7 +137,7 @@ export class Bomber {
             depth: 6
         }, this.scene);
 
-        wingLeft.position.x = -14;
+        wingLeft.position.x = -13;
         wingLeft.position.y = -0.5;
         wingLeft.position.z = -3;
         wingLeft.rotation.y = -Math.PI * 0.15; // More sweep
@@ -160,7 +160,7 @@ export class Bomber {
             depth: 6
         }, this.scene);
 
-        wingRight.position.x = 14;
+        wingRight.position.x = 13;
         wingRight.position.y = -0.5;
         wingRight.position.z = -3;
         wingRight.rotation.y = Math.PI * 0.15; // More sweep
@@ -177,6 +177,19 @@ export class Bomber {
         wingRightSmall.rotation.y = Math.PI * 0.15; // More sweep
         wingRightSmall.parent = this.bomberGroup;
 
+        const topWingSmall = MeshBuilder.CreateBox('topWingSmall', {
+            width: 5,
+            height: 0.4,
+            depth: 3
+        }, this.scene);
+        
+        topWingSmall.position.x = 0;
+        topWingSmall.position.z = -10;
+        topWingSmall.position.y = 2;
+        topWingSmall.rotation.z = Math.PI / 2;
+        topWingSmall.rotation.x = -Math.PI / 4;
+        topWingSmall.parent = this.bomberGroup;
+
         const wingMaterial = new StandardMaterial('wingMaterial', this.scene);
         wingMaterial.diffuseColor = new Color3(0.12, 0.15, 0.18);
         wingMaterial.specularColor = new Color3(0.2, 0.2, 0.3);
@@ -185,6 +198,7 @@ export class Bomber {
         wingRight.material = wingMaterial;
         wingLeftSmall.material = wingMaterial;
         wingRightSmall.material = wingMaterial;
+        topWingSmall.material = wingMaterial;
     }
 
     private createCockpit(): void {
@@ -237,15 +251,15 @@ export class Bomber {
     private createEngines(): void {
         // Engine nacelles embedded in wings
         const positions = [
-            new Vector3(-10, -0.8, -3),
-            new Vector3(-19, -0.8, -7),
-            new Vector3(10, -0.8, -3),
-            new Vector3(19, -0.8, -7)
+            new Vector3(-11, -0.8, -5),
+            new Vector3(-20, -0.8, -9),
+            new Vector3(11, -0.8, -5),
+            new Vector3(20, -0.8, -9)
         ];
 
         positions.forEach((pos, index) => {
             const engine = MeshBuilder.CreateCylinder(`engine${index}`, {
-                height: 6,
+                height: 4,
                 diameter: 2
             }, this.scene);
 
@@ -259,11 +273,11 @@ export class Bomber {
 
             // Add exhaust effect
             const exhaust = MeshBuilder.CreateCylinder(`exhaust${index}`, {
-                height: 3,
+                height: 2,
                 diameter: 1.5
             }, this.scene);
 
-            exhaust.position = pos.add(new Vector3(0, 0, -4));
+            exhaust.position = pos.add(new Vector3(0, 0, -2));
             exhaust.rotation.x = Math.PI / 2;
             exhaust.parent = this.bomberGroup;
 
