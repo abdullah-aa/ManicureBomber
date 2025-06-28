@@ -1,11 +1,11 @@
-# ManicureBomber - B2 Stealth Bomber Combat Simulator
+# ManicureBomber - Stealth Bomber Combat Simulator
 
-A high-performance WebGL combat simulator featuring a B2 Stealth Bomber with realistic flight dynamics, terrain generation, and missile combat systems.
+A high-performance WebGL combat simulator featuring a Stealth Bomber with realistic flight dynamics, terrain generation, and missile combat systems.
 
 ## Features
 
 ### Core Gameplay
-- **Realistic B2 Bomber Flight**: Banking turns, altitude control, and smooth flight dynamics
+- **Realistic Stealth Bomber Flight**: Banking turns, altitude control, and smooth flight dynamics
 - **Dynamic Terrain Generation**: Procedurally generated terrain with buildings and defense systems
 - **Bombing Runs**: Strategic bombing with 9-bomb runs and cooldown system
 - **Tomahawk Missiles**: Cruise missiles with curved flight paths targeting enemy defenses

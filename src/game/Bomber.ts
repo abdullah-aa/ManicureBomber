@@ -4,7 +4,7 @@ import { TomahawkMissile } from './TomahawkMissile';
 import { TerrainManager } from './TerrainManager';
 import { Building } from './Building';
 
-export class B2Bomber {
+export class Bomber {
     private scene: Scene;
     private bomberGroup!: TransformNode;
     private position: Vector3;
@@ -81,7 +81,7 @@ export class B2Bomber {
         this.bomberGroup = new TransformNode('bomberGroup', this.scene);
         this.bomberGroup.position = this.position.clone();
 
-        // Create B2 bomber-like shape
+        // Create bomber-like shape
         this.createFuselage();
         this.createWings();
         this.createCockpit();
@@ -127,7 +127,7 @@ export class B2Bomber {
     }
 
     private createWings(): void {
-        // Main wing - triangular swept wing characteristic of B2
+        // Main wing - triangular swept wing characteristic of stealth bomber
         const wingLeft = MeshBuilder.CreateBox('wingLeft', {
             width: 30,
             height: 0.4,

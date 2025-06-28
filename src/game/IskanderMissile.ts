@@ -1,5 +1,5 @@
 import { Scene, Mesh, Vector3, MeshBuilder, StandardMaterial, Color3, ParticleSystem, Texture, Color4, PointLight, TransformNode, DynamicTexture } from '@babylonjs/core';
-import { B2Bomber } from './B2Bomber';
+import { Bomber } from './Bomber';
 import { WorkerManager } from './WorkerManager';
 
 export class IskanderMissile {
@@ -10,7 +10,7 @@ export class IskanderMissile {
     private velocity: Vector3;
     private rotation: Vector3;
     private targetPosition: Vector3;
-    private bomber: B2Bomber;
+    private bomber: Bomber;
     private speed: number = 120; // Slightly slower than Tomahawk
     private turnRate: number = 1.5; // How fast the missile can turn
     private launched: boolean = false;
@@ -62,7 +62,7 @@ export class IskanderMissile {
     private pendingPhysicsUpdate: boolean = false;
     private lastPhysicsResult: any = null;
 
-    constructor(scene: Scene, launchPosition: Vector3, bomber: B2Bomber, workerManager: WorkerManager) {
+    constructor(scene: Scene, launchPosition: Vector3, bomber: Bomber, workerManager: WorkerManager) {
         this.scene = scene;
         this.position = launchPosition.clone();
         this.bomber = bomber;

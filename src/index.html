@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>B2 Spirit Bomber - Manicure Bomber</title>
+    <title>Stealth Bomber - Manicure Bomber</title>
     <style>
         body {
             margin: 0;
@@ -58,7 +58,7 @@
         }
         #instructionsContent {
             padding: 16px;
-            max-height: 420px;
+            max-height: 320px;
             overflow: hidden;
             transition: max-height 0.3s ease, padding 0.3s ease;
         }
@@ -195,10 +195,10 @@
             position: absolute;
             width: 3px;
             height: 3px;
-            background: #0066ff;
+            background: #ff6600;
             border-radius: 50%;
             transform: translate(-50%, -50%);
-            box-shadow: 0 0 6px rgba(0, 102, 255, 0.8);
+            box-shadow: 0 0 4px rgba(255, 102, 0, 0.8);
             animation: iskanderPulse 1s ease-in-out infinite;
         }
         
@@ -235,6 +235,7 @@
 </head>
 <body>
     <canvas id="renderCanvas"></canvas>
+    
     <div id="instructionsOverlay">
         <div id="instructionsHeader">
             <div id="instructionsTitle">Controls</div>
@@ -242,23 +243,20 @@
         </div>
         <div id="instructionsContent">
             <div>Arrow Keys: Turn Left/Right, Climb/Descend</div>
-            <div>, (Comma): Drop Bombs</div>
-            <div>. (Period): Launch Missile</div>
-            <div>/ (Slash): Deploy Countermeasures</div>
-            <div>' (Quote): Toggle Camera Lock</div>
-            <div>; (Semicolon): Reset Camera</div>
+            <div>B: Drop Bombs</div>
+            <div>N: Toggle Camera Lock</div>
+            <div>M: Launch Missile</div>
             <div>Shift + Up/Down: Adjust Camera Height</div>
-            <div>Ctrl + Up/Down: Adjust Camera Distance</div>
             <div>Shift + Left/Right: Pan Camera</div>
-            <div>Mouse Wheel: Zoom Camera</div>
             <div id="radarLegend">
                 <div>Radar Legend:</div>
                 <div style="font-size: 10px; margin-top: 8px;">
                     <div style="color: #00ff00;">● Bomber</div>
                     <div style="color: #ff0000;">● Target</div>
+                    <div style="color: #ffff00;">● Building</div>
                     <div style="color: #ff6600;">● Defense</div>
                     <div style="color: #ff00ff;">● Missile</div>
-                    <div style="color: #0066ff;">● Iskander</div>
+                    <div style="color: #ff6600;">● Iskander</div>
                 </div>
             </div>
         </div>
@@ -275,10 +273,12 @@
                 <div class="radar-bomber"></div>
             </div>
             <div id="scoreDisplay">
-                <div>Targets Destroyed: <span id="targetCount">0</span></div>
+                <div>Buildings: <span id="buildingCount">0</span></div>
+                <div>Targets: <span id="targetCount">0</span></div>
             </div>
         </div>
     </div>
+    
     <script>
         document.getElementById('instructionsHeader').addEventListener('click', function() {
             const content = document.getElementById('instructionsContent');

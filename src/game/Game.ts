@@ -1,5 +1,5 @@
 import { Scene, Vector3, HemisphericLight, DirectionalLight, Color3, FreeCamera, Mesh, MeshBuilder, StandardMaterial, Texture, DynamicTexture } from '@babylonjs/core';
-import { B2Bomber } from './B2Bomber';
+import { Bomber } from './Bomber';
 import { TerrainManager } from './TerrainManager';
 import { InputManager } from './InputManager';
 import { CameraController, CameraLockMode } from './CameraController';
@@ -13,7 +13,7 @@ import { WorkerManager } from './WorkerManager';
 export class Game {
     private scene: Scene;
     private canvas: HTMLCanvasElement;
-    private bomber!: B2Bomber;
+    private bomber!: Bomber;
     private terrainManager!: TerrainManager;
     private inputManager!: InputManager;
     private cameraController!: CameraController;
@@ -99,7 +99,7 @@ export class Game {
         // Initialize worker manager first
         this.workerManager = new WorkerManager();
         
-        this.bomber = new B2Bomber(this.scene);
+        this.bomber = new Bomber(this.scene);
         this.terrainManager = new TerrainManager(this.scene, this.workerManager);
         this.bomber.setTerrainManager(this.terrainManager);
         this.terrainManager.setBomber(this.bomber);
@@ -445,7 +445,7 @@ export class Game {
         return this.isBombingRun ? 0 : cooldownProgress;
     }
 
-    public getBomber(): B2Bomber {
+    public getBomber(): Bomber {
         return this.bomber;
     }
 
@@ -556,7 +556,7 @@ export class Game {
         gameOverDiv.innerHTML = `
             <div class="game-over-content">
                 <h1>MISSION FAILED</h1>
-                <p>Your B2 Bomber has been destroyed!</p>
+                <p>Your Bomber has been destroyed!</p>
                 <p>Buildings Destroyed: ${this.destroyedBuildings}</p>
                 <p>Targets Eliminated: ${this.destroyedTargets}</p>
                 <p>Restarting in ${this.gameOverDelay} seconds...</p>

@@ -1,5 +1,5 @@
+import { Bomber } from './Bomber';
 import { FreeCamera, Vector3 } from '@babylonjs/core';
-import { B2Bomber } from './B2Bomber';
 import { InputManager } from './InputManager';
 
 export enum CameraLockMode {
@@ -9,7 +9,7 @@ export enum CameraLockMode {
 
 export class CameraController {
     private camera: FreeCamera;
-    private bomber: B2Bomber;
+    private bomber: Bomber;
     private followDistance: number = 200;
     private followHeight: number = 80;
     private lookAheadDistance: number = 20;
@@ -48,7 +48,7 @@ export class CameraController {
     private cachedCos: number = 0;
     private trigCacheValid: boolean = false;
 
-    constructor(camera: FreeCamera, bomber: B2Bomber) {
+    constructor(camera: FreeCamera, bomber: Bomber) {
         this.camera = camera;
         this.bomber = bomber;
         

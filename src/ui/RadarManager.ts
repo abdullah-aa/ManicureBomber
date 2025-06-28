@@ -1,6 +1,6 @@
 import { Vector3 } from '@babylonjs/core';
 import { Building } from '../game/Building';
-import { B2Bomber } from '../game/B2Bomber';
+import { Bomber } from '../game/Bomber';
 import { TerrainManager } from '../game/TerrainManager';
 import { DefenseMissile } from '../game/DefenseMissile';
 import { IskanderMissile } from '../game/IskanderMissile';
@@ -108,7 +108,7 @@ export class RadarManager {
         document.head.appendChild(style);
     }
 
-    public update(bomber: B2Bomber, terrainManager: TerrainManager, destroyedTargets: number, iskanderMissiles: IskanderMissile[] = []): void {
+    public update(bomber: Bomber, terrainManager: TerrainManager, destroyedTargets: number, iskanderMissiles: IskanderMissile[] = []): void {
         // Performance optimization: limit update frequency
         const currentTime = performance.now();
         if (currentTime - this.lastUpdateTime < this.updateInterval) {
