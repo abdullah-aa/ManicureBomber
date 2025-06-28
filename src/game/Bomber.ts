@@ -67,6 +67,9 @@ export class Bomber {
     private flareParticleSystems: ParticleSystem[] = []; // Visual effects for flares
     private flareMeshes: Mesh[] = []; // Visual flare meshes
 
+    // Target destruction callback
+    private onTargetDestroyedCallback: ((building: Building) => void) | null = null;
+
     constructor(scene: Scene) {
         this.scene = scene;
         this.position = new Vector3(0, this.altitude, 0);
@@ -560,6 +563,13 @@ export class Bomber {
             this.rotation.clone()
         );
 
+        // Set up target destruction callback
+        missile.setOnTargetDestroyedCallback((building: Building) => {
+            if (this.onTargetDestroyedCallback) {
+                this.onTargetDestroyedCallback(building);
+            }
+        });
+
         this.missiles.push(missile);
         missile.launch();
 
@@ -780,6 +790,10 @@ export class Bomber {
 
     public setOnDestroyedCallback(callback: () => void): void {
         this.onDestroyedCallback = callback;
+    }
+
+    public setOnTargetDestroyedCallback(callback: (building: Building) => void): void {
+        this.onTargetDestroyedCallback = callback;
     }
 
     // Countermeasure flare system

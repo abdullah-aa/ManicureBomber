@@ -9,6 +9,7 @@ import { IskanderMissile } from './IskanderMissile';
 import { UIManager } from '../ui/UIManager';
 import { RadarManager } from '../ui/RadarManager';
 import { WorkerManager } from './WorkerManager';
+import { Building } from './Building';
 
 export class Game {
     private scene: Scene;
@@ -34,8 +35,8 @@ export class Game {
     // Iskander missile system
     private iskanderMissiles: IskanderMissile[] = [];
     private lastIskanderLaunchTime: number = -Infinity;
-    private iskanderLaunchInterval: number = 25; // Base 15 seconds
-    private iskanderRandomInterval: number = 20; // Additional random time up to 10 seconds
+    private iskanderLaunchInterval: number = 45; // Increased from 25 to 45 seconds
+    private iskanderRandomInterval: number = 30; // Increased from 20 to 30 seconds
 
     // Camera toggle properties
     private lastCameraToggleTime: number = 0;
@@ -112,6 +113,13 @@ export class Game {
         // Set up bomber destruction callback
         this.bomber.setOnDestroyedCallback(() => {
             this.handleGameOver();
+        });
+
+        // Set up target destruction callback
+        this.bomber.setOnTargetDestroyedCallback((building: Building) => {
+            if (building.isTarget()) {
+                this.destroyedTargets++;
+            }
         });
 
         await this.terrainManager.generateInitialTerrain(this.bomber.getPosition());

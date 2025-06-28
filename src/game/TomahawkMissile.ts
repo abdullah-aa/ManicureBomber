@@ -48,6 +48,9 @@ export class TomahawkMissile {
     private lastSegmentChangeTime: number = 0;
     private orientationUpdateThreshold: number = 0.15; // When to update orientation (segment progress) - increased threshold
 
+    // Target destruction callback
+    private onTargetDestroyedCallback: ((building: Building) => void) | null = null;
+
     constructor(scene: Scene, launchPosition: Vector3, targetBuilding: Building, launchRotation: Vector3) {
         this.scene = scene;
         this.position = launchPosition.clone();
@@ -680,7 +683,10 @@ export class TomahawkMissile {
         
         // Destroy the target building if it exists and is close enough
         if (this.targetBuilding && Vector3.Distance(this.position, this.targetBuilding.getPosition()) <= 20) {
-            this.targetBuilding.takeDamage(100); // Destroy building instantly
+            const wasDestroyed = this.targetBuilding.takeDamage(100); // Destroy building instantly
+            if (wasDestroyed && this.targetBuilding.isTarget() && this.onTargetDestroyedCallback) {
+                this.onTargetDestroyedCallback(this.targetBuilding);
+            }
         }
         
         // Hide missile model
@@ -722,5 +728,9 @@ export class TomahawkMissile {
         if (this.sparkParticles) this.sparkParticles.dispose();
         if (this.light) this.light.dispose();
         if (this.launchAnimationGroup) this.launchAnimationGroup.dispose();
+    }
+
+    public setOnTargetDestroyedCallback(callback: (building: Building) => void): void {
+        this.onTargetDestroyedCallback = callback;
     }
 } 
