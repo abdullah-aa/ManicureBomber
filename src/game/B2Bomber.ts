@@ -1,4 +1,4 @@
-import { Scene, Mesh, Vector3, Color3, Color4, StandardMaterial, MeshBuilder, TransformNode, ParticleSystem, Texture, Animation } from '@babylonjs/core';
+import { Scene, Mesh, Vector3, Color3, Color4, StandardMaterial, MeshBuilder, TransformNode, ParticleSystem, Texture, Animation, PointLight } from '@babylonjs/core';
 import { InputManager } from './InputManager';
 import { TomahawkMissile } from './TomahawkMissile';
 import { TerrainManager } from './TerrainManager';
@@ -48,6 +48,16 @@ export class B2Bomber {
     private tempVector: Vector3 = new Vector3();
     private tempRotation: Vector3 = new Vector3();
 
+    // Health system
+    private health: number = 100;
+    private maxHealth: number = 100;
+    private isDestroyed: boolean = false;
+    private damageEffects: ParticleSystem[] = [];
+    private damageLight: PointLight | null = null;
+    private lastDamageTime: number = 0;
+    private damageEffectDuration: number = 2.0; // Damage effects last 2 seconds
+    private onDestroyedCallback: (() => void) | null = null;
+
     constructor(scene: Scene) {
         this.scene = scene;
         this.position = new Vector3(0, this.altitude, 0);
@@ -55,6 +65,7 @@ export class B2Bomber {
         this.velocity = new Vector3(0, 0, this.speed);
 
         this.createBomberMesh();
+        this.setupDamageEffects();
     }
 
     private createBomberMesh(): void {
@@ -569,5 +580,197 @@ export class B2Bomber {
 
     public setTerrainManager(terrainManager: TerrainManager): void {
         this.terrainManager = terrainManager;
+    }
+
+    // Health system methods
+    public getHealth(): number {
+        return this.health;
+    }
+
+    public getMaxHealth(): number {
+        return this.maxHealth;
+    }
+
+    public isBomberDestroyed(): boolean {
+        return this.isDestroyed;
+    }
+
+    public takeDamage(damageAmount: number): void {
+        if (this.isDestroyed) return;
+
+        const currentTime = performance.now() / 1000;
+        const timeSinceLastDamage = currentTime - this.lastDamageTime;
+        if (timeSinceLastDamage < 0.1) return; // Ignore damage if taken too frequently
+
+        this.health -= damageAmount;
+        this.lastDamageTime = currentTime;
+
+        // Trigger visual damage effects
+        this.triggerDamageEffects();
+
+        if (this.health <= 0) {
+            this.health = 0;
+            this.isDestroyed = true;
+            this.triggerDestructionEffects();
+            this.onDestroyedCallback?.();
+        }
+    }
+
+    private triggerDestructionEffects(): void {
+        // Create massive explosion effect
+        const explosionParticles = new ParticleSystem('bomberDestruction', 500, this.scene);
+        explosionParticles.particleTexture = new Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==", this.scene);
+        
+        explosionParticles.emitter = this.bomberGroup.position;
+        explosionParticles.minEmitBox = new Vector3(-10, -5, -15);
+        explosionParticles.maxEmitBox = new Vector3(10, 5, 15);
+        
+        explosionParticles.color1 = new Color4(1, 1, 0, 1);
+        explosionParticles.color2 = new Color4(1, 0.5, 0, 1);
+        explosionParticles.colorDead = new Color4(0.5, 0, 0, 0);
+        
+        explosionParticles.emitRate = 500;
+        explosionParticles.minLifeTime = 1;
+        explosionParticles.maxLifeTime = 3;
+        explosionParticles.minSize = 3;
+        explosionParticles.maxSize = 8;
+        explosionParticles.minEmitPower = 50;
+        explosionParticles.maxEmitPower = 100;
+        explosionParticles.updateSpeed = 0.01;
+        
+        explosionParticles.direction1 = new Vector3(-2, -1, -2);
+        explosionParticles.direction2 = new Vector3(2, 2, 2);
+        explosionParticles.gravity = new Vector3(0, -10, 0);
+        explosionParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+
+        explosionParticles.start();
+        setTimeout(() => explosionParticles.stop(), 3000);
+
+        // Stop all engine particles
+        this.particleSystems.forEach(ps => ps.stop());
+
+        // Make bomber fall
+        this.speed = 0;
+        this.velocity = new Vector3(0, -20, 0);
+    }
+
+    private setupDamageEffects(): void {
+        // Clear existing damage effects
+        this.damageEffects.forEach(ps => ps.dispose());
+        this.damageEffects = [];
+        
+        if (this.damageLight) {
+            this.damageLight.dispose();
+            this.damageLight = null;
+        }
+
+        // Create damage light
+        this.damageLight = new PointLight('bomberDamageLight', new Vector3(0, 0, 0), this.scene);
+        this.damageLight.diffuse = new Color3(1, 0.2, 0.1);
+        this.damageLight.specular = new Color3(1, 0.2, 0.1);
+        this.damageLight.intensity = 0;
+        this.damageLight.range = 50;
+        this.damageLight.parent = this.bomberGroup;
+
+        // Create smoke particles for damage
+        const smokeParticles = new ParticleSystem('bomberSmoke', 100, this.scene);
+        smokeParticles.particleTexture = new Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==", this.scene);
+        
+        smokeParticles.emitter = this.bomberGroup.position;
+        smokeParticles.minEmitBox = new Vector3(-5, -2, -10);
+        smokeParticles.maxEmitBox = new Vector3(5, 2, 10);
+        
+        smokeParticles.color1 = new Color4(0.3, 0.3, 0.3, 0.8);
+        smokeParticles.color2 = new Color4(0.1, 0.1, 0.1, 0.6);
+        smokeParticles.colorDead = new Color4(0.1, 0.1, 0.1, 0);
+        
+        smokeParticles.emitRate = 0; // Start stopped
+        smokeParticles.minLifeTime = 2;
+        smokeParticles.maxLifeTime = 4;
+        smokeParticles.minSize = 2;
+        smokeParticles.maxSize = 5;
+        smokeParticles.minEmitPower = 5;
+        smokeParticles.maxEmitPower = 10;
+        smokeParticles.updateSpeed = 0.01;
+        
+        smokeParticles.direction1 = new Vector3(-0.5, 1, -0.5);
+        smokeParticles.direction2 = new Vector3(0.5, 1.5, 0.5);
+        smokeParticles.gravity = new Vector3(0, 2, 0);
+        smokeParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+
+        // Create fire particles for critical damage
+        const fireParticles = new ParticleSystem('bomberFire', 150, this.scene);
+        fireParticles.particleTexture = new Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==", this.scene);
+        
+        fireParticles.emitter = this.bomberGroup.position;
+        fireParticles.minEmitBox = new Vector3(-3, -1, -8);
+        fireParticles.maxEmitBox = new Vector3(3, 1, 8);
+        
+        fireParticles.color1 = new Color4(1, 0.5, 0, 1);
+        fireParticles.color2 = new Color4(1, 0.2, 0, 0.8);
+        fireParticles.colorDead = new Color4(0.5, 0.1, 0, 0);
+        
+        fireParticles.emitRate = 0; // Start stopped
+        fireParticles.minLifeTime = 0.5;
+        fireParticles.maxLifeTime = 1.5;
+        fireParticles.minSize = 1;
+        fireParticles.maxSize = 3;
+        fireParticles.minEmitPower = 10;
+        fireParticles.maxEmitPower = 20;
+        fireParticles.updateSpeed = 0.01;
+        
+        fireParticles.direction1 = new Vector3(-0.3, 0.5, -0.3);
+        fireParticles.direction2 = new Vector3(0.3, 1, 0.3);
+        fireParticles.gravity = new Vector3(0, 5, 0);
+        fireParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+
+        this.damageEffects.push(smokeParticles, fireParticles);
+    }
+
+    public triggerDamageEffects(): void {
+        if (this.isDestroyed || !this.damageEffects.length) return;
+
+        const currentTime = performance.now() / 1000;
+        const timeSinceLastDamage = currentTime - this.lastDamageTime;
+        
+        if (timeSinceLastDamage < 0.1) return; // Prevent spam
+
+        // Start smoke effects
+        const smokeParticles = this.damageEffects[0];
+        if (smokeParticles && !smokeParticles.isStarted()) {
+            smokeParticles.start();
+            setTimeout(() => smokeParticles.stop(), this.damageEffectDuration * 1000);
+        }
+
+        // Start fire effects if health is low
+        if (this.health < this.maxHealth * 0.3) {
+            const fireParticles = this.damageEffects[1];
+            if (fireParticles && !fireParticles.isStarted()) {
+                fireParticles.start();
+                setTimeout(() => fireParticles.stop(), this.damageEffectDuration * 1000);
+            }
+        }
+
+        // Flash damage light
+        if (this.damageLight) {
+            this.damageLight.intensity = 2;
+            setTimeout(() => {
+                if (this.damageLight) {
+                    this.damageLight.intensity = 0;
+                }
+            }, 200);
+        }
+    }
+
+    public getHealthPercentage(): number {
+        return (this.health / this.maxHealth) * 100;
+    }
+
+    public isCriticalHealth(): boolean {
+        return this.health < this.maxHealth * 0.3;
+    }
+
+    public setOnDestroyedCallback(callback: () => void): void {
+        this.onDestroyedCallback = callback;
     }
 } 

@@ -16,6 +16,7 @@ interface MissilePhysicsData {
     lifeTime: number;
     maxLifeTime: number;
     missileType: 'tomahawk' | 'defense';
+    targetSet: boolean;
 }
 
 interface MissilePhysicsResult {
@@ -26,6 +27,7 @@ interface MissilePhysicsResult {
     reachedTarget: boolean;
     shouldExplode: boolean;
     distanceToTarget: number;
+    targetSet: boolean;
 }
 
 // Tomahawk missile curved path calculation
@@ -64,7 +66,8 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
             pathTime: data.pathTime,
             reachedTarget: false,
             shouldExplode: false,
-            distanceToTarget: vector3Distance(data.position, data.targetPosition)
+            distanceToTarget: vector3Distance(data.position, data.targetPosition),
+            targetSet: false
         };
     }
 
@@ -105,27 +108,27 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
             newRotation.x = Math.atan2(newVelocity.y, horizontalSpeed);
         }
     } else {
-        // Defense missile physics - simpler linear trajectory
-        newVelocity = vector3Scale(vector3Normalize(vector3Subtract(data.targetPosition, newPosition)), data.speed);
-        
-        // Update rotation to match velocity direction for proper 3D orientation
-        if (newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z > 0.01) {
+        // Defense missile physics - optimized for performance
+        if (!data.targetSet) {
+            // Initial target setting - calculate direction once
+            newVelocity = vector3Scale(vector3Normalize(vector3Subtract(data.targetPosition, newPosition)), data.speed);
+            
             // Calculate yaw (horizontal rotation around Y axis)
             newRotation.y = Math.atan2(newVelocity.x, newVelocity.z);
-            
+                
             // Calculate pitch (vertical rotation around X axis) 
             const horizontalSpeed = Math.sqrt(newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z);
             const pitch = Math.atan2(newVelocity.y, horizontalSpeed);
             
             // Apply rotation adjustment for defense missile model orientation
             newRotation.x = pitch - Math.PI / 2; // Adjust for model's initial horizontal orientation
+            
+            // Mark target as set to avoid future recalculations
+            data.targetSet = true;
         } else {
-            // If velocity is too small, use direction to target for initial orientation
-            const direction = vector3Normalize(vector3Subtract(data.targetPosition, newPosition));
-            newRotation.y = Math.atan2(direction.x, direction.z);
-            const horizontalSpeed = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
-            const pitch = Math.atan2(direction.y, horizontalSpeed);
-            newRotation.x = pitch - Math.PI / 2;
+            // Target already set - maintain current velocity and rotation
+            newVelocity = data.velocity;
+            newRotation = data.rotation;
         }
     }
 
@@ -154,7 +157,8 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
         pathTime: newPathTime,
         reachedTarget,
         shouldExplode,
-        distanceToTarget
+        distanceToTarget,
+        targetSet: data.targetSet
     };
 }
 

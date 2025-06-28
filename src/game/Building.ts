@@ -643,6 +643,13 @@ export class Building {
         return this.defenseMissiles.filter(missile => !missile.hasExploded());
     }
 
+    public getDefenseMissiles(): DefenseMissile[] {
+        if (!this.config.isDefenseLauncher) return [];
+        
+        // Return all missiles including exploded ones for collision detection
+        return this.defenseMissiles;
+    }
+
     public dispose(): void {
         if (this.targetRing) this.targetRing.dispose();
         if (this.fireParticles) this.fireParticles.dispose();

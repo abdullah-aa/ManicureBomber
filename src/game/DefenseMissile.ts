@@ -14,6 +14,7 @@ export class DefenseMissile {
     private light!: PointLight;
     private lifeTime: number = 0;
     private maxLifeTime: number = 10; // Missiles self-destruct after 10 seconds
+    private targetSet: boolean = false; // Performance optimization flag
 
     constructor(scene: Scene, launchPosition: Vector3, targetPosition: Vector3) {
         this.scene = scene;
@@ -156,20 +157,30 @@ export class DefenseMissile {
         this.position.addInPlace(this.velocity.scale(deltaTime));
         this.missileGroup.position = this.position;
 
-        // Update rotation to match velocity direction for proper orientation
-        if (this.velocity.lengthSquared() > 0.01) {
-            // Calculate yaw (horizontal rotation around Y axis)
-            const yaw = Math.atan2(this.velocity.x, this.velocity.z);
+        // Only update rotation if target hasn't been set yet
+        if (!this.targetSet) {
+            // Calculate direction to target once
+            const direction = this.targetPosition.subtract(this.position).normalize();
+            this.velocity = direction.scale(this.speed);
             
-            // Calculate pitch (vertical rotation around X axis) 
-            const horizontalSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
-            const pitch = Math.atan2(this.velocity.y, horizontalSpeed);
+            // Update rotation to match velocity direction for proper orientation
+            if (this.velocity.lengthSquared() > 0.01) {
+                // Calculate yaw (horizontal rotation around Y axis)
+                const yaw = Math.atan2(this.velocity.x, this.velocity.z);
+                
+                // Calculate pitch (vertical rotation around X axis) 
+                const horizontalSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
+                const pitch = Math.atan2(this.velocity.y, horizontalSpeed);
+                
+                // Apply rotation to missile group
+                // Note: Since the missile model is built horizontally (rotated 90° around X),
+                // we need to adjust the pitch calculation for proper orientation
+                this.missileGroup.rotation.y = yaw;
+                this.missileGroup.rotation.x = pitch - Math.PI / 2; // Adjust for model's initial horizontal orientation
+            }
             
-            // Apply rotation to missile group
-            // Note: Since the missile model is built horizontally (rotated 90° around X),
-            // we need to adjust the pitch calculation for proper orientation
-            this.missileGroup.rotation.y = yaw;
-            this.missileGroup.rotation.x = pitch - Math.PI / 2; // Adjust for model's initial horizontal orientation
+            // Mark target as set to avoid future recalculations
+            this.targetSet = true;
         }
 
         // Check if we've reached the target or maximum lifetime
@@ -250,6 +261,10 @@ export class DefenseMissile {
         return this.exploded;
     }
 
+    public isTargetSet(): boolean {
+        return this.targetSet;
+    }
+
     public dispose(): void {
         if (this.exhaustParticles) {
             this.exhaustParticles.dispose();
@@ -257,8 +272,6 @@ export class DefenseMissile {
         if (this.light) {
             this.light.dispose();
         }
-        if (this.missileGroup) {
-            this.missileGroup.dispose();
-        }
+        this.missileGroup.dispose();
     }
 } 

@@ -13,6 +13,9 @@ export class UIManager {
     private missileButtonCooldown!: HTMLElement;
     private cameraToggleButton!: HTMLElement;
     private cameraToggleIcon!: HTMLElement;
+    private healthBar!: HTMLElement;
+    private healthBarFill!: HTMLElement;
+    private healthText!: HTMLElement;
     
     // Performance optimization: cache target status
     private cachedHasValidTarget: boolean = false;
@@ -24,6 +27,7 @@ export class UIManager {
     private lastMissileCooldown: number = -1;
     private lastHasTarget: boolean = false;
     private lastLockMode: CameraLockMode = CameraLockMode.BOMBER;
+    private lastHealth: number = -1;
     private updateBatchTimeout: ReturnType<typeof setTimeout> | null = null;
     private pendingUpdates: Set<string> = new Set();
 
@@ -33,6 +37,7 @@ export class UIManager {
         this.createBombButton();
         this.createMissileButton();
         this.createCameraToggleButton();
+        this.createHealthBar();
 
         // Listen for button clicks to start a bombing run
         this.bombButton.addEventListener('click', () => {
@@ -94,6 +99,22 @@ export class UIManager {
 
         this.cameraToggleIcon = document.getElementById('camera-toggle-icon')!;
         this.updateCameraToggleIcon();
+    }
+
+    private createHealthBar(): void {
+        this.healthBar = document.createElement('div');
+        this.healthBar.id = 'health-bar';
+        this.healthBar.innerHTML = `
+            <div id="health-bar-fill"></div>
+            <span id="health-text"></span>
+        `;
+        document.body.appendChild(this.healthBar);
+
+        this.healthBarFill = document.getElementById('health-bar-fill')!;
+        this.healthText = document.getElementById('health-text')!;
+
+        // Add some basic styling
+        this.addHealthBarStyles();
     }
 
     public updateCameraToggleIcon(): void {
@@ -230,35 +251,80 @@ export class UIManager {
         document.head.appendChild(style);
     }
 
+    private addHealthBarStyles(): void {
+        const style = document.createElement('style');
+        style.textContent = `
+            #health-bar {
+                position: fixed;
+                top: 20px;
+                left: 240px; /* Position to the right of radar overlay (20px + 200px + 20px gap) */
+                width: 200px;
+                height: 20px;
+                background-color: rgba(0, 0, 0, 0.5);
+                border-radius: 10px;
+                overflow: hidden;
+                border: 2px solid rgba(255, 255, 255, 0.3);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            }
+            #health-bar-fill {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 255, 0, 0.4);
+                transition: width 0.1s linear;
+            }
+            #health-text {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                text-align: center;
+                line-height: 20px;
+                color: #fff;
+                font-family: 'Courier New', monospace;
+                font-size: 12px;
+                font-weight: bold;
+                text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
     public update(): void {
-        // Performance optimization: batch updates to reduce DOM manipulation
+        // Schedule updates for batching
         this.scheduleUpdate('bomb');
         this.scheduleUpdate('missile');
         this.scheduleUpdate('camera');
+        this.scheduleUpdate('health');
     }
 
     private scheduleUpdate(type: string): void {
         this.pendingUpdates.add(type);
         
-        if (this.updateBatchTimeout === null) {
-            this.updateBatchTimeout = setTimeout(() => {
-                this.processBatchedUpdates();
-                this.updateBatchTimeout = null;
-            }, 16); // ~60 FPS
+        if (this.updateBatchTimeout) {
+            clearTimeout(this.updateBatchTimeout);
         }
+        
+        this.updateBatchTimeout = setTimeout(() => {
+            this.processBatchedUpdates();
+        }, 16); // 60fps update rate
     }
 
     private processBatchedUpdates(): void {
         if (this.pendingUpdates.has('bomb')) {
             this.updateBombButton();
         }
-        
         if (this.pendingUpdates.has('missile')) {
             this.updateMissileButton();
         }
-        
         if (this.pendingUpdates.has('camera')) {
             this.updateCameraButton();
+        }
+        if (this.pendingUpdates.has('health')) {
+            this.updateHealthBar();
         }
         
         this.pendingUpdates.clear();
@@ -328,6 +394,28 @@ export class UIManager {
         if (lockMode !== this.lastLockMode) {
             this.cameraToggleButton.setAttribute('data-mode', lockMode);
             this.lastLockMode = lockMode;
+        }
+    }
+
+    private updateHealthBar(): void {
+        const currentHealth = this.game.getBomberHealth();
+        
+        // Only update if changed
+        if (currentHealth !== this.lastHealth) {
+            const fillWidth = Math.max(0, Math.min(100, currentHealth));
+            this.healthBarFill.style.width = `${fillWidth}%`;
+            this.healthText.textContent = `${currentHealth.toFixed(0)}%`;
+            
+            // Change color based on health level
+            if (currentHealth > 60) {
+                this.healthBarFill.style.backgroundColor = 'rgba(0, 255, 0, 0.8)';
+            } else if (currentHealth > 30) {
+                this.healthBarFill.style.backgroundColor = 'rgba(255, 255, 0, 0.8)';
+            } else {
+                this.healthBarFill.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
+            }
+            
+            this.lastHealth = currentHealth;
         }
     }
 } 
