@@ -312,11 +312,6 @@ export class Game {
             
             const missile = new IskanderMissile(this.scene, launchPosition, this.bomber, this.workerManager);
             
-            // Set up lock-on notification callback
-            missile.setOnLockEstablishedCallback(() => {
-                this.uiManager.showAlert('MISSILE LOCK DETECTED!', 'iskander-lock', 8000);
-            });
-            
             missile.launch();
             this.iskanderMissiles.push(missile);
         }
@@ -448,11 +443,34 @@ export class Game {
         const flareDetectionRange = this.bomber.getFlareDetectionRange();
         
         for (const missile of this.iskanderMissiles) {
-            if (missile.isLaunched() && !missile.hasExploded()) {
+            if (missile.isLaunched() && !missile.hasExploded() && missile.getIsLockedOn()) {
                 const missilePosition = missile.getPosition();
                 const distance = Vector3.Distance(bomberPosition, missilePosition);
                 if (distance <= flareDetectionRange) {
                     return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public hasIskanderMissilesForAlert(): boolean {
+        const bomberPosition = this.bomber.getPosition();
+        const alertDetectionRange = 500; // Much larger range for alerts - 500 units
+        
+        for (const missile of this.iskanderMissiles) {
+            if (missile.isLaunched() && !missile.hasExploded()) {
+                // Check if missile is locked on OR in the process of locking on
+                const isLockedOn = missile.getIsLockedOn();
+                const lockProgress = missile.getLockProgress();
+                
+                // Show alert if missile is locked on OR has started the lock process (progress > 0)
+                if (isLockedOn || lockProgress > 0) {
+                    const missilePosition = missile.getPosition();
+                    const distance = Vector3.Distance(bomberPosition, missilePosition);
+                    if (distance <= alertDetectionRange) {
+                        return true;
+                    }
                 }
             }
         }

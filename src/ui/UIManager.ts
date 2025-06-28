@@ -40,6 +40,10 @@ export class UIManager {
     private alertContainer!: HTMLElement;
     private activeAlerts: Map<string, HTMLElement> = new Map();
     private alertTimeout: number = 5000; // 5 seconds
+    
+    // Persistent alert tracking for Iskander missiles
+    private persistentAlerts: Set<string> = new Set();
+    private iskanderAlertId: string = 'iskander-lock';
 
     constructor(game: Game, inputManager: InputManager) {
         this.game = game;
@@ -163,7 +167,7 @@ export class UIManager {
         style.textContent = `
             #alert-container {
                 position: fixed;
-                top: 100px;
+                top: 50px;
                 left: 50%;
                 transform: translateX(-50%);
                 z-index: 2000;
@@ -191,6 +195,36 @@ export class UIManager {
                 background: linear-gradient(135deg, rgba(255, 100, 0, 0.9), rgba(255, 50, 0, 0.9));
                 border-color: rgba(255, 255, 0, 0.5);
                 box-shadow: 0 4px 12px rgba(255, 100, 0, 0.3);
+                animation: iskanderPulse 2s infinite;
+            }
+            
+            .alert.iskander-acquiring {
+                background: linear-gradient(135deg, rgba(255, 150, 0, 0.9), rgba(255, 100, 0, 0.9));
+                border-color: rgba(255, 200, 0, 0.5);
+                box-shadow: 0 4px 12px rgba(255, 150, 0, 0.3);
+                animation: iskanderAcquiringPulse 1.5s infinite;
+            }
+            
+            @keyframes iskanderPulse {
+                0%, 100% { 
+                    box-shadow: 0 4px 12px rgba(255, 100, 0, 0.3);
+                    border-color: rgba(255, 255, 0, 0.5);
+                }
+                50% { 
+                    box-shadow: 0 4px 20px rgba(255, 100, 0, 0.6);
+                    border-color: rgba(255, 255, 0, 0.8);
+                }
+            }
+            
+            @keyframes iskanderAcquiringPulse {
+                0%, 100% { 
+                    box-shadow: 0 4px 12px rgba(255, 150, 0, 0.3);
+                    border-color: rgba(255, 200, 0, 0.5);
+                }
+                50% { 
+                    box-shadow: 0 4px 20px rgba(255, 150, 0, 0.6);
+                    border-color: rgba(255, 200, 0, 0.8);
+                }
             }
             
             @keyframes alertSlideIn {
@@ -493,6 +527,7 @@ export class UIManager {
         this.scheduleUpdate('countermeasure');
         this.scheduleUpdate('camera');
         this.scheduleUpdate('health');
+        this.scheduleUpdate('iskander-alert');
     }
 
     private scheduleUpdate(type: string): void {
@@ -522,6 +557,9 @@ export class UIManager {
         }
         if (this.pendingUpdates.has('health')) {
             this.updateHealthBar();
+        }
+        if (this.pendingUpdates.has('iskander-alert')) {
+            this.updateIskanderAlert();
         }
         
         this.pendingUpdates.clear();
@@ -682,18 +720,70 @@ export class UIManager {
         this.alertContainer.appendChild(alertElement);
         this.activeAlerts.set(type, alertElement);
         
-        // Auto-remove after duration
-        setTimeout(() => {
-            if (this.activeAlerts.has(type)) {
-                alertElement.classList.add('fade-out');
-                setTimeout(() => {
-                    if (alertElement.parentNode) {
-                        alertElement.remove();
-                        this.activeAlerts.delete(type);
+        // Check if this is a persistent alert
+        if (type === this.iskanderAlertId) {
+            this.persistentAlerts.add(type);
+            // Don't set auto-remove timeout for persistent alerts
+        } else {
+            // Auto-remove after duration for non-persistent alerts
+            setTimeout(() => {
+                if (this.activeAlerts.has(type) && !this.persistentAlerts.has(type)) {
+                    alertElement.classList.add('fade-out');
+                    setTimeout(() => {
+                        if (alertElement.parentNode) {
+                            alertElement.remove();
+                            this.activeAlerts.delete(type);
+                        }
+                    }, 500);
+                }
+            }, duration);
+        }
+    }
+
+    public showPersistentAlert(message: string, type: string): void {
+        this.showAlert(message, type, 0); // 0 duration means persistent
+    }
+
+    public removePersistentAlert(type: string): void {
+        if (this.persistentAlerts.has(type)) {
+            this.persistentAlerts.delete(type);
+            this.removeAlert(type);
+        }
+    }
+
+    public updateIskanderAlert(): void {
+        // Check if there are any active Iskander missiles using the larger alert detection range
+        const hasActiveIskanderMissiles = this.game.hasIskanderMissilesForAlert();
+        
+        if (hasActiveIskanderMissiles) {
+            // Check if any missiles are fully locked on
+            const hasFullyLockedMissiles = this.game.hasIskanderMissilesInRange();
+            
+            // Show or maintain the alert with appropriate message
+            if (!this.activeAlerts.has(this.iskanderAlertId)) {
+                const message = hasFullyLockedMissiles ? 'MISSILE LOCK DETECTED!' : 'MISSILE ACQUIRING TARGET!';
+                this.showPersistentAlert(message, this.iskanderAlertId);
+            } else {
+                // Update existing alert message and styling if needed
+                const alertElement = this.activeAlerts.get(this.iskanderAlertId);
+                if (alertElement) {
+                    const message = hasFullyLockedMissiles ? 'MISSILE LOCK DETECTED!' : 'MISSILE ACQUIRING TARGET!';
+                    if (alertElement.textContent !== message) {
+                        alertElement.textContent = message;
                     }
-                }, 500);
+                    
+                    // Update CSS class based on lock status
+                    if (hasFullyLockedMissiles) {
+                        alertElement.className = 'alert iskander-lock';
+                    } else {
+                        alertElement.className = 'alert iskander-acquiring';
+                    }
+                }
             }
-        }, duration);
+        } else {
+            // Remove the alert if no active missiles
+            this.removePersistentAlert(this.iskanderAlertId);
+        }
     }
 
     public removeAlert(type: string): void {
