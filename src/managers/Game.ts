@@ -329,7 +329,9 @@ export class Game {
     }
 
     private handleCountermeasures(): void {
-        if (this.inputManager.isCountermeasureKeyPressed() && this.bomber.canLaunchFlares()) {
+        if (this.inputManager.isCountermeasureKeyPressed() && 
+            this.bomber.canLaunchFlares() && 
+            this.hasIskanderMissilesForAlert()) {
             this.bomber.launchFlares();
         }
     }

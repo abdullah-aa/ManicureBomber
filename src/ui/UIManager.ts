@@ -71,7 +71,7 @@ export class UIManager {
 
         // Listen for countermeasure button clicks
         this.countermeasureButton.addEventListener('click', () => {
-            if (this.game.getBomber().canLaunchFlares()) {
+            if (this.game.getBomber().canLaunchFlares() && this.game.hasIskanderMissilesForAlert()) {
                 this.inputManager.triggerCountermeasureKeyPress();
             }
         });
@@ -639,14 +639,11 @@ export class UIManager {
             this.lastCountermeasureCooldown = countermeasureCooldownStatus;
         }
 
-        // Check if there are Iskander missiles in range to enable countermeasures
-        const bomberPosition = this.game.getBomber().getPosition();
-        const flareDetectionRange = this.game.getBomber().getFlareDetectionRange();
+        // Check if there are Iskander missiles with lock detected to enable countermeasures
+        // Use the same conditions as the alert system - missiles that are locked on OR have started locking
+        const hasIskanderLockDetected = this.game.hasIskanderMissilesForAlert();
         
-        // Check if any Iskander missiles are within flare detection range
-        const hasIskanderInRange = this.game.hasIskanderMissilesInRange();
-        
-        if (countermeasureCooldownStatus >= 1 && hasIskanderInRange) {
+        if (countermeasureCooldownStatus >= 1 && hasIskanderLockDetected) {
             this.countermeasureButton.classList.add('has-iskander');
         } else {
             this.countermeasureButton.classList.remove('has-iskander');
