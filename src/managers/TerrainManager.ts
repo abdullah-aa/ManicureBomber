@@ -1,6 +1,6 @@
 import { Scene, Vector3, GroundMesh, MeshBuilder, StandardMaterial, Color3, Texture, DynamicTexture, Mesh } from '@babylonjs/core';
 import { NoiseGenerator } from '../utils/NoiseGenerator';
-import { Building, BuildingConfig } from './Building';
+import { Building, BuildingConfig } from '../entities/Building';
 import { WorkerManager } from './WorkerManager';
 
 interface TerrainChunk {

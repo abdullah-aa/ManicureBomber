@@ -1,9 +1,9 @@
 import { Vector3 } from '@babylonjs/core';
-import { Building } from '../game/Building';
-import { Bomber } from '../game/Bomber';
-import { TerrainManager } from '../game/TerrainManager';
-import { DefenseMissile } from '../game/DefenseMissile';
-import { IskanderMissile } from '../game/IskanderMissile';
+import { Building } from '../entities/Building';
+import { Bomber } from '../entities/Bomber';
+import { TerrainManager } from '../managers/TerrainManager';
+import { DefenseMissile } from '../entities/DefenseMissile';
+import { IskanderMissile } from '../entities/IskanderMissile';
 
 interface RadarMarker {
     element: HTMLElement;

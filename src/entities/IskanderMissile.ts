@@ -1,6 +1,6 @@
 import { Scene, Mesh, Vector3, MeshBuilder, StandardMaterial, Color3, ParticleSystem, Texture, Color4, PointLight, TransformNode, DynamicTexture } from '@babylonjs/core';
 import { Bomber } from './Bomber';
-import { WorkerManager } from './WorkerManager';
+import { WorkerManager } from '../managers/WorkerManager';
 
 export class IskanderMissile {
     private scene: Scene;

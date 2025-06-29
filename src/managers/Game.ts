@@ -1,15 +1,15 @@
 import { Scene, Vector3, HemisphericLight, DirectionalLight, Color3, FreeCamera, Mesh, MeshBuilder, StandardMaterial, Texture, DynamicTexture } from '@babylonjs/core';
-import { Bomber } from './Bomber';
+import { Bomber } from '../entities/Bomber';
 import { TerrainManager } from './TerrainManager';
 import { InputManager } from './InputManager';
 import { CameraController, CameraLockMode } from './CameraController';
-import { Bomb } from './Bomb';
-import { TomahawkMissile } from './TomahawkMissile';
-import { IskanderMissile } from './IskanderMissile';
+import { Bomb } from '../entities/Bomb';
+import { TomahawkMissile } from '../entities/TomahawkMissile';
+import { IskanderMissile } from '../entities/IskanderMissile';
 import { UIManager } from '../ui/UIManager';
 import { RadarManager } from '../ui/RadarManager';
 import { WorkerManager } from './WorkerManager';
-import { Building } from './Building';
+import { Building } from '../entities/Building';
 
 export class Game {
     private scene: Scene;

@@ -1,7 +1,7 @@
 import { Scene, Mesh, Vector3, Color3, Color4, StandardMaterial, MeshBuilder, TransformNode, ParticleSystem, Texture, Animation, PointLight, DynamicTexture } from '@babylonjs/core';
-import { InputManager } from './InputManager';
+import { InputManager } from '../managers/InputManager';
 import { TomahawkMissile } from './TomahawkMissile';
-import { TerrainManager } from './TerrainManager';
+import { TerrainManager } from '../managers/TerrainManager';
 import { Building } from './Building';
 
 export class Bomber {

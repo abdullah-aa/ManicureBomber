@@ -1,5 +1,5 @@
 import { Engine, Scene } from '@babylonjs/core';
-import { Game } from './game/Game';
+import { Game } from './managers/Game';
 
 // Get the canvas element
 const canvasElement = document.getElementById('renderCanvas');

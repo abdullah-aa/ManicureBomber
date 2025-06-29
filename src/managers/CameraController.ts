@@ -1,4 +1,4 @@
-import { Bomber } from './Bomber';
+import { Bomber } from '../entities/Bomber';
 import { FreeCamera, Vector3 } from '@babylonjs/core';
 import { InputManager } from './InputManager';
 

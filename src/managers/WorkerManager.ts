@@ -25,19 +25,19 @@ export class WorkerManager {
 
     private initializeWorkers(): void {
         // Initialize terrain worker
-        this.terrainWorker = new Worker(new URL('./terrain.worker.ts', import.meta.url), { type: 'module' });
+        this.terrainWorker = new Worker(new URL('../workers/terrain.worker.ts', import.meta.url), { type: 'module' });
         this.setupWorkerListener(this.terrainWorker, 'terrainWorker');
 
         // Initialize missile physics worker
-        this.missilePhysicsWorker = new Worker(new URL('./missile-physics.worker.ts', import.meta.url), { type: 'module' });
+        this.missilePhysicsWorker = new Worker(new URL('../workers/missile-physics.worker.ts', import.meta.url), { type: 'module' });
         this.setupWorkerListener(this.missilePhysicsWorker, 'missilePhysicsWorker');
 
         // Initialize collision detection worker
-        this.collisionDetectionWorker = new Worker(new URL('./collision-detection.worker.ts', import.meta.url), { type: 'module' });
+        this.collisionDetectionWorker = new Worker(new URL('../workers/collision-detection.worker.ts', import.meta.url), { type: 'module' });
         this.setupWorkerListener(this.collisionDetectionWorker, 'collisionDetectionWorker');
 
         // Initialize particle physics worker
-        this.particlePhysicsWorker = new Worker(new URL('./particle-physics.worker.ts', import.meta.url), { type: 'module' });
+        this.particlePhysicsWorker = new Worker(new URL('../workers/particle-physics.worker.ts', import.meta.url), { type: 'module' });
         this.setupWorkerListener(this.particlePhysicsWorker, 'particlePhysicsWorker');
     }
 

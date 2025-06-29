@@ -1,6 +1,6 @@
-import { Game } from "../game/Game";
-import { InputManager } from "../game/InputManager";
-import { CameraLockMode } from "../game/CameraController";
+import { Game } from "../managers/Game";
+import { InputManager } from "../managers/InputManager";
+import { CameraLockMode } from "../managers/CameraController";
 
 export class UIManager {
     private game: Game;
