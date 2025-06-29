@@ -1,4 +1,4 @@
-import { Scene, Vector3, GroundMesh, MeshBuilder, StandardMaterial, Color3, Texture, DynamicTexture, Mesh } from '@babylonjs/core';
+import { Scene, Vector3, GroundMesh, MeshBuilder, StandardMaterial, Color3, Color4, Texture, DynamicTexture, Mesh } from '@babylonjs/core';
 import { NoiseGenerator } from '../utils/NoiseGenerator';
 import { Building, BuildingConfig } from '../entities/Building';
 import { WorkerManager } from './WorkerManager';
@@ -17,7 +17,6 @@ export class TerrainManager {
     private viewDistance: number = 800;
     private generationThreshold: number = 300;
     private terrainMaterial!: StandardMaterial;
-    private skyMesh: Mesh | null = null;
     private lastTerrainUpdateTime: number = 0;
     private heightmapCache: Map<string, Float32Array> = new Map();
     private subdivisions = 64;
@@ -359,47 +358,8 @@ export class TerrainManager {
     }
 
     private createClearSky(): void {
-        this.skyMesh = MeshBuilder.CreateSphere('sky', { 
-            diameter: this.viewDistance * 12,
-            segments: 32
-        }, this.scene);
-        const skyMaterial = new StandardMaterial('skyMaterial', this.scene);
-        const skyTexture = new DynamicTexture('skyTexture', {width: 1024, height: 512}, this.scene);
-        const context = skyTexture.getContext();
-        const gradient = context.createLinearGradient(0, 0, 0, 512);
-        gradient.addColorStop(0, '#87CEEB');
-        gradient.addColorStop(0.3, '#87CEFA');
-        gradient.addColorStop(0.7, '#4169E1');
-        gradient.addColorStop(1, '#191970');
-        context.fillStyle = gradient;
-        context.fillRect(0, 0, 1024, 512);
-        context.globalAlpha = 0.1;
-        context.fillStyle = 'white';
-        for (let i = 0; i < 50; i++) {
-            const x = Math.random() * 1024;
-            const y = Math.random() * 200 + 100;
-            const width = 40 + Math.random() * 80;
-            const height = 20 + Math.random() * 30;
-            for (let j = 0; j < 5; j++) {
-                const cloudX = x + (Math.random() - 0.5) * width;
-                const cloudY = y + (Math.random() - 0.5) * height;
-                const cloudRadius = (width + height) / 4 * (0.5 + Math.random() * 0.5);
-                context.beginPath();
-                context.arc(cloudX, cloudY, cloudRadius, 0, 2 * Math.PI);
-                context.fill();
-            }
-        }
-        context.globalAlpha = 1.0;
-        skyTexture.update();
-        skyMaterial.diffuseTexture = skyTexture;
-        skyMaterial.emissiveTexture = skyTexture;
-        skyMaterial.emissiveColor = new Color3(0.8, 0.8, 0.9);
-        skyMaterial.disableLighting = true;
-        skyMaterial.backFaceCulling = false;
-        this.skyMesh.material = skyMaterial;
-        this.skyMesh.renderingGroupId = 0;
-        this.skyMesh.isPickable = false;
-        this.skyMesh.infiniteDistance = true;
+        // Set scene clear color to a clear sky blue
+        this.scene.clearColor = new Color4(0.5, 0.7, 0.9, 1.0);
     }
 
     public async generateInitialTerrain(center: Vector3): Promise<void> {
@@ -477,10 +437,6 @@ export class TerrainManager {
         // Performance optimization: limit update frequency and prevent updates during game over
         const currentTime = performance.now();
         if (currentTime - this.lastTerrainUpdateTime < 100) {
-            if (this.skyMesh) {
-                this.skyMesh.position.x = bomberPosition.x;
-                this.skyMesh.position.z = bomberPosition.z;
-            }
             return;
         }
         this.lastTerrainUpdateTime = currentTime;
@@ -488,10 +444,6 @@ export class TerrainManager {
         // Check if we're in a safe state for worker calls
         if (!this.isSafeForWorkerCalls()) {
             // Don't generate new terrain when not safe
-            if (this.skyMesh) {
-                this.skyMesh.position.x = bomberPosition.x;
-                this.skyMesh.position.z = bomberPosition.z;
-            }
             return;
         }
 
@@ -528,11 +480,6 @@ export class TerrainManager {
                 this.chunks.delete(key);
             }
         });
-
-        if (this.skyMesh) {
-            this.skyMesh.position.x = bomberPosition.x;
-            this.skyMesh.position.z = bomberPosition.z;
-        }
     }
 
     private getDistanceToNearestChunkEdge(position: Vector3): number {
@@ -716,12 +663,6 @@ export class TerrainManager {
             // Dispose of terrain material
             if (this.terrainMaterial) {
                 this.terrainMaterial.dispose();
-            }
-            
-            // Dispose of sky mesh
-            if (this.skyMesh) {
-                this.skyMesh.dispose();
-                this.skyMesh = null;
             }
             
         } catch (error) {

@@ -124,8 +124,8 @@ export class IskanderMissile {
     private createMissileModel(): void {
         // Main fuselage - sleek ballistic missile body
         this.fuselage = MeshBuilder.CreateCylinder('iskanderFuselage', {
-            height: 5,
-            diameter: 0.5,
+            height: 10,
+            diameter: 0.75,
             tessellation: 12
         }, this.scene);
         
@@ -140,13 +140,13 @@ export class IskanderMissile {
 
         // Nose cone
         const noseCone = MeshBuilder.CreateCylinder('iskanderNose', {
-            height: 1.2,
+            height: 1.5,
             diameterTop: 0,
-            diameterBottom: 0.5,
+            diameterBottom: 0.75,
             tessellation: 12
         }, this.scene);
         
-        noseCone.position.z = 3.1; // Front of missile
+        noseCone.position.z = 5.5; // Front of missile
         noseCone.rotation.x = Math.PI / 2;
         noseCone.parent = this.missileGroup;
         
@@ -161,11 +161,11 @@ export class IskanderMissile {
         // Engine nozzle
         const engineNozzle = MeshBuilder.CreateCylinder('iskanderEngine', {
             height: 1.2,
-            diameter: 0.4,
+            diameter: 0.65,
             tessellation: 12
         }, this.scene);
         
-        engineNozzle.position.z = -3.1; // Rear of missile
+        engineNozzle.position.z = -5.5; // Rear of missile
         engineNozzle.rotation.x = Math.PI / 2;
         engineNozzle.parent = this.missileGroup;
         
@@ -186,16 +186,16 @@ export class IskanderMissile {
     private createControlFins(): void {
         // Control fins for guidance
         const finPositions = [
-            { pos: new Vector3(0, 0.4, -1.5), rot: new Vector3(0, 0, 0) },
-            { pos: new Vector3(0, -0.4, -1.5), rot: new Vector3(0, 0, Math.PI) },
-            { pos: new Vector3(0.4, 0, -1.5), rot: new Vector3(0, 0, Math.PI / 2) },
-            { pos: new Vector3(-0.4, 0, -1.5), rot: new Vector3(0, 0, -Math.PI / 2) }
+            { pos: new Vector3(0, 0.4, -4), rot: new Vector3(0, 0, 0) },
+            { pos: new Vector3(0, -0.4, -4), rot: new Vector3(0, 0, Math.PI) },
+            { pos: new Vector3(0.4, 0, -4), rot: new Vector3(0, 0, Math.PI / 2) },
+            { pos: new Vector3(-0.4, 0, -4), rot: new Vector3(0, 0, -Math.PI / 2) }
         ];
 
         finPositions.forEach((finData, index) => {
             const fin = MeshBuilder.CreateBox(`iskanderFin${index}`, {
                 width: 0.08,
-                height: 1.2,
+                height: 1.5,
                 depth: 0.8
             }, this.scene);
 
@@ -217,7 +217,7 @@ export class IskanderMissile {
         
         // Create emitter at rear of missile
         const emitterMesh = MeshBuilder.CreateSphere('iskanderEmitter', { diameter: 0.1 }, this.scene);
-        emitterMesh.position = new Vector3(0, 0, -3.5); // Rear of missile
+        emitterMesh.position = new Vector3(0, 0, -7.25); // Rear of missile
         emitterMesh.parent = this.missileGroup;
         emitterMesh.isVisible = false;
         
