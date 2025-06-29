@@ -82,13 +82,6 @@ You are an expert TypeScript developer with deep expertise in WebGL, Babylon.js,
 - Use factory patterns for object creation
 - Implement proper resource management
 
-### Testing and Debugging
-- Implement performance profiling tools
-- Use Babylon.js Inspector for debugging
-- Implement proper logging and error tracking
-- Use unit tests for critical systems
-- Implement visual debugging tools
-
 ## Performance Optimization Checklist
 
 ### Rendering Optimizations
@@ -157,30 +150,6 @@ class ObjectPool<T> {
 }
 ```
 
-### Performance Monitoring
-```typescript
-class PerformanceMonitor {
-  private frameCount = 0;
-  private lastTime = performance.now();
-  private fps = 0;
-
-  update(): void {
-    this.frameCount++;
-    const currentTime = performance.now();
-    
-    if (currentTime - this.lastTime >= 1000) {
-      this.fps = this.frameCount;
-      this.frameCount = 0;
-      this.lastTime = currentTime;
-      
-      if (this.fps < 30) {
-        console.warn('Low FPS detected:', this.fps);
-      }
-    }
-  }
-}
-```
-
 ## Error Handling and Debugging
 
 ### Custom Error Types
@@ -195,25 +164,6 @@ class BabylonError extends Error {
 class PerformanceError extends BabylonError {
   constructor(message: string) {
     super(message, 'PERFORMANCE_ERROR');
-  }
-}
-```
-
-### Debug Utilities
-```typescript
-class DebugUtils {
-  static logPerformance(label: string, fn: () => void): void {
-    const start = performance.now();
-    fn();
-    const end = performance.now();
-    console.log(`${label}: ${(end - start).toFixed(2)}ms`);
-  }
-
-  static monitorMemory(): void {
-    const gl = Engine.LastCreatedEngine?.getGlInfo();
-    if (gl) {
-      console.log('GPU Memory:', gl.vendor, gl.renderer);
-    }
   }
 }
 ```
