@@ -198,13 +198,6 @@ export class UIManager {
                 animation: iskanderPulse 2s infinite;
             }
             
-            .alert.iskander-acquiring {
-                background: linear-gradient(135deg, rgba(255, 150, 0, 0.9), rgba(255, 100, 0, 0.9));
-                border-color: rgba(255, 200, 0, 0.5);
-                box-shadow: 0 4px 12px rgba(255, 150, 0, 0.3);
-                animation: iskanderAcquiringPulse 1.5s infinite;
-            }
-            
             @keyframes iskanderPulse {
                 0%, 100% { 
                     box-shadow: 0 4px 12px rgba(255, 100, 0, 0.3);
@@ -213,17 +206,6 @@ export class UIManager {
                 50% { 
                     box-shadow: 0 4px 20px rgba(255, 100, 0, 0.6);
                     border-color: rgba(255, 255, 0, 0.8);
-                }
-            }
-            
-            @keyframes iskanderAcquiringPulse {
-                0%, 100% { 
-                    box-shadow: 0 4px 12px rgba(255, 150, 0, 0.3);
-                    border-color: rgba(255, 200, 0, 0.5);
-                }
-                50% { 
-                    box-shadow: 0 4px 20px rgba(255, 150, 0, 0.6);
-                    border-color: rgba(255, 200, 0, 0.8);
                 }
             }
             
@@ -756,29 +738,9 @@ export class UIManager {
         const hasActiveIskanderMissiles = this.game.hasIskanderMissilesForAlert();
         
         if (hasActiveIskanderMissiles) {
-            // Check if any missiles are fully locked on
-            const hasFullyLockedMissiles = this.game.hasIskanderMissilesInRange();
-            
-            // Show or maintain the alert with appropriate message
+            // Show or maintain the alert with single message
             if (!this.activeAlerts.has(this.iskanderAlertId)) {
-                const message = hasFullyLockedMissiles ? 'MISSILE LOCK DETECTED!' : 'MISSILE ACQUIRING TARGET!';
-                this.showPersistentAlert(message, this.iskanderAlertId);
-            } else {
-                // Update existing alert message and styling if needed
-                const alertElement = this.activeAlerts.get(this.iskanderAlertId);
-                if (alertElement) {
-                    const message = hasFullyLockedMissiles ? 'MISSILE LOCK DETECTED!' : 'MISSILE ACQUIRING TARGET!';
-                    if (alertElement.textContent !== message) {
-                        alertElement.textContent = message;
-                    }
-                    
-                    // Update CSS class based on lock status
-                    if (hasFullyLockedMissiles) {
-                        alertElement.className = 'alert iskander-lock';
-                    } else {
-                        alertElement.className = 'alert iskander-acquiring';
-                    }
-                }
+                this.showPersistentAlert('MISSILE LOCK DETECTED!', this.iskanderAlertId);
             }
         } else {
             // Remove the alert if no active missiles
