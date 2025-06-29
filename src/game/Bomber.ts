@@ -26,6 +26,7 @@ export class Bomber {
     private bombBayLights: PointLight[] = [];
     private bombBayParticles: ParticleSystem[] = [];
     private bombBayGlowMaterial: StandardMaterial | null = null;
+    private missileLaunchPending: boolean = false; // Track if missile launch is waiting for bomb bay to open
     
     // Banking/roll properties for realistic turning
     private maxBankAngle: number = Math.PI / 6; // 30 degrees max bank (symmetric)
@@ -577,6 +578,12 @@ export class Bomber {
             
             if (this.bombBayOpenProgress >= 1) {
                 this.bombBayState = 'open';
+                
+                // If missile launch was pending, execute it now
+                if (this.missileLaunchPending) {
+                    this.missileLaunchPending = false;
+                    this.executeMissileLaunch();
+                }
             }
         } else if (this.bombBayState === 'closing') {
             const elapsed = currentTime - this.bombBayOpenStartTime;
@@ -748,11 +755,36 @@ export class Bomber {
         const targetBuilding = this.findClosestDefenseBuilding();
         if (!targetBuilding) return false; // No valid target in range
 
+        // Check if bomb bay is ready for launch
+        if (this.bombBayState === 'closed') {
+            // Open bomb bay first, then launch missile when fully open
+            this.missileLaunchPending = true;
+            this.openBombBay();
+            return true; // Return true to indicate launch sequence started
+        } else if (this.bombBayState === 'opening') {
+            // Still opening, wait for it to complete
+            this.missileLaunchPending = true;
+            return true; // Return true to indicate launch sequence in progress
+        } else if (this.bombBayState === 'closing') {
+            // Doors are closing, can't launch
+            return false;
+        }
+
+        // Bomb bay is open, proceed with launch
+        this.executeMissileLaunch();
+        return true;
+    }
+
+    private executeMissileLaunch(): void {
+        // Find the closest defense building
+        const targetBuilding = this.findClosestDefenseBuilding();
+        if (!targetBuilding) return; // No valid target in range
+
         const currentTime = performance.now() / 1000;
         this.lastMissileLaunchTime = currentTime;
 
-        // Alternate between left and right launchers
-        const launcherPosition = this.bomberGroup.position.add(new Vector3(0, -2, -1)) // Moved closer to center, reduced Z offset from -3 to -1
+        // Launch position from bomb bay
+        const launcherPosition = this.bomberGroup.position.add(new Vector3(0, -2, -1));
 
         // Create and launch missile targeting the defense building
         const missile = new TomahawkMissile(
@@ -772,7 +804,8 @@ export class Bomber {
         this.missiles.push(missile);
         missile.launch();
 
-        return true;
+        // Immediately start closing bomb bay after launch
+        this.closeBombBay();
     }
 
     private updateMissiles(deltaTime: number): void {
