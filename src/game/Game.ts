@@ -82,6 +82,7 @@ export class Game {
         this.workerManager = new WorkerManager();
         
         this.bomber = new Bomber(this.scene);
+        this.bomber.setBombingRunActiveCallback(() => this.isBombingRunInProgress());
         this.terrainManager = new TerrainManager(this.scene, this.workerManager);
         this.bomber.setTerrainManager(this.terrainManager);
         this.terrainManager.setBomber(this.bomber);
@@ -252,6 +253,11 @@ export class Game {
     }
 
     private handleBombing(currentTime: number): void {
+        // Prevent bombing run if any weapon system is active
+        if (this.bomber.isWeaponSystemActive() && !this.isBombingRun) {
+            return; // Can't start bombing run if weapon system is active
+        }
+        
         if (this.inputManager.isBombKeyPressed() && this.isBombingAvailable()) {
             this.startBombingRun();
         }
@@ -272,6 +278,11 @@ export class Game {
     }
 
     private handleMissileLaunch(): void {
+        // Prevent missile launch if bombing run is in progress
+        if (this.isBombingRun) {
+            return; // Can't launch missiles during bombing run
+        }
+        
         if (this.inputManager.isMissileKeyPressed() && this.bomber.canLaunchMissile() && this.bomber.hasValidTarget()) {
             this.bomber.launchMissile();
         }
@@ -400,11 +411,17 @@ export class Game {
 
     public isBombingAvailable(): boolean {
         const currentTime = performance.now() / 1000;
-        return !this.isBombingRun && (currentTime - this.lastBombingRunTime) > this.bombingRunCooldown;
+        const cooldownReady = (currentTime - this.lastBombingRunTime) > this.bombingRunCooldown;
+        const noWeaponActive = !this.bomber.isWeaponSystemActive();
+        return !this.isBombingRun && cooldownReady && noWeaponActive;
     }
 
     public isBombingRunActive(): boolean {
         return this.isBombingRun;
+    }
+
+    public isBombingRunInProgress(): boolean {
+        return this.isBombingRun || this.bomber.isBombBayActive();
     }
 
     public getBombCooldownStatus(): number {

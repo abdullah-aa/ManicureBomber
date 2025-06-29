@@ -6,6 +6,7 @@ import { Building } from './Building';
 
 export class Bomber {
     private scene: Scene;
+    private isBombingRunActiveCallback: (() => boolean) | null = null; // Callback to check bombing run status
     private bomberGroup!: TransformNode;
     private position: Vector3;
     private rotation: Vector3;
@@ -561,6 +562,14 @@ export class Bomber {
         }
     }
 
+    public forceCloseBombBay(): void {
+        // Immediately close bomb bay and stop all effects
+        this.bombBayState = 'closed';
+        this.bombBayOpenProgress = 0;
+        this.missileLaunchPending = false;
+        this.stopBombBayEffects();
+    }
+
     public updateBombBay(deltaTime: number): void {
         const currentTime = performance.now() / 1000;
         
@@ -634,14 +643,24 @@ export class Bomber {
             light.intensity = 0;
         });
         
-        // Restore original material
+        // Restore original material - create new instance to avoid reference issues
         const originalMaterial = new StandardMaterial('bayMaterial', this.scene);
         originalMaterial.diffuseColor = new Color3(0.1, 0.1, 0.12);
         originalMaterial.specularColor = new Color3(0.3, 0.3, 0.4);
         originalMaterial.emissiveColor = new Color3(0.02, 0.02, 0.03);
         
-        this.bombBayLeft.material = originalMaterial;
-        this.bombBayRight.material = originalMaterial;
+        // Apply to both doors
+        if (this.bombBayLeft) {
+            this.bombBayLeft.material = originalMaterial;
+        }
+        if (this.bombBayRight) {
+            this.bombBayRight.material = originalMaterial;
+        }
+        
+        // Reset glow material emissive to prevent lingering effects
+        if (this.bombBayGlowMaterial) {
+            this.bombBayGlowMaterial.emissiveColor = new Color3(0.1, 0.08, 0.12);
+        }
     }
 
     private updateBombBayEffects(intensity: number): void {
@@ -681,6 +700,10 @@ export class Bomber {
         return this.bombBayState === 'opening' || this.bombBayState === 'closing';
     }
 
+    public isWeaponSystemActive(): boolean {
+        return this.isBombBayActive() || this.missileLaunchPending;
+    }
+
     public getBombBayOpenProgress(): number {
         return this.bombBayOpenProgress;
     }
@@ -688,7 +711,16 @@ export class Bomber {
     // Missile system methods
     public canLaunchMissile(): boolean {
         const currentTime = performance.now() / 1000;
-        return (currentTime - this.lastMissileLaunchTime) >= this.missileCooldownTime;
+        const cooldownReady = (currentTime - this.lastMissileLaunchTime) >= this.missileCooldownTime;
+        // Can launch if bomb bay is closed (not being used for bombing) or if missile launch is already pending
+        const bombBayAvailable = this.bombBayState === 'closed' || this.missileLaunchPending;
+        // Also check if bombing run is not active
+        const noBombingRun = !this.isBombingRunActiveCallback || !this.isBombingRunActiveCallback();
+        return cooldownReady && bombBayAvailable && noBombingRun;
+    }
+
+    public setBombingRunActiveCallback(callback: () => boolean): void {
+        this.isBombingRunActiveCallback = callback;
     }
 
     public getMissileCooldownStatus(): number {
@@ -806,6 +838,9 @@ export class Bomber {
 
         // Immediately start closing bomb bay after launch
         this.closeBombBay();
+        
+        // Ensure missile launch pending is reset
+        this.missileLaunchPending = false;
     }
 
     private updateMissiles(deltaTime: number): void {
@@ -1169,6 +1204,9 @@ export class Bomber {
     }
 
     public dispose(): void {
+        // Force close bomb bay and clean up all effects
+        this.forceCloseBombBay();
+        
         // Clean up bomb bay resources
         this.bombBayLights.forEach(light => {
             if (light) {
