@@ -12,7 +12,7 @@ export class IskanderMissile {
     private targetPosition: Vector3;
     private bomber: Bomber;
     private speed: number = 120; // Slightly slower than Tomahawk
-    private turnRate: number = 1; // How fast the missile can turn
+    private turnRate: number = 1.25; // How fast the missile can turn
     private launched: boolean = false;
     private exploded: boolean = false;
     private exhaustParticles!: ParticleSystem;
