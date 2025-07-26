@@ -1,10 +1,9 @@
-import { Scene, Vector3, HemisphericLight, DirectionalLight, Color3, FreeCamera, Mesh, MeshBuilder, StandardMaterial, Texture, DynamicTexture } from '@babylonjs/core';
+import { Scene, Vector3, HemisphericLight, DirectionalLight, Color3, FreeCamera, Mesh, MeshBuilder, StandardMaterial, DynamicTexture } from '@babylonjs/core';
 import { Bomber } from '../entities/Bomber';
 import { TerrainManager } from './TerrainManager';
 import { InputManager } from './InputManager';
 import { CameraController, CameraLockMode } from './CameraController';
 import { Bomb } from '../entities/Bomb';
-import { TomahawkMissile } from '../entities/TomahawkMissile';
 import { IskanderMissile } from '../entities/IskanderMissile';
 import { UIManager } from '../ui/UIManager';
 import { RadarManager } from '../ui/RadarManager';
@@ -50,11 +49,11 @@ export class Game {
     private gameOver: boolean = false;
     private gameOverTime: number = 0;
     private gameOverDelay: number = 5; // 5 seconds before restart
+    private reloadTriggered: boolean = false;
 
-    // Performance optimization: frame rate control and caching
-    private lastFrameTime: number = 0;
+    // Performance optimization: frame rate control
     private targetFrameRate: number = 60;
-    private frameInterval: number = 1000 / 60; // 16.67ms for 60 FPS
+    private frameInterval: number = 1000 / this.targetFrameRate; // 16.67ms for 60 FPS
     private lastTerrainUpdateTime: number = 0;
     private terrainUpdateInterval: number = 100; // Update terrain every 100ms
     private lastDefenseUpdateTime: number = 0;
@@ -65,9 +64,6 @@ export class Game {
     private radarUpdateInterval: number = 100; // Update radar every 100ms
     private lastCollisionCheckTime: number = 0;
     private collisionCheckInterval: number = 16; // Check collisions every 16ms (60fps)
-    private cachedBomberPosition: Vector3 = new Vector3();
-    private positionCacheValid: boolean = false;
-    private positionCacheThreshold: number = 5; // Recalculate if moved more than 5 units
 
     constructor(scene: Scene, canvas: HTMLCanvasElement) {
         this.scene = scene;
@@ -80,30 +76,28 @@ export class Game {
         
         // Initialize worker manager first
         this.workerManager = new WorkerManager();
-        
+
+        this.terrainManager = new TerrainManager(this.scene, this.workerManager);
+
         this.bomber = new Bomber(this.scene);
         this.bomber.setBombingRunActiveCallback(() => this.isBombingRunInProgress());
-        this.terrainManager = new TerrainManager(this.scene, this.workerManager);
-        this.bomber.setTerrainManager(this.terrainManager);
-        this.terrainManager.setBomber(this.bomber);
-        this.inputManager = new InputManager(this.scene, this.canvas);
-        this.cameraController = new CameraController(this.camera, this.bomber);
-        this.uiManager = new UIManager(this, this.inputManager);
-        this.radarManager = new RadarManager();
-        this.createGroundCrosshair();
-
-        // Set up bomber destruction callback
-        this.bomber.setOnDestroyedCallback(() => {
-            this.handleGameOver();
-        });
-
-        // Set up target destruction callback
+        this.bomber.setOnDestroyedCallback(() => this.handleGameOver());
         this.bomber.setOnTargetDestroyedCallback((building: Building) => {
             if (building.isTarget()) {
                 this.destroyedTargets++;
             }
         });
 
+        this.cameraController = new CameraController(this.camera, this.bomber);
+
+        this.inputManager = new InputManager(this.scene, this.canvas);
+        this.uiManager = new UIManager(this, this.inputManager);
+
+        this.radarManager = new RadarManager();
+        this.createGroundCrosshair();
+
+        this.bomber.setTerrainManager(this.terrainManager);
+        this.terrainManager.setBomber(this.bomber);
         await this.terrainManager.generateInitialTerrain(this.bomber.getPosition());
         
         this.startGameLoop();
@@ -338,8 +332,7 @@ export class Game {
 
     private updateIskanderMissiles(deltaTime: number): void {
         // Update all Iskander missiles
-        for (let i = this.iskanderMissiles.length - 1; i >= 0; i--) {
-            const missile = this.iskanderMissiles[i];
+        for (const missile of this.iskanderMissiles) {
             
             // Update missile physics (now handled by worker)
             missile.update(deltaTime);
@@ -441,18 +434,6 @@ export class Game {
         return this.cameraController;
     }
 
-    public getUIManager(): UIManager {
-        return this.uiManager;
-    }
-
-    public getDestroyedBuildings(): number {
-        return this.destroyedBuildings;
-    }
-
-    public getDestroyedTargets(): number {
-        return this.destroyedTargets;
-    }
-
     public getBomberHealth(): number {
         return this.bomber.getHealthPercentage();
     }
@@ -496,14 +477,6 @@ export class Game {
         return false;
     }
 
-    public getScene(): Scene {
-        return this.scene;
-    }
-
-    public getEngine() {
-        return this.scene.getEngine();
-    }
-
     private updateBombs(deltaTime: number): void {
         for (let i = this.bombs.length - 1; i >= 0; i--) {
             const bomb = this.bombs[i];
@@ -514,7 +487,7 @@ export class Game {
             if (bombPosition.y <= 0) {
                 const explosionPoint = new Vector3(bombPosition.x, 0, bombPosition.z);
                 
-                const blastRadius = 50;
+                const blastRadius = 75;
                 const nearbyBuildings = this.terrainManager.getBuildingsInRadius(explosionPoint, blastRadius);
                 
                 nearbyBuildings.forEach(building => {
@@ -569,43 +542,6 @@ export class Game {
             </div>
         `;
         document.body.appendChild(gameOverDiv);
-
-        // Add styles
-        const style = document.createElement('style');
-        style.textContent = `
-            #game-over-message {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background-color: rgba(0, 0, 0, 0.8);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 1000;
-                color: white;
-                font-family: Arial, sans-serif;
-            }
-            .game-over-content {
-                text-align: center;
-                background-color: rgba(255, 0, 0, 0.2);
-                padding: 40px;
-                border-radius: 10px;
-                border: 2px solid #ff0000;
-            }
-            .game-over-content h1 {
-                color: #ff0000;
-                font-size: 3em;
-                margin-bottom: 20px;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
-            }
-            .game-over-content p {
-                font-size: 1.2em;
-                margin: 10px 0;
-            }
-        `;
-        document.head.appendChild(style);
     }
 
     private checkDefenseMissileCollisions(): void {
