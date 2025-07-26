@@ -505,6 +505,9 @@ export class Building {
   private destroyBuilding(): void {
     this.isDestroyed = true;
 
+    // Explode all active defense missiles when building is destroyed
+    this.explodeAllDefenseMissiles();
+
     // Trigger destruction callback if set
     if (this.onDestroyedCallback) {
       this.onDestroyedCallback();
@@ -562,6 +565,9 @@ export class Building {
 
   private destroyBuildingByBomb(): void {
     this.isDestroyed = true;
+
+    // Explode all active defense missiles when building is destroyed
+    this.explodeAllDefenseMissiles();
 
     // Trigger destruction callback if set
     if (this.onDestroyedCallback) {
@@ -729,6 +735,15 @@ export class Building {
 
     // Return all missiles including exploded ones for collision detection
     return this.defenseMissiles;
+  }
+
+  private explodeAllDefenseMissiles(): void {
+    // Explode all active defense missiles when the launcher building is destroyed
+    for (const missile of this.defenseMissiles) {
+      if (missile.isLaunched() && !missile.hasExploded()) {
+        missile.explode();
+      }
+    }
   }
 
   public dispose(): void {
