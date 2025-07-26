@@ -541,6 +541,10 @@ export class Game {
     this.gameOver = true;
     this.gameOverTime = performance.now() / 1000;
 
+    if (this.bomber) {
+      this.bomber.dispose();
+    }
+
     // Show game over message
     this.showGameOverMessage();
   }

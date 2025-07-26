@@ -72,7 +72,6 @@ export class WorkerManager {
   private handleWorkerMessage(type: string, data: any, workerName: string): void {
     switch (type) {
       case 'TERRAIN_CHUNK_READY':
-        console.log('terrain chunk ready');
         // Handle terrain chunk completion
         break;
       case 'MISSILE_PHYSICS_RESULT':

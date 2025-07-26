@@ -25,7 +25,7 @@ export class IskanderMissile {
   private targetPosition: Vector3;
   private bomber: Bomber;
   private speed: number = 120; // Slightly slower than Tomahawk
-  private turnRate: number = 1.25; // How fast the missile can turn
+  private turnRate: number = 2.5; // Increased turn rate for better responsiveness
   private launched: boolean = false;
   private exploded: boolean = false;
   private exhaustParticles!: ParticleSystem;
@@ -45,13 +45,9 @@ export class IskanderMissile {
   // Performance optimization: cached calculations
   private lastUpdateTime: number = 0;
   private updateInterval: number = 1 / 60; // 60 FPS max updates
-  private cachedCurvePosition: Vector3 = new Vector3();
-  private curveCacheValid: boolean = false;
-  private lastCurveTime: number = -1;
 
   // Countermeasure flare targeting
   private flareTargets: Vector3[] = [];
-  private currentTargetIndex: number = 0;
   private flareDetectionRange: number = 80; // Increased from 50 to 80 for better effectiveness
   private flareAttractionStrength: number = 0.7; // How strongly flares attract the missile
   private originalTargetPosition: Vector3;
@@ -61,9 +57,9 @@ export class IskanderMissile {
   private lockOnRange: number = Infinity; // Remove distance limitation - always allow lock
   private isLockedOn: boolean = false;
   private lockOnTime: number = 0;
-  private lockOnDuration: number = 1.0; // Time required to establish lock
-  private guidanceStrength: number = 2.0; // How strongly the missile turns toward target
-  private maxTurnRate: number = 3.0; // Maximum turn rate in radians per second
+  private lockOnDuration: number = 1; // Faster lock-on for more responsive tracking
+  private guidanceStrength: number = 3.0; // Increased guidance strength for better tracking
+  private maxTurnRate: number = 3.0; // Higher maximum turn rate for sharper turns
   private lastTargetUpdateTime: number = 0;
   private targetUpdateInterval: number = 0.1; // Update target position every 100ms
 
@@ -73,7 +69,6 @@ export class IskanderMissile {
   // Worker integration
   private workerManager: WorkerManager;
   private pendingPhysicsUpdate: boolean = false;
-  private lastPhysicsResult: any = null;
 
   constructor(scene: Scene, launchPosition: Vector3, bomber: Bomber, workerManager: WorkerManager) {
     this.scene = scene;
@@ -98,36 +93,6 @@ export class IskanderMissile {
   private generateCurvedPath(): void {
     // Create a curved path from launch position to bomber
     this.waypoints = [this.position.clone(), this.targetPosition.clone()];
-  }
-
-  private getCurvedPathPosition(t: number): Vector3 {
-    // Use cached result if available
-    if (this.curveCacheValid && Math.abs(t - this.lastCurveTime) < 0.01) {
-      return this.cachedCurvePosition.clone();
-    }
-
-    // Create a curved path using parametric equations
-    const startPos = this.waypoints[0];
-    const endPos = this.waypoints[1];
-
-    // Linear interpolation for base path
-    const basePos = Vector3.Lerp(startPos, endPos, t);
-
-    // Add curved deviation
-    const distance = Vector3.Distance(startPos, endPos);
-    const curveAmplitude = distance * 0.2; // 20% curve amplitude
-
-    // Create a winding curve using sine waves
-    const curveX = Math.sin(t * Math.PI * 2) * curveAmplitude;
-    const curveZ = Math.cos(t * Math.PI * 1.5) * curveAmplitude;
-    const curveY = Math.sin(t * Math.PI) * 30; // Height variation
-
-    // Cache the result
-    this.cachedCurvePosition.set(basePos.x + curveX, basePos.y + curveY, basePos.z + curveZ);
-    this.lastCurveTime = t;
-    this.curveCacheValid = true;
-
-    return this.cachedCurvePosition.clone();
   }
 
   private createMissileModel(): void {
@@ -577,40 +542,6 @@ export class IskanderMissile {
     this.flareTargets.push(flarePosition.clone());
   }
 
-  private checkForFlareTargets(): void {
-    // Clear old flare targets that are too far away
-    this.flareTargets = this.flareTargets.filter((flarePos) => {
-      const distanceToFlare = Vector3.Distance(this.position, flarePos);
-      return distanceToFlare <= this.flareDetectionRange * 2; // Keep flares within 2x detection range
-    });
-
-    // Check if any flares are within detection range
-    let closestFlare: Vector3 | null = null;
-    let closestDistance = Infinity;
-
-    for (let i = 0; i < this.flareTargets.length; i++) {
-      const flarePos = this.flareTargets[i];
-      const distanceToFlare = Vector3.Distance(this.position, flarePos);
-
-      if (distanceToFlare <= this.flareDetectionRange && distanceToFlare < closestDistance) {
-        closestFlare = flarePos;
-        closestDistance = distanceToFlare;
-      }
-    }
-
-    if (closestFlare) {
-      // Switch to targeting the closest flare
-      this.targetPosition = closestFlare.clone();
-      this.isTargetingFlare = true;
-      return;
-    }
-
-    // If no flares in range, return to original target (bomber)
-    if (this.isTargetingFlare) {
-      this.targetPosition = this.originalTargetPosition.clone();
-      this.isTargetingFlare = false;
-    }
-  }
 
   public update(deltaTime: number): void {
     if (!this.launched || this.exploded) return;
@@ -627,67 +558,98 @@ export class IskanderMissile {
       if (!this.isTargetingFlare) {
         this.targetPosition = this.bomber.getPosition().clone();
         this.originalTargetPosition = this.targetPosition.clone();
+        // Update waypoints when target changes
+        this.waypoints = [this.position.clone(), this.targetPosition.clone()];
       }
       this.lastTargetUpdateTime = currentTime;
     }
 
-    // Use simple, reliable physics that works
-    this.updatePhysicsSimple(deltaTime, currentTime);
+    // Use worker for physics calculations
+    this.updatePhysicsWorker(deltaTime, currentTime);
   }
 
-  private updatePhysicsSimple(deltaTime: number, currentTime: number): void {
-    // Simple, reliable physics that guarantees movement
-
-    // Check for flare targets (countermeasures)
-    this.checkForFlareTargets();
-
-    // Basic guidance: move toward target
-    const directionToTarget = this.targetPosition.subtract(this.position).normalize();
-    const desiredVelocity = directionToTarget.scale(this.speed);
-
-    // Simple velocity interpolation
-    this.velocity.x += (desiredVelocity.x - this.velocity.x) * this.turnRate * deltaTime;
-    this.velocity.y += (desiredVelocity.y - this.velocity.y) * this.turnRate * deltaTime;
-    this.velocity.z += (desiredVelocity.z - this.velocity.z) * this.turnRate * deltaTime;
-
-    // Ensure minimum velocity
-    if (this.velocity.lengthSquared() < this.speed * 0.1) {
-      this.velocity = directionToTarget.scale(this.speed * 0.5);
+  private updatePhysicsWorker(deltaTime: number, currentTime: number): void {
+    // Skip if already pending physics update
+    if (this.pendingPhysicsUpdate) {
+      return;
     }
 
-    // Update rotation based on velocity
-    if (this.velocity.lengthSquared() > 0.01) {
-      this.rotation.y = Math.atan2(this.velocity.x, this.velocity.z);
-      const horizontalSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
-      if (horizontalSpeed > 0.001) {
-        this.rotation.x = Math.atan2(-this.velocity.y, horizontalSpeed);
-      }
+    // Prepare physics data for worker
+    const physicsData = {
+      position: { x: this.position.x, y: this.position.y, z: this.position.z },
+      velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
+      rotation: { x: this.rotation.x, y: this.rotation.y, z: this.rotation.z },
+      targetPosition: { x: this.targetPosition.x, y: this.targetPosition.y, z: this.targetPosition.z },
+      speed: this.speed,
+      turnRate: this.turnRate,
+      deltaTime: deltaTime,
+      pathTime: this.pathTime,
+      pathSpeed: this.pathSpeed,
+      waypoints: this.waypoints.map(wp => ({ x: wp.x, y: wp.y, z: wp.z })),
+      launched: this.launched,
+      exploded: this.exploded,
+      lifeTime: 0,
+      maxLifeTime: 60,
+      missileType: 'iskander' as const,
+      targetSet: true,
+      currentTime: currentTime,
+
+      // Iskander-specific properties
+      flareTargets: this.flareTargets.map(ft => ({ x: ft.x, y: ft.y, z: ft.z })),
+      flareDetectionRange: this.flareDetectionRange,
+      flareAttractionStrength: this.flareAttractionStrength,
+      originalTargetPosition: { x: this.originalTargetPosition.x, y: this.originalTargetPosition.y, z: this.originalTargetPosition.z },
+      isTargetingFlare: this.isTargetingFlare,
+      lockOnRange: this.lockOnRange,
+      isLockedOn: this.isLockedOn,
+      lockOnTime: this.lockOnTime,
+      lockOnDuration: this.lockOnDuration,
+      guidanceStrength: this.guidanceStrength,
+      maxTurnRate: this.maxTurnRate,
+      lastTargetUpdateTime: this.lastTargetUpdateTime,
+      targetUpdateInterval: this.targetUpdateInterval,
+    };
+
+    // Send to worker
+    this.pendingPhysicsUpdate = true;
+    this.workerManager.updateMissilePhysics(physicsData).then((result) => {
+      this.pendingPhysicsUpdate = false;
+      this.applyPhysicsResult(result);
+    }).catch((error) => {
+      this.pendingPhysicsUpdate = false;
+    });
+  }
+
+  private applyPhysicsResult(result: any): void {
+    // Update position and rotation
+    this.position.set(result.position.x, result.position.y, result.position.z);
+    this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);
+    this.rotation.set(result.rotation.x, result.rotation.y, result.rotation.z);
+    this.pathTime = result.pathTime;
+
+    // Update Iskander-specific properties
+    if (result.isLockedOn !== undefined) this.isLockedOn = result.isLockedOn;
+    if (result.lockOnTime !== undefined) this.lockOnTime = result.lockOnTime;
+    if (result.isTargetingFlare !== undefined) this.isTargetingFlare = result.isTargetingFlare;
+    if (result.flareTargets) {
+      this.flareTargets = result.flareTargets.map((ft: any) => new Vector3(ft.x, ft.y, ft.z));
     }
 
-    // Update position
-    this.position.x += this.velocity.x * deltaTime;
-    this.position.y += this.velocity.y * deltaTime;
-    this.position.z += this.velocity.z * deltaTime;
+    // Check for lock establishment
+    if (result.lockEstablished && this.onLockEstablishedCallback) {
+      this.onLockEstablishedCallback();
+    }
+
+    // Update visual representation
     this.missileGroup.position = this.position.clone();
     this.missileGroup.rotation = this.rotation.clone();
 
-    // Simple lock-on system - always allow lock regardless of distance
-    const distanceToTarget = Vector3.Distance(this.position, this.targetPosition);
-    if (!this.isLockedOn) {
-      this.lockOnTime += deltaTime;
-      if (this.lockOnTime >= this.lockOnDuration) {
-        this.isLockedOn = true;
-        if (this.onLockEstablishedCallback) {
-          this.onLockEstablishedCallback();
-        }
-      }
-    }
-
-    // Check if reached target or ground
-    if (distanceToTarget <= 5 || this.position.y <= 0) {
+    // Check for explosion conditions
+    if (result.shouldExplode) {
       this.explode();
     }
   }
+
 
   public explode(): void {
     if (this.exploded) return;
@@ -761,10 +723,6 @@ export class IskanderMissile {
     return Math.min(this.lockOnTime / this.lockOnDuration, 1.0);
   }
 
-  public getLockOnRange(): number {
-    return this.lockOnRange;
-  }
-
   public dispose(): void {
     if (this.missileGroup) this.missileGroup.dispose();
     if (this.fireParticles) this.fireParticles.dispose();
@@ -774,9 +732,5 @@ export class IskanderMissile {
     if (this.shockwaveParticles) this.shockwaveParticles.dispose();
     if (this.sparkParticles) this.sparkParticles.dispose();
     if (this.light) this.light.dispose();
-  }
-
-  public setOnLockEstablishedCallback(callback: () => void): void {
-    this.onLockEstablishedCallback = callback;
   }
 }
