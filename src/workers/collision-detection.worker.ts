@@ -1,4 +1,4 @@
-import { Vector3, vector3Distance, vector3Subtract, vector3Length } from './worker-utils';
+import { Vector3, vector3Distance } from './worker-utils';
 
 interface BuildingData {
   id: string;
@@ -16,7 +16,7 @@ interface MissileData {
   position: Vector3;
   velocity: Vector3;
   radius: number;
-  missileType: 'tomahawk' | 'defense';
+  missileType: 'tomahawk' | 'defense' | 'iskander';
 }
 
 interface BombData {
@@ -34,6 +34,42 @@ interface CollisionDetectionData {
   terrainHeightmap: { [chunkKey: string]: Float32Array };
   chunkSize: number;
   subdivisions: number;
+}
+
+interface IskanderMissileData {
+  id: string;
+  position: Vector3;
+  isLaunched: boolean;
+  hasExploded: boolean;
+}
+
+interface DefenseMissileData {
+  id: string;
+  position: Vector3;
+  isLaunched: boolean;
+  hasExploded: boolean;
+  buildingId: string;
+}
+
+interface BomberData {
+  position: Vector3;
+  isDestroyed: boolean;
+}
+
+interface IskanderCollisionResult {
+  missileId: string;
+  collisionType: 'direct_hit' | 'proximity';
+  distance: number;
+  damage: number;
+  shouldExplode: boolean;
+}
+
+interface DefenseCollisionResult {
+  missileId: string;
+  collisionType: 'direct_hit' | 'proximity';
+  distance: number;
+  damage: number;
+  shouldExplode: boolean;
 }
 
 interface CollisionDetectionResult {
@@ -57,6 +93,8 @@ interface CollisionDetectionResult {
     buildingId: string;
     distance: number;
   }>;
+  iskanderCollisions: IskanderCollisionResult[];
+  defenseCollisions: DefenseCollisionResult[];
 }
 
 interface BoundingBox {
@@ -306,9 +344,113 @@ function performCollisionDetection(objects: CollisionObject[]): GenericCollision
   return results;
 }
 
+// Check Iskander missile collisions with bomber
+function checkIskanderCollisions(
+  iskanderMissiles: IskanderMissileData[],
+  bomberData: BomberData,
+  messageId: string
+): void {
+  const collisions: IskanderCollisionResult[] = [];
+
+  if (bomberData.isDestroyed) {
+    (self as any).postMessage({
+      type: 'ISKANDER_COLLISION_RESULT',
+      data: { collisions },
+      messageId,
+    });
+    return;
+  }
+
+  for (const missile of iskanderMissiles) {
+    if (missile.isLaunched && !missile.hasExploded) {
+      const distance = vector3Distance(bomberData.position, missile.position);
+
+      // Check for direct hit or proximity explosion
+      if (distance <= 8) {
+        // Direct hit radius
+        collisions.push({
+          missileId: missile.id,
+          collisionType: 'direct_hit',
+          distance,
+          damage: 50, // 50% of bomber health
+          shouldExplode: true,
+        });
+      } else if (distance <= 20) {
+        // Proximity explosion
+        const damage = Math.max(10, 40 - distance);
+        collisions.push({
+          missileId: missile.id,
+          collisionType: 'proximity',
+          distance,
+          damage,
+          shouldExplode: true,
+        });
+      }
+    }
+  }
+
+  (self as any).postMessage({
+    type: 'ISKANDER_COLLISION_RESULT',
+    data: { collisions },
+    messageId,
+  });
+}
+
+// Check defense missile collisions with bomber
+function checkDefenseCollisions(
+  defenseMissiles: DefenseMissileData[],
+  bomberData: BomberData,
+  messageId: string
+): void {
+  const collisions: DefenseCollisionResult[] = [];
+
+  if (bomberData.isDestroyed) {
+    (self as any).postMessage({
+      type: 'DEFENSE_COLLISION_RESULT',
+      data: { collisions },
+      messageId,
+    });
+    return;
+  }
+
+  for (const missile of defenseMissiles) {
+    if (missile.isLaunched && !missile.hasExploded) {
+      const distance = vector3Distance(bomberData.position, missile.position);
+
+      // Check for direct hit or proximity explosion
+      if (distance <= 8) {
+        // Direct hit radius
+        collisions.push({
+          missileId: missile.id,
+          collisionType: 'direct_hit',
+          distance,
+          damage: 25, // Direct hit damage
+          shouldExplode: true,
+        });
+      } else if (distance <= 20) {
+        // Proximity explosion
+        const damage = Math.max(5, 20 - distance);
+        collisions.push({
+          missileId: missile.id,
+          collisionType: 'proximity',
+          distance,
+          damage,
+          shouldExplode: true,
+        });
+      }
+    }
+  }
+
+  (self as any).postMessage({
+    type: 'DEFENSE_COLLISION_RESULT',
+    data: { collisions },
+    messageId,
+  });
+}
+
 // Handle worker messages
 self.onmessage = (event) => {
-  const { type, data } = event.data;
+  const { type, data, messageId } = event.data;
 
   switch (type) {
     case 'DETECT_COLLISIONS':
@@ -316,6 +458,7 @@ self.onmessage = (event) => {
       (self as any).postMessage({
         type: 'COLLISION_RESULTS',
         data: { results: collisionResults },
+        messageId,
       });
       break;
 
@@ -324,7 +467,16 @@ self.onmessage = (event) => {
       (self as any).postMessage({
         type: 'SPECIFIC_COLLISION_RESULT',
         data: { collision },
+        messageId,
       });
+      break;
+
+    case 'CHECK_ISKANDER_COLLISIONS':
+      checkIskanderCollisions(data.iskanderMissiles, data.bomberData, messageId);
+      break;
+
+    case 'CHECK_DEFENSE_COLLISIONS':
+      checkDefenseCollisions(data.defenseMissiles, data.bomberData, messageId);
       break;
 
     case 'GET_BUILDINGS_IN_RADIUS':
@@ -339,6 +491,7 @@ self.onmessage = (event) => {
       (self as any).postMessage({
         type: 'BUILDINGS_IN_RADIUS_RESULT',
         data: { buildingsInRadius },
+        messageId,
       });
       break;
 

@@ -59,34 +59,11 @@ export class WorkerManager {
         callback(data);
         this.messageCallbacks.delete(messageId);
       }
-
-      // Handle specific message types
-      this.handleWorkerMessage(type, data, workerName);
     };
 
     worker.onerror = (error) => {
       // Silent error handling - no console logging
     };
-  }
-
-  private handleWorkerMessage(type: string, data: any, workerName: string): void {
-    switch (type) {
-      case 'TERRAIN_CHUNK_READY':
-        // Handle terrain chunk completion
-        break;
-      case 'MISSILE_PHYSICS_RESULT':
-        // Handle missile physics update
-        break;
-      case 'COLLISION_RESULT':
-        // Handle collision detection result
-        break;
-      case 'PARTICLE_PHYSICS_RESULT':
-        // Handle particle physics update
-        break;
-      default:
-        // Silent handling of unknown message types
-        break;
-    }
   }
 
   // Terrain worker methods
@@ -129,6 +106,49 @@ export class WorkerManager {
         bomberPosition: { x: bomberPosition.x, y: bomberPosition.y, z: bomberPosition.z },
         buildings,
         radius,
+      },
+    });
+  }
+
+  public checkIskanderCollisions(iskanderMissiles: any[], bomberData: any): Promise<any> {
+    return this.sendMessageToWorker(this.collisionDetectionWorker, {
+      type: 'CHECK_ISKANDER_COLLISIONS',
+      data: {
+        iskanderMissiles: iskanderMissiles.map((missile, index) => {
+          const position = missile.getPosition();
+          return {
+            id: `iskander_${index}`,
+            position: { x: position.x, y: position.y, z: position.z },
+            isLaunched: missile.isLaunched(),
+            hasExploded: missile.hasExploded(),
+          };
+        }),
+        bomberData: {
+          position: { x: bomberData.position.x, y: bomberData.position.y, z: bomberData.position.z },
+          isDestroyed: bomberData.isDestroyed,
+        },
+      },
+    });
+  }
+
+  public checkDefenseCollisions(defenseMissiles: any[], bomberData: any): Promise<any> {
+    return this.sendMessageToWorker(this.collisionDetectionWorker, {
+      type: 'CHECK_DEFENSE_COLLISIONS',
+      data: {
+        defenseMissiles: defenseMissiles.map((missile, index) => {
+          const position = missile.getPosition();
+          return {
+            id: `defense_${index}`,
+            position: { x: position.x, y: position.y, z: position.z },
+            isLaunched: missile.isLaunched(),
+            hasExploded: missile.hasExploded(),
+            buildingId: `building_${index}`,
+          };
+        }),
+        bomberData: {
+          position: { x: bomberData.position.x, y: bomberData.position.y, z: bomberData.position.z },
+          isDestroyed: bomberData.isDestroyed,
+        },
       },
     });
   }

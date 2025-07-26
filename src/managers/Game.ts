@@ -371,24 +371,31 @@ export class Game {
   private checkIskanderMissileCollisions(): void {
     if (this.gameOver || this.bomber.isBomberDestroyed()) return;
 
-    const bomberPosition = this.bomber.getPosition();
+    // Use worker for collision detection
+    const bomberData = {
+      position: this.bomber.getPosition(),
+      isDestroyed: this.bomber.isBomberDestroyed(),
+    };
 
-    for (const missile of this.iskanderMissiles) {
-      if (missile.isLaunched() && !missile.hasExploded()) {
-        const missilePosition = missile.getPosition();
-        const distance = Vector3.Distance(bomberPosition, missilePosition);
+    this.workerManager.checkIskanderCollisions(this.iskanderMissiles, bomberData)
+      .then((result) => {
+        this.handleIskanderCollisionResults(result.collisions);
+      })
+      .catch(() => {
+        // Worker failed - rely on next update cycle
+      });
+  }
 
-        // Check for direct hit or proximity explosion
-        if (distance <= 8) {
-          // Direct hit radius
-          this.bomber.takeDamage(50); // Increased from 30% to 50% of bomber health
-          missile.explode();
-        } else if (distance <= 20) {
-          // Proximity explosion
-          const damage = Math.max(10, 40 - distance); // Increased from 25 to 40
-          this.bomber.takeDamage(damage);
-          missile.explode();
-        }
+  private handleIskanderCollisionResults(collisions: any[]): void {
+    if (this.gameOver || this.bomber.isBomberDestroyed()) return;
+
+    for (const collision of collisions) {
+      const missileIndex = parseInt(collision.missileId.split('_')[1]);
+      const missile = this.iskanderMissiles[missileIndex];
+      
+      if (missile && missile.isLaunched() && !missile.hasExploded()) {
+        this.bomber.takeDamage(collision.damage);
+        missile.explode();
       }
     }
   }
@@ -570,29 +577,42 @@ export class Game {
     const bomberPosition = this.bomber.getPosition();
     const buildings = this.terrainManager.getBuildingsInRadius(bomberPosition, 500);
 
+    // Collect all defense missiles from all buildings
+    const allDefenseMissiles: any[] = [];
     for (const building of buildings) {
       if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
-        // Get defense missiles from the building
         const defenseMissiles = building.getDefenseMissiles();
+        allDefenseMissiles.push(...defenseMissiles);
+      }
+    }
 
-        for (const missile of defenseMissiles) {
-          if (missile.isLaunched() && !missile.hasExploded()) {
-            const missilePosition = missile.getPosition();
-            const distance = Vector3.Distance(bomberPosition, missilePosition);
+    if (allDefenseMissiles.length === 0) return;
 
-            // Check for direct hit or proximity explosion
-            if (distance <= 8) {
-              // Direct hit radius
-              this.bomber.takeDamage(25); // Direct hit damage
-              missile.explode();
-            } else if (distance <= 20) {
-              // Proximity explosion
-              const damage = Math.max(5, 20 - distance);
-              this.bomber.takeDamage(damage);
-              missile.explode();
-            }
-          }
-        }
+    // Use worker for collision detection
+    const bomberData = {
+      position: this.bomber.getPosition(),
+      isDestroyed: this.bomber.isBomberDestroyed(),
+    };
+
+    this.workerManager.checkDefenseCollisions(allDefenseMissiles, bomberData)
+      .then((result) => {
+        this.handleDefenseCollisionResults(result.collisions, allDefenseMissiles);
+      })
+      .catch(() => {
+        // Worker failed - rely on next update cycle
+      });
+  }
+
+  private handleDefenseCollisionResults(collisions: any[], defenseMissiles: any[]): void {
+    if (this.gameOver || this.bomber.isBomberDestroyed()) return;
+
+    for (const collision of collisions) {
+      const missileIndex = parseInt(collision.missileId.split('_')[1]);
+      const missile = defenseMissiles[missileIndex];
+      
+      if (missile && missile.isLaunched() && !missile.hasExploded()) {
+        this.bomber.takeDamage(collision.damage);
+        missile.explode();
       }
     }
   }
