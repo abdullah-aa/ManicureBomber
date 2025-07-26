@@ -1,4 +1,4 @@
-import { Scene, Vector3, GroundMesh, MeshBuilder, StandardMaterial, Color3, Color4, Texture, DynamicTexture, Mesh } from '@babylonjs/core';
+import { Scene, Vector3, GroundMesh, MeshBuilder, StandardMaterial, Color3, Color4, DynamicTexture } from '@babylonjs/core';
 import { NoiseGenerator } from '../utils/NoiseGenerator';
 import { Building, BuildingConfig } from '../entities/Building';
 import { WorkerManager } from './WorkerManager';
@@ -14,7 +14,6 @@ export class TerrainManager {
     private scene: Scene;
     private chunks: Map<string, TerrainChunk | null> = new Map();
     private chunkSize: number = 500;
-    private viewDistance: number = 800;
     private generationThreshold: number = 300;
     private terrainMaterial!: StandardMaterial;
     private lastTerrainUpdateTime: number = 0;
@@ -55,28 +54,27 @@ export class TerrainManager {
         this.chunks.set(chunkKey, null); // Placeholder to prevent re-generation
         this.activeWorkerCalls.add(chunkKey); // Track this worker call
 
-        // Use synchronous generation during cleanup to avoid worker timeouts
-        if (this.isDisposing) {
-            this.generateChunkSynchronously(chunkX, chunkZ);
-            this.activeWorkerCalls.delete(chunkKey);
-            return;
-        }
 
         try {
             // Use async/await with timeout
-            const result = await this.workerManager.generateTerrainChunk(chunkX, chunkZ, this.chunkSize, this.subdivisions);
-            
-            // Only process result if we're still not disposing
-            if (!this.isDisposing) {
-                this.processTerrainChunkResult(result, chunkX, chunkZ);
-            }
+            this.workerManager.generateTerrainChunk(chunkX, chunkZ, this.chunkSize, this.subdivisions)
+                .then((result: {
+                    chunkX: number,
+                    chunkZ: number,
+                    heightmap: Float32Array,
+                    buildingConfigs: Array<BuildingConfig>
+                }) => {
+                    // Only process result if we're still not disposing
+                    if (!this.isDisposing) {
+                        this.processTerrainChunkResult(result, chunkX, chunkZ);
+                    }
+                }).catch((error: any) => {
+                    console.log('Terrain worker error:', error);
+                    // Remove failed chunk from tracking
+                    this.chunks.delete(chunkKey);
+                })
         } catch (error) {
-            // Don't log timeout errors during disposal to reduce console noise
-            if (!this.isDisposing) {
-                // Silent error handling - no console logging
-            }
-            // Always fallback to synchronous generation if worker fails
-            this.generateChunkSynchronously(chunkX, chunkZ);
+            // Don't log worker errors during disposal to reduce console noise
         } finally {
             // Always clean up the tracking
             this.activeWorkerCalls.delete(chunkKey);
@@ -124,187 +122,10 @@ export class TerrainManager {
         this.createBuildingsFromConfigs(chunk, buildingConfigs);
     }
 
-    private generateChunkSynchronously(chunkX: number, chunkZ: number): void {
-        // Fallback synchronous generation using existing logic
-        const chunkKey = `${chunkX}_${chunkZ}`;
-        const worldX = chunkX * this.chunkSize;
-        const worldZ = chunkZ * this.chunkSize;
 
-        const ground = MeshBuilder.CreateGround(`ground_${chunkKey}`, {
-            width: this.chunkSize,
-            height: this.chunkSize,
-            subdivisions: this.subdivisions
-        }, this.scene);
 
-        ground.position.x = worldX;
-        ground.position.y = 0;
-        ground.position.z = worldZ;
-        ground.material = this.terrainMaterial;
 
-        // Generate heightmap synchronously
-        const heightmap = this.generateHeightmapSynchronously(chunkX, chunkZ);
-        const positions = ground.getVerticesData('position');
-        if (positions) {
-            for (let i = 0; i < heightmap.length; i++) {
-                positions[i * 3 + 1] = heightmap[i];
-            }
-            ground.updateVerticesData('position', positions);
-            ground.createNormals(false);
-        }
 
-        this.heightmapCache.set(chunkKey, heightmap);
-
-        const chunk: TerrainChunk = {
-            mesh: ground,
-            buildings: [],
-            x: chunkX,
-            z: chunkZ
-        };
-
-        this.chunks.set(chunkKey, chunk);
-
-        // Generate buildings synchronously
-        const buildingConfigs = this.generateBuildingsSynchronously(chunkX, chunkZ, heightmap);
-        this.createBuildingsFromConfigs(chunk, buildingConfigs);
-    }
-
-    private generateHeightmapSynchronously(chunkX: number, chunkZ: number): Float32Array {
-        const worldX = chunkX * this.chunkSize;
-        const worldZ = chunkZ * this.chunkSize;
-        const heights = new Float32Array((this.subdivisions + 1) * (this.subdivisions + 1));
-
-        for (let i = 0; i <= this.subdivisions; i++) {
-            for (let j = 0; j <= this.subdivisions; j++) {
-                const localX = (j / this.subdivisions - 0.5) * this.chunkSize;
-                const localZ = (i / this.subdivisions - 0.5) * this.chunkSize;
-                const x = localX + worldX;
-                const z = localZ + worldZ;
-
-                const height = this.calculateHeightFromNoise(x, z);
-                const index = i * (this.subdivisions + 1) + j;
-                heights[index] = height;
-            }
-        }
-        return heights;
-    }
-
-    private generateBuildingsSynchronously(chunkX: number, chunkZ: number, heightmap: Float32Array): BuildingConfig[] {
-        const worldX = chunkX * this.chunkSize;
-        const worldZ = chunkZ * this.chunkSize;
-        const buildingConfigs: BuildingConfig[] = [];
-        const buildingDensity = 0.00005;
-        const chunkArea = this.chunkSize * this.chunkSize;
-        const numBuildings = Math.floor(chunkArea * buildingDensity * (0.5 + Math.random() * 0.8));
-
-        for (let i = 0; i < numBuildings; i++) {
-            const localX = (Math.random() - 0.5) * this.chunkSize * 0.8;
-            const localZ = (Math.random() - 0.5) * this.chunkSize * 0.8;
-            const buildingX = worldX + localX;
-            const buildingZ = worldZ + localZ;
-
-            const terrainHeight = this.getHeightAtPositionFromHeightmap(localX, localZ, heightmap);
-
-            const sampleDistance = 5;
-            const heightNorth = this.getHeightAtPositionFromHeightmap(localX, localZ - sampleDistance, heightmap);
-            const heightSouth = this.getHeightAtPositionFromHeightmap(localX, localZ + sampleDistance, heightmap);
-            const heightEast = this.getHeightAtPositionFromHeightmap(localX + sampleDistance, localZ, heightmap);
-            const heightWest = this.getHeightAtPositionFromHeightmap(localX - sampleDistance, localZ, heightmap);
-
-            const maxSlope = Math.max(
-                Math.abs(heightNorth - terrainHeight),
-                Math.abs(heightSouth - terrainHeight),
-                Math.abs(heightEast - terrainHeight),
-                Math.abs(heightWest - terrainHeight)
-            );
-
-            if (maxSlope > 8) {
-                continue;
-            }
-
-            const buildingConfig = this.generateRandomBuildingConfig(
-                new Vector3(buildingX, 0, buildingZ),
-                terrainHeight
-            );
-
-            buildingConfig.isTarget = Math.random() < 0.1;
-            buildingConfigs.push(buildingConfig);
-        }
-        return buildingConfigs;
-    }
-
-    private getHeightAtPositionFromHeightmap(localX: number, localZ: number, heights: Float32Array): number {
-        const gridX = (localX + this.chunkSize / 2) / this.chunkSize * this.subdivisions;
-        const gridZ = (localZ + this.chunkSize / 2) / this.chunkSize * this.subdivisions;
-        
-        const gridX0 = Math.floor(gridX);
-        const gridZ0 = Math.floor(gridZ);
-
-        if (gridX0 < 0 || gridX0 >= this.subdivisions || gridZ0 < 0 || gridZ0 >= this.subdivisions) {
-            return 0;
-        }
-
-        const tx = gridX - gridX0;
-        const tz = gridZ - gridZ0;
-        
-        const h00 = heights[gridZ0 * (this.subdivisions + 1) + gridX0];
-        const h10 = heights[gridZ0 * (this.subdivisions + 1) + (gridX0 + 1)];
-        const h01 = heights[(gridZ0 + 1) * (this.subdivisions + 1) + gridX0];
-        const h11 = heights[(gridZ0 + 1) * (this.subdivisions + 1) + (gridX0 + 1)];
-
-        if (h00 === undefined || h10 === undefined || h01 === undefined || h11 === undefined) {
-            return 0;
-        }
-        
-        const h_x1 = h00 * (1 - tx) + h10 * tx;
-        const h_x2 = h01 * (1 - tx) + h11 * tx;
-
-        return h_x1 * (1 - tz) + h_x2 * tz;
-    }
-
-    private generateRandomBuildingConfig(position: Vector3, terrainHeight: number): BuildingConfig {
-        const types = ['residential', 'commercial', 'industrial', 'skyscraper'];
-        const type = types[Math.floor(Math.random() * types.length)] as any;
-        
-        let width: number, height: number, depth: number;
-        
-        switch (type) {
-            case 'residential':
-                width = 8 + Math.random() * 8;
-                height = 8 + Math.random() * 12;
-                depth = 8 + Math.random() * 8;
-                break;
-            case 'commercial':
-                width = 12 + Math.random() * 15;
-                height = 12 + Math.random() * 18;
-                depth = 12 + Math.random() * 15;
-                break;
-            case 'industrial':
-                width = 15 + Math.random() * 20;
-                height = 10 + Math.random() * 15;
-                depth = 15 + Math.random() * 20;
-                break;
-            case 'skyscraper':
-                width = 10 + Math.random() * 12;
-                height = 25 + Math.random() * 35;
-                depth = 10 + Math.random() * 12;
-                break;
-            default:
-                width = 8 + Math.random() * 10;
-                height = 8 + Math.random() * 15;
-                depth = 8 + Math.random() * 10;
-        }
-        
-        const isDefenseLauncher = Math.random() < 0.15;
-        
-        return {
-            position: { x: position.x, y: terrainHeight, z: position.z },
-            type: type,
-            width: width,
-            height: height,
-            depth: depth,
-            isDefenseLauncher: isDefenseLauncher
-        };
-    }
 
     private createBuildingsFromConfigs(chunk: TerrainChunk, configs: BuildingConfig[]): void {
         configs.forEach(config => {
@@ -363,7 +184,6 @@ export class TerrainManager {
     }
 
     public async generateInitialTerrain(center: Vector3): Promise<void> {
-        // Don't generate initial terrain if not safe for worker calls
         if (!this.isSafeForWorkerCalls()) {
             return;
         }
@@ -372,7 +192,7 @@ export class TerrainManager {
         const chunkZ = Math.floor(center.z / this.chunkSize);
         for (let x = chunkX - 1; x <= chunkX + 1; x++) {
             for (let z = chunkZ - 1; z <= chunkZ + 1; z++) {
-                this.generateChunk(x, z);
+                await this.generateChunk(x, z);
             }
         }
     }
@@ -647,7 +467,7 @@ export class TerrainManager {
             this.activeWorkerCalls.clear();
             
             // Dispose of all chunks and their buildings
-            this.chunks.forEach((chunk, key) => {
+            this.chunks.forEach((chunk) => {
                 if (chunk) {
                     chunk.buildings.forEach(building => building.dispose());
                     chunk.buildings.length = 0;

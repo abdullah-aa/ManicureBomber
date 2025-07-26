@@ -169,14 +169,18 @@ function getHeightAtPosition(localX: number, localZ: number, heights: Float32Arr
 
 
 self.onmessage = (event) => {
-    const { chunkX, chunkZ, chunkSize, subdivisions } = event.data;
+    const { chunkX, chunkZ, chunkSize, subdivisions, messageId } = event.data;
     const heightmap = generateHeightmap(chunkX, chunkZ, chunkSize, subdivisions);
     const buildingConfigs = generateBuildings(chunkX, chunkZ, chunkSize, heightmap, subdivisions);
 
     (self as any).postMessage({
-        chunkX,
-        chunkZ,
-        heightmap,
-        buildingConfigs
-    }, [heightmap.buffer]);
+        type: 'TERRAIN_CHUNK_READY',
+        messageId,
+        data: {
+            chunkX,
+            chunkZ,
+            heightmap,
+            buildingConfigs
+        }
+    });
 };
