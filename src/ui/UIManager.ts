@@ -1,170 +1,170 @@
-import { Game } from "../managers/Game";
-import { InputManager } from "../managers/InputManager";
-import { CameraLockMode } from "../managers/CameraController";
+import { Game } from '../managers/Game';
+import { InputManager } from '../managers/InputManager';
+import { CameraLockMode } from '../managers/CameraController';
 
 export class UIManager {
-    private game: Game;
-    private inputManager: InputManager;
-    private bombButton!: HTMLElement;
-    private bombButtonIcon!: HTMLElement;
-    private bombButtonCooldown!: HTMLElement;
-    private bombBayStatus!: HTMLElement;
-    private missileButton!: HTMLElement;
-    private missileButtonIcon!: HTMLElement;
-    private missileButtonCooldown!: HTMLElement;
-    private countermeasureButton!: HTMLElement;
-    private countermeasureButtonIcon!: HTMLElement;
-    private countermeasureButtonCooldown!: HTMLElement;
-    private cameraToggleButton!: HTMLElement;
-    private cameraToggleIcon!: HTMLElement;
-    private healthBar!: HTMLElement;
-    private healthBarFill!: HTMLElement;
-    private healthText!: HTMLElement;
-    
-    // Performance optimization: cache target status
-    private cachedHasValidTarget: boolean = false;
-    private lastTargetCheckTime: number = 0;
-    private targetCheckInterval: number = 0.2; // Check every 200ms instead of every frame
+  private game: Game;
+  private inputManager: InputManager;
+  private bombButton!: HTMLElement;
+  private bombButtonIcon!: HTMLElement;
+  private bombButtonCooldown!: HTMLElement;
+  private bombBayStatus!: HTMLElement;
+  private missileButton!: HTMLElement;
+  private missileButtonIcon!: HTMLElement;
+  private missileButtonCooldown!: HTMLElement;
+  private countermeasureButton!: HTMLElement;
+  private countermeasureButtonIcon!: HTMLElement;
+  private countermeasureButtonCooldown!: HTMLElement;
+  private cameraToggleButton!: HTMLElement;
+  private cameraToggleIcon!: HTMLElement;
+  private healthBar!: HTMLElement;
+  private healthBarFill!: HTMLElement;
+  private healthText!: HTMLElement;
 
-    // Performance optimization: change detection and batching
-    private lastBombCooldown: number = -1;
-    private lastMissileCooldown: number = -1;
-    private lastCountermeasureCooldown: number = -1;
-    private lastHasTarget: boolean = false;
-    private lastLockMode: CameraLockMode = CameraLockMode.BOMBER;
-    private lastHealth: number = -1;
-    private updateBatchTimeout: ReturnType<typeof setTimeout> | null = null;
-    private pendingUpdates: Set<string> = new Set();
+  // Performance optimization: cache target status
+  private cachedHasValidTarget: boolean = false;
+  private lastTargetCheckTime: number = 0;
+  private targetCheckInterval: number = 0.2; // Check every 200ms instead of every frame
 
-    // Alert system
-    private alertContainer!: HTMLElement;
-    private activeAlerts: Map<string, HTMLElement> = new Map();
-    private alertTimeout: number = 5000; // 5 seconds
-    
-    // Persistent alert tracking for Iskander missiles
-    private persistentAlerts: Set<string> = new Set();
-    private iskanderAlertId: string = 'iskander-lock';
+  // Performance optimization: change detection and batching
+  private lastBombCooldown: number = -1;
+  private lastMissileCooldown: number = -1;
+  private lastCountermeasureCooldown: number = -1;
+  private lastHasTarget: boolean = false;
+  private lastLockMode: CameraLockMode = CameraLockMode.BOMBER;
+  private lastHealth: number = -1;
+  private updateBatchTimeout: ReturnType<typeof setTimeout> | null = null;
+  private pendingUpdates: Set<string> = new Set();
 
-    constructor(game: Game, inputManager: InputManager) {
-        this.game = game;
-        this.inputManager = inputManager;
-        this.createBombButton();
-        this.createMissileButton();
-        this.createCountermeasureButton();
-        this.createCameraToggleButton();
-        this.createHealthBar();
-        this.createAlertSystem();
+  // Alert system
+  private alertContainer!: HTMLElement;
+  private activeAlerts: Map<string, HTMLElement> = new Map();
+  private alertTimeout: number = 5000; // 5 seconds
 
-        // Listen for button clicks to start a bombing run
-        this.bombButton.addEventListener('click', () => {
-            if (this.game.isBombingAvailable()) {
-                this.inputManager.triggerBombKeyPress();
-            }
-        });
+  // Persistent alert tracking for Iskander missiles
+  private persistentAlerts: Set<string> = new Set();
+  private iskanderAlertId: string = 'iskander-lock';
 
-        // Listen for missile button clicks
-        this.missileButton.addEventListener('click', () => {
-            if (this.game.getBomber().canLaunchMissile() && this.game.getBomber().hasValidTarget()) {
-                this.inputManager.triggerMissileKeyPress();
-            }
-        });
+  constructor(game: Game, inputManager: InputManager) {
+    this.game = game;
+    this.inputManager = inputManager;
+    this.createBombButton();
+    this.createMissileButton();
+    this.createCountermeasureButton();
+    this.createCameraToggleButton();
+    this.createHealthBar();
+    this.createAlertSystem();
 
-        // Listen for countermeasure button clicks
-        this.countermeasureButton.addEventListener('click', () => {
-            if (this.game.getBomber().canLaunchFlares() && this.game.hasIskanderMissilesForAlert()) {
-                this.inputManager.triggerCountermeasureKeyPress();
-            }
-        });
+    // Listen for button clicks to start a bombing run
+    this.bombButton.addEventListener('click', () => {
+      if (this.game.isBombingAvailable()) {
+        this.inputManager.triggerBombKeyPress();
+      }
+    });
 
-        // Listen for camera toggle button clicks
-        this.cameraToggleButton.addEventListener('click', () => {
-            this.game.getCameraController().toggleLockMode();
-            this.updateCameraToggleIcon();
-        });
-    }
+    // Listen for missile button clicks
+    this.missileButton.addEventListener('click', () => {
+      if (this.game.getBomber().canLaunchMissile() && this.game.getBomber().hasValidTarget()) {
+        this.inputManager.triggerMissileKeyPress();
+      }
+    });
 
-    private createBombButton(): void {
-        this.bombButton = document.createElement('div');
-        this.bombButton.id = 'bomb-button';
-        this.bombButton.innerHTML = `
+    // Listen for countermeasure button clicks
+    this.countermeasureButton.addEventListener('click', () => {
+      if (this.game.getBomber().canLaunchFlares() && this.game.hasIskanderMissilesForAlert()) {
+        this.inputManager.triggerCountermeasureKeyPress();
+      }
+    });
+
+    // Listen for camera toggle button clicks
+    this.cameraToggleButton.addEventListener('click', () => {
+      this.game.getCameraController().toggleLockMode();
+      this.updateCameraToggleIcon();
+    });
+  }
+
+  private createBombButton(): void {
+    this.bombButton = document.createElement('div');
+    this.bombButton.id = 'bomb-button';
+    this.bombButton.innerHTML = `
             <div id="bomb-icon"></div>
             <div id="bomb-cooldown"></div>
             <div id="bomb-bay-status"></div>
         `;
-        document.body.appendChild(this.bombButton);
+    document.body.appendChild(this.bombButton);
 
-        this.bombButtonIcon = document.getElementById('bomb-icon')!;
-        this.bombButtonCooldown = document.getElementById('bomb-cooldown')!;
-        this.bombBayStatus = document.getElementById('bomb-bay-status')!;
+    this.bombButtonIcon = document.getElementById('bomb-icon')!;
+    this.bombButtonCooldown = document.getElementById('bomb-cooldown')!;
+    this.bombBayStatus = document.getElementById('bomb-bay-status')!;
 
-        // Add some basic styling
-        this.addStyles();
-    }
+    // Add some basic styling
+    this.addStyles();
+  }
 
-    private createMissileButton(): void {
-        this.missileButton = document.createElement('div');
-        this.missileButton.id = 'missile-button';
-        this.missileButton.innerHTML = `
+  private createMissileButton(): void {
+    this.missileButton = document.createElement('div');
+    this.missileButton.id = 'missile-button';
+    this.missileButton.innerHTML = `
             <div id="missile-icon"></div>
             <div id="missile-cooldown"></div>
         `;
-        document.body.appendChild(this.missileButton);
+    document.body.appendChild(this.missileButton);
 
-        this.missileButtonIcon = document.getElementById('missile-icon')!;
-        this.missileButtonCooldown = document.getElementById('missile-cooldown')!;
-    }
+    this.missileButtonIcon = document.getElementById('missile-icon')!;
+    this.missileButtonCooldown = document.getElementById('missile-cooldown')!;
+  }
 
-    private createCountermeasureButton(): void {
-        this.countermeasureButton = document.createElement('div');
-        this.countermeasureButton.id = 'countermeasure-button';
-        this.countermeasureButton.innerHTML = `
+  private createCountermeasureButton(): void {
+    this.countermeasureButton = document.createElement('div');
+    this.countermeasureButton.id = 'countermeasure-button';
+    this.countermeasureButton.innerHTML = `
             <div id="countermeasure-icon"></div>
             <div id="countermeasure-cooldown"></div>
         `;
-        document.body.appendChild(this.countermeasureButton);
+    document.body.appendChild(this.countermeasureButton);
 
-        this.countermeasureButtonIcon = document.getElementById('countermeasure-icon')!;
-        this.countermeasureButtonCooldown = document.getElementById('countermeasure-cooldown')!;
-    }
+    this.countermeasureButtonIcon = document.getElementById('countermeasure-icon')!;
+    this.countermeasureButtonCooldown = document.getElementById('countermeasure-cooldown')!;
+  }
 
-    private createCameraToggleButton(): void {
-        this.cameraToggleButton = document.createElement('div');
-        this.cameraToggleButton.id = 'camera-toggle-button';
-        this.cameraToggleButton.innerHTML = `
+  private createCameraToggleButton(): void {
+    this.cameraToggleButton = document.createElement('div');
+    this.cameraToggleButton.id = 'camera-toggle-button';
+    this.cameraToggleButton.innerHTML = `
             <div id="camera-toggle-icon"></div>
         `;
-        document.body.appendChild(this.cameraToggleButton);
+    document.body.appendChild(this.cameraToggleButton);
 
-        this.cameraToggleIcon = document.getElementById('camera-toggle-icon')!;
-        this.updateCameraToggleIcon();
-    }
+    this.cameraToggleIcon = document.getElementById('camera-toggle-icon')!;
+    this.updateCameraToggleIcon();
+  }
 
-    private createHealthBar(): void {
-        this.healthBar = document.createElement('div');
-        this.healthBar.id = 'health-bar';
-        this.healthBar.innerHTML = `
+  private createHealthBar(): void {
+    this.healthBar = document.createElement('div');
+    this.healthBar.id = 'health-bar';
+    this.healthBar.innerHTML = `
             <div id="health-bar-fill"></div>
             <span id="health-text"></span>
         `;
-        document.body.appendChild(this.healthBar);
+    document.body.appendChild(this.healthBar);
 
-        this.healthBarFill = document.getElementById('health-bar-fill')!;
-        this.healthText = document.getElementById('health-text')!;
+    this.healthBarFill = document.getElementById('health-bar-fill')!;
+    this.healthText = document.getElementById('health-text')!;
 
-        // Add some basic styling
-        this.addHealthBarStyles();
-    }
+    // Add some basic styling
+    this.addHealthBarStyles();
+  }
 
-    private createAlertSystem(): void {
-        this.alertContainer = document.createElement('div');
-        this.alertContainer.id = 'alert-container';
-        document.body.appendChild(this.alertContainer);
-        this.addAlertStyles();
-    }
+  private createAlertSystem(): void {
+    this.alertContainer = document.createElement('div');
+    this.alertContainer.id = 'alert-container';
+    document.body.appendChild(this.alertContainer);
+    this.addAlertStyles();
+  }
 
-    private addAlertStyles(): void {
-        const style = document.createElement('style');
-        style.textContent = `
+  private addAlertStyles(): void {
+    const style = document.createElement('style');
+    style.textContent = `
             #alert-container {
                 position: fixed;
                 top: 50px;
@@ -235,23 +235,23 @@ export class UIManager {
                 }
             }
         `;
-        document.head.appendChild(style);
-    }
+    document.head.appendChild(style);
+  }
 
-    public updateCameraToggleIcon(): void {
-        const lockMode = this.game.getCameraController().getLockMode();
-        if (lockMode === CameraLockMode.BOMBER) {
-            // Plane icon for bomber lock
-            this.cameraToggleIcon.style.backgroundImage = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2300ffff" d="M233.5 7.8c-26.2 4.4-51.7 19.2-67.6 39.2-13.4 16.8-21.1 36.8-24.1 62.6-1.3 11.4-1.3 40.8 0 52.2 3.1 26.9 11.3 48.1 25.5 66.1 7.9 10 20.8 22.2 31.2 29.6 16.1 11.5 35.4 19.4 55.5 22.8 11.4 1.9 40.8 1.9 52.2 0 20.1-3.4 39.4-11.3 55.5-22.8 10.4-7.4 23.3-19.6 31.2-29.6 14.2-18 22.4-39.2 25.5-66.1 1.3-11.4 1.3-40.8 0-52.2-3-25.8-10.7-45.8-24.1-62.6-15.9-20-41.4-34.8-67.6-39.2-9.4-1.6-43.8-1.6-53.2 0zM304 80c17.7 0 32 14.3 32 32s-14.3 32-32 32-32-14.3-32-32 14.3-32 32-32z"/></svg>')`;
-        } else {
-            // Ground/terrain icon for ground lock
-            this.cameraToggleIcon.style.backgroundImage = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2300ff00" d="M456 352h-16l-22.63-22.63c6.65-9.43 10.63-20.84 10.63-33.37 0-30.93-25.07-56-56-56s-56 25.07-56 56c0 12.53 3.98 23.94 10.63 33.37L304 352H56c-13.25 0-24 10.75-24 24s10.75 24 24 24h400c13.25 0 24-10.75 24-24s-10.75-24-24-24zM372 320c-8.84 0-16-7.16-16-16s7.16-16 16-16 16 7.16 16 16-7.16 16-16 16z"/></svg>')`;
-        }
+  public updateCameraToggleIcon(): void {
+    const lockMode = this.game.getCameraController().getLockMode();
+    if (lockMode === CameraLockMode.BOMBER) {
+      // Plane icon for bomber lock
+      this.cameraToggleIcon.style.backgroundImage = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2300ffff" d="M233.5 7.8c-26.2 4.4-51.7 19.2-67.6 39.2-13.4 16.8-21.1 36.8-24.1 62.6-1.3 11.4-1.3 40.8 0 52.2 3.1 26.9 11.3 48.1 25.5 66.1 7.9 10 20.8 22.2 31.2 29.6 16.1 11.5 35.4 19.4 55.5 22.8 11.4 1.9 40.8 1.9 52.2 0 20.1-3.4 39.4-11.3 55.5-22.8 10.4-7.4 23.3-19.6 31.2-29.6 14.2-18 22.4-39.2 25.5-66.1 1.3-11.4 1.3-40.8 0-52.2-3-25.8-10.7-45.8-24.1-62.6-15.9-20-41.4-34.8-67.6-39.2-9.4-1.6-43.8-1.6-53.2 0zM304 80c17.7 0 32 14.3 32 32s-14.3 32-32 32-32-14.3-32-32 14.3-32 32-32z"/></svg>')`;
+    } else {
+      // Ground/terrain icon for ground lock
+      this.cameraToggleIcon.style.backgroundImage = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2300ff00" d="M456 352h-16l-22.63-22.63c6.65-9.43 10.63-20.84 10.63-33.37 0-30.93-25.07-56-56-56s-56 25.07-56 56c0 12.53 3.98 23.94 10.63 33.37L304 352H56c-13.25 0-24 10.75-24 24s10.75 24 24 24h400c13.25 0 24-10.75 24-24s-10.75-24-24-24zM372 320c-8.84 0-16-7.16-16-16s7.16-16 16-16 16 7.16 16 16-7.16 16-16 16z"/></svg>')`;
     }
+  }
 
-    private addStyles(): void {
-        const style = document.createElement('style');
-        style.textContent = `
+  private addStyles(): void {
+    const style = document.createElement('style');
+    style.textContent = `
             #bomb-button {
                 position: fixed;
                 bottom: 20px;
@@ -457,12 +457,12 @@ export class UIManager {
                 border-color: #00ff00;
             }
         `;
-        document.head.appendChild(style);
-    }
+    document.head.appendChild(style);
+  }
 
-    private addHealthBarStyles(): void {
-        const style = document.createElement('style');
-        style.textContent = `
+  private addHealthBarStyles(): void {
+    const style = document.createElement('style');
+    style.textContent = `
             #health-bar {
                 position: fixed;
                 top: 20px;
@@ -499,262 +499,262 @@ export class UIManager {
                 text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
             }
         `;
-        document.head.appendChild(style);
+    document.head.appendChild(style);
+  }
+
+  public update(): void {
+    // Schedule updates for batching
+    this.scheduleUpdate('bomb');
+    this.scheduleUpdate('missile');
+    this.scheduleUpdate('countermeasure');
+    this.scheduleUpdate('camera');
+    this.scheduleUpdate('health');
+    this.scheduleUpdate('iskander-alert');
+  }
+
+  private scheduleUpdate(type: string): void {
+    this.pendingUpdates.add(type);
+
+    if (this.updateBatchTimeout) {
+      clearTimeout(this.updateBatchTimeout);
     }
 
-    public update(): void {
-        // Schedule updates for batching
-        this.scheduleUpdate('bomb');
-        this.scheduleUpdate('missile');
-        this.scheduleUpdate('countermeasure');
-        this.scheduleUpdate('camera');
-        this.scheduleUpdate('health');
-        this.scheduleUpdate('iskander-alert');
+    this.updateBatchTimeout = setTimeout(() => {
+      this.processBatchedUpdates();
+    }, 16); // 60fps update rate
+  }
+
+  private processBatchedUpdates(): void {
+    if (this.pendingUpdates.has('bomb')) {
+      this.updateBombButton();
+    }
+    if (this.pendingUpdates.has('missile')) {
+      this.updateMissileButton();
+    }
+    if (this.pendingUpdates.has('countermeasure')) {
+      this.updateCountermeasureButton();
+    }
+    if (this.pendingUpdates.has('camera')) {
+      this.updateCameraButton();
+    }
+    if (this.pendingUpdates.has('health')) {
+      this.updateHealthBar();
+    }
+    if (this.pendingUpdates.has('iskander-alert')) {
+      this.updateIskanderAlert();
     }
 
-    private scheduleUpdate(type: string): void {
-        this.pendingUpdates.add(type);
-        
-        if (this.updateBatchTimeout) {
-            clearTimeout(this.updateBatchTimeout);
-        }
-        
-        this.updateBatchTimeout = setTimeout(() => {
-            this.processBatchedUpdates();
-        }, 16); // 60fps update rate
+    this.pendingUpdates.clear();
+  }
+
+  private updateBombButton(): void {
+    const cooldownStatus = this.game.getBombCooldownStatus();
+
+    // Only update if changed
+    if (Math.abs(cooldownStatus - this.lastBombCooldown) > 0.01) {
+      const fillHeight = cooldownStatus * 100;
+      this.bombButtonCooldown.style.height = `${fillHeight}%`;
+
+      if (cooldownStatus >= 1) {
+        this.bombButton.classList.remove('unavailable');
+      } else {
+        this.bombButton.classList.add('unavailable');
+      }
+
+      this.lastBombCooldown = cooldownStatus;
     }
 
-    private processBatchedUpdates(): void {
-        if (this.pendingUpdates.has('bomb')) {
-            this.updateBombButton();
-        }
-        if (this.pendingUpdates.has('missile')) {
-            this.updateMissileButton();
-        }
-        if (this.pendingUpdates.has('countermeasure')) {
-            this.updateCountermeasureButton();
-        }
-        if (this.pendingUpdates.has('camera')) {
-            this.updateCameraButton();
-        }
-        if (this.pendingUpdates.has('health')) {
-            this.updateHealthBar();
-        }
-        if (this.pendingUpdates.has('iskander-alert')) {
-            this.updateIskanderAlert();
-        }
-        
-        this.pendingUpdates.clear();
+    // Update bomb bay status
+    const bomber = this.game.getBomber();
+    const isBombingRun = this.game.isBombingRunActive();
+
+    if (isBombingRun) {
+      if (bomber.isBombBayOpening()) {
+        this.bombBayStatus.className = 'show opening';
+      } else if (bomber.isBombBayClosing()) {
+        this.bombBayStatus.className = 'show closing';
+      } else if (bomber.isBombBayOpen()) {
+        this.bombBayStatus.className = 'show open';
+      } else {
+        this.bombBayStatus.className = '';
+      }
+    } else {
+      this.bombBayStatus.className = '';
+    }
+  }
+
+  private updateMissileButton(): void {
+    const missileCooldownStatus = this.game.getBomber().getMissileCooldownStatus();
+
+    // Only update cooldown if changed
+    if (Math.abs(missileCooldownStatus - this.lastMissileCooldown) > 0.01) {
+      const missileFillHeight = missileCooldownStatus * 100;
+      this.missileButtonCooldown.style.height = `${missileFillHeight}%`;
+
+      if (missileCooldownStatus >= 1) {
+        this.missileButton.classList.remove('unavailable');
+      } else {
+        this.missileButton.classList.add('unavailable');
+      }
+
+      this.lastMissileCooldown = missileCooldownStatus;
     }
 
-    private updateBombButton(): void {
-        const cooldownStatus = this.game.getBombCooldownStatus();
-        
-        // Only update if changed
-        if (Math.abs(cooldownStatus - this.lastBombCooldown) > 0.01) {
-            const fillHeight = cooldownStatus * 100;
-            this.bombButtonCooldown.style.height = `${fillHeight}%`;
+    // Update missile button target indicator
+    const currentTime = Date.now();
+    const shouldCheckTarget = missileCooldownStatus >= 1; // Only check when cooldown is ready
 
-            if (cooldownStatus >= 1) {
-                this.bombButton.classList.remove('unavailable');
-            } else {
-                this.bombButton.classList.add('unavailable');
+    if (shouldCheckTarget && currentTime - this.lastTargetCheckTime > this.targetCheckInterval) {
+      this.cachedHasValidTarget = this.game.getBomber().hasValidTarget();
+      this.lastTargetCheckTime = currentTime;
+    }
+
+    const hasTarget = this.cachedHasValidTarget && missileCooldownStatus >= 1;
+
+    // Only update target indicator if changed
+    if (hasTarget !== this.lastHasTarget) {
+      if (hasTarget) {
+        this.missileButton.classList.add('has-target');
+      } else {
+        this.missileButton.classList.remove('has-target');
+      }
+      this.lastHasTarget = hasTarget;
+    }
+  }
+
+  private updateCountermeasureButton(): void {
+    const countermeasureCooldownStatus = this.game.getBomber().getFlareCooldownStatus();
+
+    // Only update cooldown if changed
+    if (Math.abs(countermeasureCooldownStatus - this.lastCountermeasureCooldown) > 0.01) {
+      const countermeasureFillHeight = countermeasureCooldownStatus * 100;
+      this.countermeasureButtonCooldown.style.height = `${countermeasureFillHeight}%`;
+
+      if (countermeasureCooldownStatus >= 1) {
+        this.countermeasureButton.classList.remove('unavailable');
+      } else {
+        this.countermeasureButton.classList.add('unavailable');
+      }
+
+      this.lastCountermeasureCooldown = countermeasureCooldownStatus;
+    }
+
+    // Check if there are Iskander missiles with lock detected to enable countermeasures
+    // Use the same conditions as the alert system - missiles that are locked on OR have started locking
+    const hasIskanderLockDetected = this.game.hasIskanderMissilesForAlert();
+
+    if (countermeasureCooldownStatus >= 1 && hasIskanderLockDetected) {
+      this.countermeasureButton.classList.add('has-iskander');
+    } else {
+      this.countermeasureButton.classList.remove('has-iskander');
+    }
+  }
+
+  private updateCameraButton(): void {
+    const lockMode = this.game.getCameraController().getLockMode();
+
+    // Only update if changed
+    if (lockMode !== this.lastLockMode) {
+      this.cameraToggleButton.setAttribute('data-mode', lockMode);
+      this.lastLockMode = lockMode;
+    }
+  }
+
+  private updateHealthBar(): void {
+    const currentHealth = this.game.getBomberHealth();
+
+    // Only update if changed
+    if (currentHealth !== this.lastHealth) {
+      const fillWidth = Math.max(0, Math.min(100, currentHealth));
+      this.healthBarFill.style.width = `${fillWidth}%`;
+      this.healthText.textContent = `${currentHealth.toFixed(0)}%`;
+
+      // Change color based on health level
+      if (currentHealth > 60) {
+        this.healthBarFill.style.backgroundColor = 'rgba(0, 255, 0, 0.8)';
+      } else if (currentHealth > 30) {
+        this.healthBarFill.style.backgroundColor = 'rgba(255, 255, 0, 0.8)';
+      } else {
+        this.healthBarFill.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
+      }
+
+      this.lastHealth = currentHealth;
+    }
+  }
+
+  public showAlert(message: string, type: string = 'default', duration: number = 5000): void {
+    const alertId = `${type}-${Date.now()}`;
+
+    // Remove existing alert of the same type
+    const existingAlert = this.activeAlerts.get(type);
+    if (existingAlert) {
+      existingAlert.remove();
+      this.activeAlerts.delete(type);
+    }
+
+    const alertElement = document.createElement('div');
+    alertElement.className = `alert ${type}`;
+    alertElement.textContent = message;
+
+    this.alertContainer.appendChild(alertElement);
+    this.activeAlerts.set(type, alertElement);
+
+    // Check if this is a persistent alert
+    if (type === this.iskanderAlertId) {
+      this.persistentAlerts.add(type);
+      // Don't set auto-remove timeout for persistent alerts
+    } else {
+      // Auto-remove after duration for non-persistent alerts
+      setTimeout(() => {
+        if (this.activeAlerts.has(type) && !this.persistentAlerts.has(type)) {
+          alertElement.classList.add('fade-out');
+          setTimeout(() => {
+            if (alertElement.parentNode) {
+              alertElement.remove();
+              this.activeAlerts.delete(type);
             }
-            
-            this.lastBombCooldown = cooldownStatus;
+          }, 500);
         }
-
-        // Update bomb bay status
-        const bomber = this.game.getBomber();
-        const isBombingRun = this.game.isBombingRunActive();
-        
-        if (isBombingRun) {
-            if (bomber.isBombBayOpening()) {
-                this.bombBayStatus.className = 'show opening';
-            } else if (bomber.isBombBayClosing()) {
-                this.bombBayStatus.className = 'show closing';
-            } else if (bomber.isBombBayOpen()) {
-                this.bombBayStatus.className = 'show open';
-            } else {
-                this.bombBayStatus.className = '';
-            }
-        } else {
-            this.bombBayStatus.className = '';
-        }
+      }, duration);
     }
+  }
 
-    private updateMissileButton(): void {
-        const missileCooldownStatus = this.game.getBomber().getMissileCooldownStatus();
-        
-        // Only update cooldown if changed
-        if (Math.abs(missileCooldownStatus - this.lastMissileCooldown) > 0.01) {
-            const missileFillHeight = missileCooldownStatus * 100;
-            this.missileButtonCooldown.style.height = `${missileFillHeight}%`;
+  public showPersistentAlert(message: string, type: string): void {
+    this.showAlert(message, type, 0); // 0 duration means persistent
+  }
 
-            if (missileCooldownStatus >= 1) {
-                this.missileButton.classList.remove('unavailable');
-            } else {
-                this.missileButton.classList.add('unavailable');
-            }
-            
-            this.lastMissileCooldown = missileCooldownStatus;
-        }
-
-        // Update missile button target indicator
-        const currentTime = Date.now();
-        const shouldCheckTarget = missileCooldownStatus >= 1; // Only check when cooldown is ready
-        
-        if (shouldCheckTarget && (currentTime - this.lastTargetCheckTime > this.targetCheckInterval)) {
-            this.cachedHasValidTarget = this.game.getBomber().hasValidTarget();
-            this.lastTargetCheckTime = currentTime;
-        }
-        
-        const hasTarget = this.cachedHasValidTarget && missileCooldownStatus >= 1;
-        
-        // Only update target indicator if changed
-        if (hasTarget !== this.lastHasTarget) {
-            if (hasTarget) {
-                this.missileButton.classList.add('has-target');
-            } else {
-                this.missileButton.classList.remove('has-target');
-            }
-            this.lastHasTarget = hasTarget;
-        }
+  public removePersistentAlert(type: string): void {
+    if (this.persistentAlerts.has(type)) {
+      this.persistentAlerts.delete(type);
+      this.removeAlert(type);
     }
+  }
 
-    private updateCountermeasureButton(): void {
-        const countermeasureCooldownStatus = this.game.getBomber().getFlareCooldownStatus();
-        
-        // Only update cooldown if changed
-        if (Math.abs(countermeasureCooldownStatus - this.lastCountermeasureCooldown) > 0.01) {
-            const countermeasureFillHeight = countermeasureCooldownStatus * 100;
-            this.countermeasureButtonCooldown.style.height = `${countermeasureFillHeight}%`;
+  public updateIskanderAlert(): void {
+    // Check if there are any active Iskander missiles using the larger alert detection range
+    const hasActiveIskanderMissiles = this.game.hasIskanderMissilesForAlert();
 
-            if (countermeasureCooldownStatus >= 1) {
-                this.countermeasureButton.classList.remove('unavailable');
-            } else {
-                this.countermeasureButton.classList.add('unavailable');
-            }
-            
-            this.lastCountermeasureCooldown = countermeasureCooldownStatus;
-        }
-
-        // Check if there are Iskander missiles with lock detected to enable countermeasures
-        // Use the same conditions as the alert system - missiles that are locked on OR have started locking
-        const hasIskanderLockDetected = this.game.hasIskanderMissilesForAlert();
-        
-        if (countermeasureCooldownStatus >= 1 && hasIskanderLockDetected) {
-            this.countermeasureButton.classList.add('has-iskander');
-        } else {
-            this.countermeasureButton.classList.remove('has-iskander');
-        }
+    if (hasActiveIskanderMissiles) {
+      // Show or maintain the alert with single message
+      if (!this.activeAlerts.has(this.iskanderAlertId)) {
+        this.showPersistentAlert('MISSILE LOCK DETECTED!', this.iskanderAlertId);
+      }
+    } else {
+      // Remove the alert if no active missiles
+      this.removePersistentAlert(this.iskanderAlertId);
     }
+  }
 
-    private updateCameraButton(): void {
-        const lockMode = this.game.getCameraController().getLockMode();
-        
-        // Only update if changed
-        if (lockMode !== this.lastLockMode) {
-            this.cameraToggleButton.setAttribute('data-mode', lockMode);
-            this.lastLockMode = lockMode;
+  public removeAlert(type: string): void {
+    const alertElement = this.activeAlerts.get(type);
+    if (alertElement) {
+      alertElement.classList.add('fade-out');
+      setTimeout(() => {
+        if (alertElement.parentNode) {
+          alertElement.remove();
+          this.activeAlerts.delete(type);
         }
+      }, 500);
     }
-
-    private updateHealthBar(): void {
-        const currentHealth = this.game.getBomberHealth();
-        
-        // Only update if changed
-        if (currentHealth !== this.lastHealth) {
-            const fillWidth = Math.max(0, Math.min(100, currentHealth));
-            this.healthBarFill.style.width = `${fillWidth}%`;
-            this.healthText.textContent = `${currentHealth.toFixed(0)}%`;
-            
-            // Change color based on health level
-            if (currentHealth > 60) {
-                this.healthBarFill.style.backgroundColor = 'rgba(0, 255, 0, 0.8)';
-            } else if (currentHealth > 30) {
-                this.healthBarFill.style.backgroundColor = 'rgba(255, 255, 0, 0.8)';
-            } else {
-                this.healthBarFill.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
-            }
-            
-            this.lastHealth = currentHealth;
-        }
-    }
-
-    public showAlert(message: string, type: string = 'default', duration: number = 5000): void {
-        const alertId = `${type}-${Date.now()}`;
-        
-        // Remove existing alert of the same type
-        const existingAlert = this.activeAlerts.get(type);
-        if (existingAlert) {
-            existingAlert.remove();
-            this.activeAlerts.delete(type);
-        }
-        
-        const alertElement = document.createElement('div');
-        alertElement.className = `alert ${type}`;
-        alertElement.textContent = message;
-        
-        this.alertContainer.appendChild(alertElement);
-        this.activeAlerts.set(type, alertElement);
-        
-        // Check if this is a persistent alert
-        if (type === this.iskanderAlertId) {
-            this.persistentAlerts.add(type);
-            // Don't set auto-remove timeout for persistent alerts
-        } else {
-            // Auto-remove after duration for non-persistent alerts
-            setTimeout(() => {
-                if (this.activeAlerts.has(type) && !this.persistentAlerts.has(type)) {
-                    alertElement.classList.add('fade-out');
-                    setTimeout(() => {
-                        if (alertElement.parentNode) {
-                            alertElement.remove();
-                            this.activeAlerts.delete(type);
-                        }
-                    }, 500);
-                }
-            }, duration);
-        }
-    }
-
-    public showPersistentAlert(message: string, type: string): void {
-        this.showAlert(message, type, 0); // 0 duration means persistent
-    }
-
-    public removePersistentAlert(type: string): void {
-        if (this.persistentAlerts.has(type)) {
-            this.persistentAlerts.delete(type);
-            this.removeAlert(type);
-        }
-    }
-
-    public updateIskanderAlert(): void {
-        // Check if there are any active Iskander missiles using the larger alert detection range
-        const hasActiveIskanderMissiles = this.game.hasIskanderMissilesForAlert();
-        
-        if (hasActiveIskanderMissiles) {
-            // Show or maintain the alert with single message
-            if (!this.activeAlerts.has(this.iskanderAlertId)) {
-                this.showPersistentAlert('MISSILE LOCK DETECTED!', this.iskanderAlertId);
-            }
-        } else {
-            // Remove the alert if no active missiles
-            this.removePersistentAlert(this.iskanderAlertId);
-        }
-    }
-
-    public removeAlert(type: string): void {
-        const alertElement = this.activeAlerts.get(type);
-        if (alertElement) {
-            alertElement.classList.add('fade-out');
-            setTimeout(() => {
-                if (alertElement.parentNode) {
-                    alertElement.remove();
-                    this.activeAlerts.delete(type);
-                }
-            }, 500);
-        }
-    }
-} 
+  }
+}

@@ -60,6 +60,7 @@ const particles = await workerManager.updateParticleSystem(particleData);
 ### Error Handling and Fallbacks
 
 Each worker operation includes:
+
 - Promise-based communication with timeouts
 - Automatic fallback to synchronous operations if workers fail
 - Graceful degradation for browser compatibility
@@ -69,12 +70,14 @@ Each worker operation includes:
 ### Main Thread Optimization
 
 **Before Workers:**
+
 - All physics calculations on main thread
 - Terrain generation blocking UI
 - Particle systems causing frame drops
 - Collision detection causing stutters
 
 **After Workers:**
+
 - Main thread free for rendering and input
 - Smooth 60fps gameplay maintained
 - Responsive UI during heavy computations
@@ -136,9 +139,9 @@ The system includes fallbacks for browsers without Web Worker support:
 
 ```typescript
 if (typeof Worker !== 'undefined') {
-    // Use Web Workers
+  // Use Web Workers
 } else {
-    // Fallback to synchronous operations
+  // Fallback to synchronous operations
 }
 ```
 
@@ -163,10 +166,10 @@ await terrainManager.generateInitialTerrain(bomberPosition);
 ```typescript
 // Update missile physics in background
 const missileData = {
-    position: missile.getPosition(),
-    velocity: missile.getVelocity(),
-    targetPosition: target.getPosition(),
-    missileType: 'tomahawk'
+  position: missile.getPosition(),
+  velocity: missile.getVelocity(),
+  targetPosition: target.getPosition(),
+  missileType: 'tomahawk',
 };
 
 const result = await workerManager.updateMissilePhysics(missileData);
@@ -178,10 +181,10 @@ missile.updateFromWorkerResult(result);
 ```typescript
 // Detect collisions efficiently
 const collisionData = {
-    buildings: buildingData,
-    missiles: missileData,
-    bombs: bombData,
-    bomberPosition: bomber.getPosition()
+  buildings: buildingData,
+  missiles: missileData,
+  bombs: bombData,
+  bomberPosition: bomber.getPosition(),
 };
 
 const collisions = await workerManager.detectCollisions(collisionData);
@@ -242,4 +245,4 @@ handleCollisions(collisions);
 
 ## Conclusion
 
-The Web Worker optimizations provide significant performance improvements while maintaining compatibility and reliability. The modular architecture allows for easy maintenance and future enhancements, ensuring the combat simulator can scale to handle complex scenarios with smooth performance. 
+The Web Worker optimizations provide significant performance improvements while maintaining compatibility and reliability. The modular architecture allows for easy maintenance and future enhancements, ensuring the combat simulator can scale to handle complex scenarios with smooth performance.
