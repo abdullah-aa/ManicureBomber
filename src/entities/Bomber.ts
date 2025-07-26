@@ -16,10 +16,12 @@ import {
 import { InputManager } from '../managers/InputManager';
 import { TomahawkMissile } from './TomahawkMissile';
 import { TerrainManager } from '../managers/TerrainManager';
+import { WorkerManager } from '../managers/WorkerManager';
 import { Building } from './Building';
 
 export class Bomber {
   private scene: Scene;
+  private workerManager: WorkerManager;
   private isBombingRunActiveCallback: (() => boolean) | null = null; // Callback to check bombing run status
   private bomberGroup!: TransformNode;
   private position: Vector3;
@@ -95,8 +97,9 @@ export class Bomber {
   // Target destruction callback
   private onTargetDestroyedCallback: ((building: Building) => void) | null = null;
 
-  constructor(scene: Scene) {
+  constructor(scene: Scene, workerManager: WorkerManager) {
     this.scene = scene;
+    this.workerManager = workerManager;
     this.position = new Vector3(0, this.altitude, 0);
     this.rotation = new Vector3(0, 0, 0);
     this.velocity = new Vector3(0, 0, this.speed);
@@ -875,7 +878,7 @@ export class Bomber {
     const launcherPosition = this.bomberGroup.position.add(new Vector3(0, -2, -1));
 
     // Create and launch missile targeting the defense building
-    const missile = new TomahawkMissile(this.scene, launcherPosition, targetBuilding, this.rotation.clone());
+    const missile = new TomahawkMissile(this.scene, launcherPosition, targetBuilding, this.rotation.clone(), this.workerManager);
 
     // Set up target destruction callback
     missile.setOnTargetDestroyedCallback((building: Building) => {

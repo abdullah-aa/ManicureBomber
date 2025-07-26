@@ -24,8 +24,8 @@ export class IskanderMissile {
   private rotation: Vector3;
   private targetPosition: Vector3;
   private bomber: Bomber;
-  private speed: number = 120; // Slightly slower than Tomahawk
-  private turnRate: number = 2.5; // Increased turn rate for better responsiveness
+  private speed: number = 135;
+  private turnRate: number = 1.5; // Increased turn rate for better responsiveness
   private launched: boolean = false;
   private exploded: boolean = false;
   private exhaustParticles!: ParticleSystem;
@@ -56,10 +56,10 @@ export class IskanderMissile {
   // Lock-on system properties
   private lockOnRange: number = Infinity; // Remove distance limitation - always allow lock
   private isLockedOn: boolean = false;
-  private lockOnTime: number = 0;
-  private lockOnDuration: number = 1; // Faster lock-on for more responsive tracking
+  private lockOnTime: number = 4;
+  private lockOnDuration: number = 4; // Faster lock-on for more responsive tracking
   private guidanceStrength: number = 3.0; // Increased guidance strength for better tracking
-  private maxTurnRate: number = 3.0; // Higher maximum turn rate for sharper turns
+  private maxTurnRate: number = 3.5; // Higher maximum turn rate for sharper turns
   private lastTargetUpdateTime: number = 0;
   private targetUpdateInterval: number = 0.1; // Update target position every 100ms
 

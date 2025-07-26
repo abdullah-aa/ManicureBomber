@@ -90,7 +90,7 @@ export class Game {
 
     this.terrainManager = new TerrainManager(this.scene, this.workerManager);
 
-    this.bomber = new Bomber(this.scene);
+    this.bomber = new Bomber(this.scene, this.workerManager);
     this.bomber.setBombingRunActiveCallback(() => this.isBombingRunInProgress());
     this.bomber.setOnDestroyedCallback(() => this.handleGameOver());
     this.bomber.setOnTargetDestroyedCallback((building: Building) => {

@@ -16,9 +16,11 @@ import {
   DynamicTexture,
 } from '@babylonjs/core';
 import { Building } from './Building';
+import { WorkerManager } from '../managers/WorkerManager';
 
 export class TomahawkMissile {
   private scene: Scene;
+  private workerManager: WorkerManager;
   private missileGroup: TransformNode;
   private fuselage!: Mesh;
   private position: Vector3;
@@ -30,6 +32,11 @@ export class TomahawkMissile {
   private turnRate: number = 2.0; // How fast the missile can turn
   private launched: boolean = false;
   private exploded: boolean = false;
+  
+  // Worker-related properties
+  private pendingPhysicsUpdate: boolean = false;
+  private lastWorkerUpdateTime: number = 0;
+  private workerUpdateInterval: number = 1 / 60; // 60 FPS max updates
   private exhaustParticles!: ParticleSystem;
   private trailParticles!: ParticleSystem;
   private flightSmokeParticles!: ParticleSystem;
@@ -41,23 +48,12 @@ export class TomahawkMissile {
   private launchAnimationGroup!: AnimationGroup;
 
   // Curved path navigation properties
-  private pathProgress: number = 0;
-  private pathDuration: number = 8; // Time to reach target in seconds
   private pathStartTime: number = 0;
   private waypoints: Vector3[] = [];
-  private currentWaypointIndex: number = 0;
-  private waypointReachedDistance: number = 10;
 
   // Simple curved path following
   private pathTime: number = 0;
   private pathSpeed: number = 0.5; // Speed along the curved path
-
-  // Performance optimization: cached calculations
-  private lastUpdateTime: number = 0;
-  private updateInterval: number = 1 / 60; // 60 FPS max updates
-  private cachedCurvePosition: Vector3 = new Vector3();
-  private curveCacheValid: boolean = false;
-  private lastCurveTime: number = -1;
 
   // Look-ahead orientation properties
   private lookAheadDistance: number = 0.4; // How far ahead to look on the curve (0-1) - increased for better path following
@@ -67,8 +63,9 @@ export class TomahawkMissile {
   // Target destruction callback
   private onTargetDestroyedCallback: ((building: Building) => void) | null = null;
 
-  constructor(scene: Scene, launchPosition: Vector3, targetBuilding: Building, launchRotation: Vector3) {
+  constructor(scene: Scene, launchPosition: Vector3, targetBuilding: Building, launchRotation: Vector3, workerManager: WorkerManager) {
     this.scene = scene;
+    this.workerManager = workerManager;
     this.position = launchPosition.clone();
     this.targetBuilding = targetBuilding;
     this.targetPosition = targetBuilding.getPosition().clone();
@@ -91,74 +88,7 @@ export class TomahawkMissile {
     this.waypoints = [this.position.clone(), this.targetPosition.clone()];
   }
 
-  private getCurvedPathPosition(t: number): Vector3 {
-    // Use cached result if available
-    if (this.curveCacheValid && Math.abs(t - this.lastCurveTime) < 0.01) {
-      return this.cachedCurvePosition.clone();
-    }
 
-    // Create a simple curved path using parametric equations
-    const startPos = this.waypoints[0];
-    const endPos = this.waypoints[1];
-
-    // Linear interpolation for base path
-    const basePos = Vector3.Lerp(startPos, endPos, t);
-
-    // Add curved deviation
-    const distance = Vector3.Distance(startPos, endPos);
-    const curveAmplitude = distance * 0.15; // Reduced curve amplitude
-
-    // Create a winding curve using sine waves - keep it low to the ground
-    const curveX = Math.sin(t * Math.PI * 2) * curveAmplitude;
-    const curveZ = Math.cos(t * Math.PI * 1.5) * curveAmplitude;
-
-    // Reduced height variation - cruise missiles stay low
-    const maxHeightVariation = 15; // Much smaller height variation
-    const curveY = Math.sin(t * Math.PI) * maxHeightVariation;
-
-    // Ensure the missile never goes above the launch altitude
-    const maxAltitude = startPos.y + 10; // Never more than 10 units above launch
-    const calculatedY = basePos.y + curveY;
-    const clampedY = Math.min(calculatedY, maxAltitude);
-
-    // Additional safety: ensure missile stays well below bomber altitude (bomber at ~100, missile should stay below 90)
-    const bomberAltitude = 100;
-    const safeMissileAltitude = Math.min(clampedY, bomberAltitude - 10);
-
-    // Cache the result
-    this.cachedCurvePosition.set(basePos.x + curveX, safeMissileAltitude, basePos.z + curveZ);
-    this.lastCurveTime = t;
-    this.curveCacheValid = true;
-
-    return this.cachedCurvePosition.clone();
-  }
-
-  private getLookAheadPosition(): Vector3 {
-    // Get position ahead on the curve for orientation targeting
-    const lookAheadTime = Math.min(this.pathTime + this.lookAheadDistance, 1.0);
-    return this.getCurvedPathPosition(lookAheadTime);
-  }
-
-  private updateOrientationToLookAhead(): void {
-    // Update missile orientation to look ahead to the end of the current curve segment
-    const lookAheadPos = this.getLookAheadPosition();
-    const directionToLookAhead = lookAheadPos.subtract(this.position).normalize();
-
-    if (directionToLookAhead.lengthSquared() > 0.01) {
-      // Calculate yaw (horizontal rotation around Y axis)
-      this.rotation.y = Math.atan2(directionToLookAhead.x, directionToLookAhead.z);
-
-      // Calculate pitch (vertical rotation around X axis) - fixed calculation
-      const horizontalSpeed = Math.sqrt(
-        directionToLookAhead.x * directionToLookAhead.x + directionToLookAhead.z * directionToLookAhead.z,
-      );
-      if (horizontalSpeed > 0.001) {
-        this.rotation.x = Math.atan2(-directionToLookAhead.y, horizontalSpeed); // Negative Y for correct pitch
-      } else {
-        this.rotation.x = 0; // No pitch if no horizontal movement
-      }
-    }
-  }
 
   private createMissileModel(): void {
     // Main fuselage - sleek cruise missile body
@@ -624,84 +554,104 @@ export class TomahawkMissile {
     this.pathTime = 0;
     this.lastSegmentChangeTime = performance.now() / 1000;
 
-    // Calculate initial velocity toward first point on the curve
-    const firstCurvePoint = this.getCurvedPathPosition(0.1);
-    const directionToCurve = firstCurvePoint.subtract(this.position).normalize();
-    this.velocity = directionToCurve.scale(this.speed);
+    // Calculate initial velocity toward target
+    const directionToTarget = this.targetPosition.subtract(this.position).normalize();
+    this.velocity = directionToTarget.scale(this.speed);
 
-    // Set initial orientation to look ahead
-    this.updateOrientationToLookAhead();
+    // Set initial orientation toward target
+    if (this.velocity.lengthSquared() > 0.01) {
+      this.rotation.y = Math.atan2(this.velocity.x, this.velocity.z);
+      const horizontalSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
+      if (horizontalSpeed > 0.001) {
+        this.rotation.x = Math.atan2(-this.velocity.y, horizontalSpeed);
+      }
+    }
   }
 
   public update(deltaTime: number): void {
     if (!this.launched || this.exploded) return;
 
-    // Performance optimization: limit update frequency
     const currentTime = performance.now() / 1000;
-    if (currentTime - this.lastUpdateTime < this.updateInterval) {
+    
+    // Use worker for physics calculations
+    this.updatePhysicsWorker(deltaTime, currentTime);
+  }
+  
+  private updatePhysicsWorker(deltaTime: number, currentTime: number): void {
+    // Performance optimization: limit worker update frequency
+    if (currentTime - this.lastWorkerUpdateTime < this.workerUpdateInterval) {
       return;
     }
-    this.lastUpdateTime = currentTime;
-
-    // Update curved path navigation
-    this.pathTime += deltaTime * this.pathSpeed;
-
-    // Check if we should update orientation at curve segment boundaries
-    // Update orientation every 0.2 progress units (5 segments total)
-    const segmentSize = 0.2;
-    const currentSegment = Math.floor(this.pathTime / segmentSize);
-    const segmentProgress = (this.pathTime % segmentSize) / segmentSize;
-
-    // Update orientation at the start of each segment and more frequently for better responsiveness
-    const shouldUpdateOrientation =
-      (segmentProgress <= this.orientationUpdateThreshold || segmentProgress >= 0.9) &&
-      currentTime - this.lastSegmentChangeTime > 0.2; // More frequent updates
-
-    if (shouldUpdateOrientation) {
-      this.updateOrientationToLookAhead();
-      this.lastSegmentChangeTime = currentTime;
+    
+    // Don't send new requests if one is already pending
+    if (this.pendingPhysicsUpdate) {
+      return;
     }
-
-    if (this.pathTime <= 1.0) {
-      // Follow the curved path
-      const targetPosition = this.getCurvedPathPosition(this.pathTime);
-      const directionToTarget = targetPosition.subtract(this.position).normalize();
-      const desiredVelocity = directionToTarget.scale(this.speed);
-
-      // Smoothly interpolate velocity for curved movement
-      this.velocity.x = this.velocity.x + (desiredVelocity.x - this.velocity.x) * this.turnRate * deltaTime;
-      this.velocity.y = this.velocity.y + (desiredVelocity.y - this.velocity.y) * this.turnRate * deltaTime;
-      this.velocity.z = this.velocity.z + (desiredVelocity.z - this.velocity.z) * this.turnRate * deltaTime;
-    } else {
-      // Head directly to target when curve is complete
-      const directionToTarget = this.targetPosition.subtract(this.position).normalize();
-      this.velocity = directionToTarget.scale(this.speed);
+    
+    this.lastWorkerUpdateTime = currentTime;
+    this.pendingPhysicsUpdate = true;
+    
+    // Prepare physics data for worker
+    const physicsData = {
+      missileType: 'tomahawk',
+      id: Math.random().toString(36),
+      position: { x: this.position.x, y: this.position.y, z: this.position.z },
+      velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
+      rotation: { x: this.rotation.x, y: this.rotation.y, z: this.rotation.z },
+      targetPosition: { x: this.targetPosition.x, y: this.targetPosition.y, z: this.targetPosition.z },
+      speed: this.speed,
+      turnRate: this.turnRate,
+      deltaTime: deltaTime,
+      currentTime: currentTime,
+      pathTime: this.pathTime,
+      pathSpeed: this.pathSpeed,
+      pathStartTime: this.pathStartTime,
+      launched: this.launched,
+      exploded: this.exploded,
+      lookAheadDistance: this.lookAheadDistance,
+      orientationUpdateThreshold: this.orientationUpdateThreshold,
+      lastSegmentChangeTime: this.lastSegmentChangeTime,
+      waypoints: this.waypoints.map(wp => ({ x: wp.x, y: wp.y, z: wp.z }))
+    };
+    
+    // Send to worker and handle response
+    this.workerManager.updateMissilePhysics(physicsData)
+      .then((result) => {
+        this.pendingPhysicsUpdate = false;
+        this.applyPhysicsResult(result);
+      })
+      .catch(() => {
+        this.pendingPhysicsUpdate = false;
+        // Fallback: update position slightly to prevent missile from being stuck
+        this.position.x += this.velocity.x * deltaTime;
+        this.position.y += this.velocity.y * deltaTime;
+        this.position.z += this.velocity.z * deltaTime;
+        this.missileGroup.position = this.position.clone();
+      });
+  }
+  
+  private applyPhysicsResult(result: any): void {
+    if (!result || this.exploded) return;
+    
+    // Apply new position, velocity, and rotation from worker
+    this.position.set(result.position.x, result.position.y, result.position.z);
+    this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);
+    this.rotation.set(result.rotation.x, result.rotation.y, result.rotation.z);
+    
+    // Update path state
+    if (result.pathTime !== undefined) {
+      this.pathTime = result.pathTime;
     }
-
-    // Update rotation based on velocity (only if not updating orientation to look ahead)
-    if (!shouldUpdateOrientation && this.velocity.lengthSquared() > 0.01) {
-      // Calculate yaw (horizontal rotation around Y axis)
-      this.rotation.y = Math.atan2(this.velocity.x, this.velocity.z);
-
-      // Calculate pitch (vertical rotation around X axis) - fixed calculation
-      const horizontalSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
-      if (horizontalSpeed > 0.001) {
-        this.rotation.x = Math.atan2(-this.velocity.y, horizontalSpeed); // Negative Y for correct pitch
-      } else {
-        this.rotation.x = 0; // No pitch if no horizontal movement
-      }
+    if (result.lastSegmentChangeTime !== undefined) {
+      this.lastSegmentChangeTime = result.lastSegmentChangeTime;
     }
-
-    // Update position
-    this.position.x += this.velocity.x * deltaTime;
-    this.position.y += this.velocity.y * deltaTime;
-    this.position.z += this.velocity.z * deltaTime;
+    
+    // Apply transforms
     this.missileGroup.position = this.position.clone();
     this.missileGroup.rotation = this.rotation.clone();
-
-    // Check if reached target or ground
-    const distanceToTarget = Vector3.Distance(this.position, this.targetPosition);
-    if (distanceToTarget <= 5 || this.position.y <= 0) {
+    
+    // Check for explosion from worker
+    if (result.shouldExplode) {
       this.explode();
     }
   }
@@ -753,13 +703,6 @@ export class TomahawkMissile {
     }, 6000); // Reduced from 8000
   }
 
-  public getPosition(): Vector3 {
-    return this.position.clone();
-  }
-
-  public isLaunched(): boolean {
-    return this.launched;
-  }
 
   public hasExploded(): boolean {
     return this.exploded;

@@ -27,6 +27,12 @@ interface MissilePhysicsData {
   missileType: 'tomahawk' | 'defense' | 'iskander';
   targetSet: boolean;
 
+  // Tomahawk-specific properties
+  pathStartTime?: number;
+  lookAheadDistance?: number;
+  orientationUpdateThreshold?: number;
+  lastSegmentChangeTime?: number;
+
   // Iskander-specific properties
   flareTargets?: Vector3[];
   flareDetectionRange?: number;
@@ -53,6 +59,9 @@ interface MissilePhysicsResult {
   shouldExplode: boolean;
   distanceToTarget: number;
   targetSet: boolean;
+
+  // Tomahawk-specific results
+  lastSegmentChangeTime?: number;
 
   // Iskander-specific results
   isLockedOn?: boolean;
@@ -424,8 +433,20 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
       }
     }
   } else if (data.missileType === 'tomahawk') {
-    // Tomahawk missile physics with curved path
-    newPathTime += data.deltaTime * data.pathSpeed;
+    // Tomahawk missile physics with curved path and look-ahead orientation
+    const currentTime = data.currentTime || 0;
+    let lastSegmentChangeTime = data.lastSegmentChangeTime || 0;
+    
+    newPathTime += data.deltaTime * (data.pathSpeed || 0.5);
+
+    // Check if we should update orientation at curve segment boundaries
+    const segmentSize = 0.2;
+    const segmentProgress = (newPathTime % segmentSize) / segmentSize;
+    const orientationUpdateThreshold = data.orientationUpdateThreshold || 0.15;
+    
+    const shouldUpdateOrientation =
+      (segmentProgress <= orientationUpdateThreshold || segmentProgress >= 0.9) &&
+      currentTime - lastSegmentChangeTime > 0.2;
 
     if (newPathTime <= 1.0) {
       // Follow the curved path
@@ -437,20 +458,48 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
       newVelocity.x = newVelocity.x + (desiredVelocity.x - newVelocity.x) * data.turnRate * data.deltaTime;
       newVelocity.y = newVelocity.y + (desiredVelocity.y - newVelocity.y) * data.turnRate * data.deltaTime;
       newVelocity.z = newVelocity.z + (desiredVelocity.z - newVelocity.z) * data.turnRate * data.deltaTime;
+      
+      // Update orientation with look-ahead if it's time
+      if (shouldUpdateOrientation) {
+        const lookAheadDistance = data.lookAheadDistance || 0.4;
+        const lookAheadTime = Math.min(newPathTime + lookAheadDistance, 1.0);
+        const lookAheadPos = getCurvedPathPosition(data.waypoints, lookAheadTime);
+        const directionToLookAhead = vector3Normalize(vector3Subtract(lookAheadPos, newPosition));
+        
+        if (directionToLookAhead.x * directionToLookAhead.x + directionToLookAhead.z * directionToLookAhead.z > 0.01) {
+          // Calculate yaw (horizontal rotation around Y axis)
+          newRotation.y = Math.atan2(directionToLookAhead.x, directionToLookAhead.z);
+          
+          // Calculate pitch (vertical rotation around X axis)
+          const horizontalSpeed = Math.sqrt(
+            directionToLookAhead.x * directionToLookAhead.x + directionToLookAhead.z * directionToLookAhead.z
+          );
+          if (horizontalSpeed > 0.001) {
+            newRotation.x = Math.atan2(-directionToLookAhead.y, horizontalSpeed);
+          } else {
+            newRotation.x = 0;
+          }
+        }
+        lastSegmentChangeTime = currentTime;
+      }
     } else {
       // Head directly to target when curve is complete
       const directionToTarget = vector3Normalize(vector3Subtract(data.targetPosition, newPosition));
       newVelocity = vector3Scale(directionToTarget, data.speed);
     }
 
-    // Update rotation to match velocity direction
-    if (newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z > 0.01) {
+    // Update rotation based on velocity (only if not updating orientation to look ahead)
+    if (!shouldUpdateOrientation && newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z > 0.01) {
       // Calculate yaw (horizontal rotation around Y axis)
       newRotation.y = Math.atan2(newVelocity.x, newVelocity.z);
 
       // Calculate pitch (vertical rotation around X axis)
       const horizontalSpeed = Math.sqrt(newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z);
-      newRotation.x = Math.atan2(newVelocity.y, horizontalSpeed);
+      if (horizontalSpeed > 0.001) {
+        newRotation.x = Math.atan2(-newVelocity.y, horizontalSpeed);
+      } else {
+        newRotation.x = 0;
+      }
     }
   } else {
     // Defense missile physics - optimized for performance
@@ -526,6 +575,11 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
     distanceToTarget,
     targetSet: data.targetSet,
   };
+
+  // Add Tomahawk-specific results
+  if (data.missileType === 'tomahawk') {
+    result.lastSegmentChangeTime = data.lastSegmentChangeTime;
+  }
 
   // Add Iskander-specific results
   if (data.missileType === 'iskander') {
