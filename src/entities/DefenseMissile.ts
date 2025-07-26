@@ -12,9 +12,11 @@ import {
   TransformNode,
   DynamicTexture,
 } from '@babylonjs/core';
+import { WorkerManager } from '../managers/WorkerManager';
 
 export class DefenseMissile {
   private scene: Scene;
+  private workerManager: WorkerManager;
   private missileGroup: TransformNode;
   private fuselage!: Mesh;
   private position: Vector3;
@@ -28,9 +30,15 @@ export class DefenseMissile {
   private lifeTime: number = 0;
   private maxLifeTime: number = 10; // Missiles self-destruct after 10 seconds
   private targetSet: boolean = false; // Performance optimization flag
+  
+  // Worker-related properties
+  private pendingPhysicsUpdate: boolean = false;
+  private lastWorkerUpdateTime: number = 0;
+  private workerUpdateInterval: number = 1 / 60; // 60 FPS max updates
 
-  constructor(scene: Scene, launchPosition: Vector3, targetPosition: Vector3) {
+  constructor(scene: Scene, launchPosition: Vector3, targetPosition: Vector3, workerManager: WorkerManager) {
     this.scene = scene;
+    this.workerManager = workerManager;
     this.position = launchPosition.clone();
     this.targetPosition = targetPosition.clone();
 
@@ -180,38 +188,77 @@ export class DefenseMissile {
     if (!this.launched || this.exploded) return;
 
     this.lifeTime += deltaTime;
-
-    // Update position
-    this.position.addInPlace(this.velocity.scale(deltaTime));
-    this.missileGroup.position = this.position;
-
-    // Only update rotation if target hasn't been set yet
-    if (!this.targetSet) {
-      // Calculate direction to target once
-      const direction = this.targetPosition.subtract(this.position).normalize();
-      this.velocity = direction.scale(this.speed);
-
-      // Update rotation to match velocity direction for proper orientation
-      if (this.velocity.lengthSquared() > 0.01) {
-        // Calculate yaw (horizontal rotation around Y axis)
-        const yaw = Math.atan2(this.velocity.x, this.velocity.z) + Math.PI; // Add 180° to flip missile
-
-        // Calculate pitch (vertical rotation around X axis)
-        const horizontalSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
-        const pitch = Math.atan2(this.velocity.y, horizontalSpeed) + Math.PI;
-
-        // Apply rotation to missile group
-        this.missileGroup.rotation.y = yaw;
-        this.missileGroup.rotation.x = pitch;
-      }
-
-      // Mark target as set to avoid future recalculations
-      this.targetSet = true;
+    const currentTime = performance.now() / 1000;
+    
+    // Use worker for physics calculations
+    this.updatePhysicsWorker(deltaTime, currentTime);
+  }
+  
+  private updatePhysicsWorker(deltaTime: number, currentTime: number): void {
+    // Performance optimization: limit worker update frequency
+    if (currentTime - this.lastWorkerUpdateTime < this.workerUpdateInterval) {
+      return;
     }
-
-    // Check if we've reached the target or maximum lifetime
-    const distanceToTarget = Vector3.Distance(this.position, this.targetPosition);
-    if (distanceToTarget < 5 || this.lifeTime > this.maxLifeTime) {
+    
+    // Don't send new requests if one is already pending
+    if (this.pendingPhysicsUpdate) {
+      return;
+    }
+    
+    this.lastWorkerUpdateTime = currentTime;
+    this.pendingPhysicsUpdate = true;
+    
+    // Prepare physics data for worker
+    const physicsData = {
+      missileType: 'defense',
+      position: { x: this.position.x, y: this.position.y, z: this.position.z },
+      velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
+      targetPosition: { x: this.targetPosition.x, y: this.targetPosition.y, z: this.targetPosition.z },
+      speed: this.speed,
+      deltaTime: deltaTime,
+      launched: this.launched,
+      exploded: this.exploded,
+      lifeTime: this.lifeTime,
+      maxLifeTime: this.maxLifeTime,
+      targetSet: this.targetSet
+    };
+    
+    // Send to worker and handle response
+    this.workerManager.updateMissilePhysics(physicsData)
+      .then((result) => {
+        this.pendingPhysicsUpdate = false;
+        this.applyPhysicsResult(result);
+      })
+      .catch(() => {
+        this.pendingPhysicsUpdate = false;
+        // Fallback: update position slightly to prevent missile from being stuck
+        this.position.addInPlace(this.velocity.scale(deltaTime));
+        this.missileGroup.position = this.position;
+      });
+  }
+  
+  private applyPhysicsResult(result: any): void {
+    if (!result || this.exploded) return;
+    
+    // Apply new position and velocity from worker
+    this.position.set(result.position.x, result.position.y, result.position.z);
+    this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);
+    
+    // Update target set flag
+    if (result.targetSet !== undefined) {
+      this.targetSet = result.targetSet;
+    }
+    
+    // Apply rotation if provided
+    if (result.rotation && !this.targetSet) {
+      this.missileGroup.rotation.set(result.rotation.x, result.rotation.y, result.rotation.z);
+    }
+    
+    // Apply transforms
+    this.missileGroup.position = this.position.clone();
+    
+    // Check for explosion from worker
+    if (result.shouldExplode) {
       this.explode();
     }
   }
@@ -289,10 +336,6 @@ export class DefenseMissile {
 
   public hasExploded(): boolean {
     return this.exploded;
-  }
-
-  public isTargetSet(): boolean {
-    return this.targetSet;
   }
 
   public dispose(): void {

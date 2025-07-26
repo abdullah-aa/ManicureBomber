@@ -15,6 +15,7 @@ import {
   DynamicTexture,
 } from '@babylonjs/core';
 import { DefenseMissile } from './DefenseMissile';
+import { WorkerManager } from '../managers/WorkerManager';
 
 export enum BuildingType {
   RESIDENTIAL = 'residential',
@@ -36,6 +37,7 @@ export interface BuildingConfig {
 
 export class Building {
   private scene: Scene;
+  private workerManager: WorkerManager;
   private mesh: Mesh;
   private parent: TransformNode;
   private config: BuildingConfig;
@@ -57,8 +59,9 @@ export class Building {
   // Callback for destruction notification
   private onDestroyedCallback: (() => void) | null = null;
 
-  constructor(scene: Scene, config: BuildingConfig) {
+  constructor(scene: Scene, config: BuildingConfig, workerManager: WorkerManager) {
     this.scene = scene;
+    this.workerManager = workerManager;
     this.config = config;
     this.parent = new TransformNode(`building_${config.type}_${Date.now()}`, scene);
     this.mesh = this.createBuildingMesh();
@@ -705,7 +708,7 @@ export class Building {
     targetPosition.y += (Math.random() - 0.5) * inaccuracy;
     targetPosition.z += (Math.random() - 0.5) * inaccuracy;
 
-    const missile = new DefenseMissile(this.scene, launchPosition, targetPosition);
+    const missile = new DefenseMissile(this.scene, launchPosition, targetPosition, this.workerManager);
     missile.launch();
     this.defenseMissiles.push(missile);
   }

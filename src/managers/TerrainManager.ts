@@ -143,7 +143,7 @@ export class TerrainManager {
       const position = new Vector3(config.position.x, config.position.y, config.position.z);
       const buildingConfig = { ...config, position };
 
-      const building = new Building(this.scene, buildingConfig);
+      const building = new Building(this.scene, buildingConfig, this.workerManager);
       if (buildingConfig.isDefenseLauncher && this.bomber) {
         building.setOnDestroyedCallback(() => {
           if (this.bomber && this.bomber.invalidateTargetCache) {
