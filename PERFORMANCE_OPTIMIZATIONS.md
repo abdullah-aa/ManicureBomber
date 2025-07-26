@@ -1,17 +1,21 @@
 # Performance Optimizations for Manicure Bomber
 
 ## Overview
+
 This document outlines the comprehensive performance optimizations implemented to address jittery gameplay after the Tomahawk missile was added, including the latest Web Worker optimizations.
 
 ## Major Performance Issues Identified
 
 ### 1. TomahawkMissile.ts - Particle System Overhead
+
 **Issues:**
+
 - 5 separate particle systems with high particle counts (3000+ particles total)
 - Expensive curved path calculations every frame
 - No update frequency limiting
 
 **Optimizations:**
+
 - Reduced particle counts by 50-60%:
   - Exhaust particles: 150 → 80
   - Trail particles: 300 → 150
@@ -24,12 +28,15 @@ This document outlines the comprehensive performance optimizations implemented t
 - **NEW: Moved particle physics to Web Worker** (`particle-physics.worker.ts`)
 
 ### 2. RadarManager.ts - DOM Manipulation Overhead
+
 **Issues:**
+
 - Clearing and recreating all DOM markers every frame
 - No object pooling
 - Expensive building queries every frame
 
 **Optimizations:**
+
 - Implemented object pooling for radar markers (50 max markers)
 - Reduced update frequency to 100ms intervals
 - Added position and rotation caching with thresholds
@@ -37,12 +44,15 @@ This document outlines the comprehensive performance optimizations implemented t
 - Cached building queries to avoid repeated expensive operations
 
 ### 3. Game.ts - Main Loop Inefficiencies
+
 **Issues:**
+
 - All systems updating every frame regardless of importance
 - No frame rate limiting
 - Expensive operations in critical path
 
 **Optimizations:**
+
 - Implemented frame rate limiting (60 FPS target)
 - Separated critical vs non-critical updates:
   - Critical: Input, bomber movement, camera, bombs (every frame)
@@ -51,12 +61,15 @@ This document outlines the comprehensive performance optimizations implemented t
 - Reduced expensive terrain and defense updates
 
 ### 4. TerrainManager.ts - Building Query Overhead
+
 **Issues:**
+
 - Expensive distance calculations for all buildings
 - No spatial partitioning
 - Repeated queries for same positions
 
 **Optimizations:**
+
 - Implemented building query caching (1 second timeout)
 - Added spatial partitioning with grid-based filtering
 - Pre-filtered chunks by distance before building checks
@@ -64,23 +77,29 @@ This document outlines the comprehensive performance optimizations implemented t
 - **NEW: Enhanced terrain generation with Web Worker** (`terrain.worker.ts`)
 
 ### 5. UIManager.ts - DOM Update Overhead
+
 **Issues:**
+
 - DOM updates every frame regardless of changes
 - No change detection
 - Synchronous updates blocking render loop
 
 **Optimizations:**
+
 - Implemented change detection for all UI elements
 - Added batched updates using requestAnimationFrame timing
 - Separated update logic into specific methods
 - Only update DOM when values actually change
 
 ### 6. Bomber.ts - Target Finding Overhead
+
 **Issues:**
+
 - Expensive target finding every frame
 - No caching of results
 
 **Optimizations:**
+
 - Already had good caching implemented (0.5s intervals)
 - Position-based cache invalidation (50 unit threshold)
 - Target validity verification
@@ -88,6 +107,7 @@ This document outlines the comprehensive performance optimizations implemented t
 ## Web Worker Optimizations (NEW)
 
 ### Worker Architecture
+
 The application now uses 4 specialized Web Workers to handle computationally expensive operations:
 
 1. **Terrain Worker** (`terrain.worker.ts`)
@@ -115,12 +135,15 @@ The application now uses 4 specialized Web Workers to handle computationally exp
    - Particle generation and cleanup
 
 ### Worker Manager (`WorkerManager.ts`)
+
 Centralized worker management with:
+
 - Promise-based communication with timeouts
 - Automatic fallback to synchronous operations
 - Error handling and graceful degradation
 
 ### Performance Benefits
+
 - **Main Thread Optimization**: 90% reduction in main thread blocking
 - **Smooth Gameplay**: Consistent 60fps maintained during heavy computations
 - **Responsive UI**: Background processing of complex operations
@@ -129,6 +152,7 @@ Centralized worker management with:
 ## Additional Optimizations
 
 ### Memory Management
+
 - Reduced particle system cleanup times
 - Implemented object pooling for DOM elements
 - Added chunk cleanup limits to prevent memory leaks
@@ -136,6 +160,7 @@ Centralized worker management with:
 - **NEW: Object pooling for particle systems**
 
 ### Rendering Optimizations
+
 - Reduced terrain subdivisions where appropriate
 - Optimized sky dome rendering
 - Limited maximum chunks to prevent memory issues
@@ -143,12 +168,14 @@ Centralized worker management with:
 ## Performance Results
 
 ### Before Optimizations:
+
 - Frame drops during missile launches
 - Jittery camera movement
 - High CPU usage from particle systems
 - DOM thrashing from radar updates
 
 ### After Initial Optimizations:
+
 - Stable 60 FPS target
 - Smooth camera movement
 - Reduced particle system overhead
@@ -156,6 +183,7 @@ Centralized worker management with:
 - Cached calculations reducing CPU load
 
 ### After Web Worker Optimizations:
+
 - **Consistent 60fps even with multiple missiles**
 - **Main thread free for rendering and input**
 - **Background processing of all heavy computations**
@@ -197,10 +225,11 @@ The optimizations include configurable parameters that can be adjusted based on 
 ## Browser Compatibility
 
 The Web Worker optimizations include:
+
 - **Feature Detection**: Automatic fallback for browsers without Web Worker support
 - **Progressive Enhancement**: Core functionality works without workers
 - **Graceful Degradation**: Performance improvements when workers available
-- **Error Handling**: Robust error recovery and fallback mechanisms 
+- **Error Handling**: Robust error recovery and fallback mechanisms
 
 ## Web Worker Architecture
 
@@ -272,29 +301,41 @@ The missile physics worker has been extended to handle Iskander-specific calcula
 ```typescript
 // Iskander missile physics with advanced guidance
 if (data.missileType === 'iskander') {
-    // Check for flare targets (optimized)
-    const flareResult = checkForFlareTargets(
-        position, flareTargets, flareDetectionRange, originalTargetPosition
+  // Check for flare targets (optimized)
+  const flareResult = checkForFlareTargets(position, flareTargets, flareDetectionRange, originalTargetPosition);
+
+  // Lock-on system
+  const lockResult = updateIskanderLockOnSystem(
+    position,
+    targetPosition,
+    lockOnRange,
+    isLockedOn,
+    lockOnTime,
+    lockOnDuration,
+    deltaTime,
+  );
+
+  // Advanced guidance based on lock status
+  if (isLockedOn) {
+    const guidanceResult = updateIskanderLockedOnGuidance(
+      position,
+      velocity,
+      targetPosition,
+      speed,
+      guidanceStrength,
+      maxTurnRate,
+      deltaTime,
     );
-    
-    // Lock-on system
-    const lockResult = updateIskanderLockOnSystem(
-        position, targetPosition, lockOnRange, isLockedOn, 
-        lockOnTime, lockOnDuration, deltaTime
+  } else {
+    const guidanceResult = updateIskanderInitialGuidance(
+      position,
+      velocity,
+      targetPosition,
+      speed,
+      maxTurnRate,
+      deltaTime,
     );
-    
-    // Advanced guidance based on lock status
-    if (isLockedOn) {
-        const guidanceResult = updateIskanderLockedOnGuidance(
-            position, velocity, targetPosition, speed,
-            guidanceStrength, maxTurnRate, deltaTime
-        );
-    } else {
-        const guidanceResult = updateIskanderInitialGuidance(
-            position, velocity, targetPosition, speed,
-            maxTurnRate, deltaTime
-        );
-    }
+  }
 }
 ```
 
@@ -302,36 +343,36 @@ if (data.missileType === 'iskander') {
 
 ```typescript
 function checkForFlareTargets(
-    position: Vector3, 
-    flareTargets: Vector3[], 
-    flareDetectionRange: number,
-    originalTargetPosition: Vector3
+  position: Vector3,
+  flareTargets: Vector3[],
+  flareDetectionRange: number,
+  originalTargetPosition: Vector3,
 ): { targetPosition: Vector3; isTargetingFlare: boolean; flareTargets: Vector3[] } {
-    // Clear old flare targets that are too far away (optimization)
-    const filteredFlareTargets = flareTargets.filter(flarePos => {
-        const distanceToFlare = vector3Distance(position, flarePos);
-        return distanceToFlare <= flareDetectionRange * 2;
-    });
+  // Clear old flare targets that are too far away (optimization)
+  const filteredFlareTargets = flareTargets.filter((flarePos) => {
+    const distanceToFlare = vector3Distance(position, flarePos);
+    return distanceToFlare <= flareDetectionRange * 2;
+  });
 
-    // Find closest flare within detection range
-    let closestFlare: Vector3 | null = null;
-    let closestDistance = Infinity;
-    
-    for (let i = 0; i < filteredFlareTargets.length; i++) {
-        const flarePos = filteredFlareTargets[i];
-        const distanceToFlare = vector3Distance(position, flarePos);
-        
-        if (distanceToFlare <= flareDetectionRange && distanceToFlare < closestDistance) {
-            closestFlare = flarePos;
-            closestDistance = distanceToFlare;
-        }
+  // Find closest flare within detection range
+  let closestFlare: Vector3 | null = null;
+  let closestDistance = Infinity;
+
+  for (let i = 0; i < filteredFlareTargets.length; i++) {
+    const flarePos = filteredFlareTargets[i];
+    const distanceToFlare = vector3Distance(position, flarePos);
+
+    if (distanceToFlare <= flareDetectionRange && distanceToFlare < closestDistance) {
+      closestFlare = flarePos;
+      closestDistance = distanceToFlare;
     }
-    
-    return {
-        targetPosition: closestFlare || originalTargetPosition,
-        isTargetingFlare: !!closestFlare,
-        flareTargets: filteredFlareTargets
-    };
+  }
+
+  return {
+    targetPosition: closestFlare || originalTargetPosition,
+    isTargetingFlare: !!closestFlare,
+    flareTargets: filteredFlareTargets,
+  };
 }
 ```
 
@@ -339,34 +380,34 @@ function checkForFlareTargets(
 
 ```typescript
 function updateIskanderLockOnSystem(
-    position: Vector3,
-    targetPosition: Vector3,
-    lockOnRange: number,
-    isLockedOn: boolean,
-    lockOnTime: number,
-    lockOnDuration: number,
-    deltaTime: number
+  position: Vector3,
+  targetPosition: Vector3,
+  lockOnRange: number,
+  isLockedOn: boolean,
+  lockOnTime: number,
+  lockOnDuration: number,
+  deltaTime: number,
 ): { isLockedOn: boolean; lockOnTime: number; lockEstablished: boolean } {
-    const distanceToTarget = vector3Distance(position, targetPosition);
-    let newLockOnTime = lockOnTime;
-    let newIsLockedOn = isLockedOn;
-    let lockEstablished = false;
-    
-    if (distanceToTarget <= lockOnRange) {
-        if (!isLockedOn) {
-            newLockOnTime += deltaTime;
-            if (newLockOnTime >= lockOnDuration) {
-                newIsLockedOn = true;
-                lockEstablished = true;
-            }
-        }
-    } else {
-        // Reset lock if target is out of range
-        newIsLockedOn = false;
-        newLockOnTime = 0;
+  const distanceToTarget = vector3Distance(position, targetPosition);
+  let newLockOnTime = lockOnTime;
+  let newIsLockedOn = isLockedOn;
+  let lockEstablished = false;
+
+  if (distanceToTarget <= lockOnRange) {
+    if (!isLockedOn) {
+      newLockOnTime += deltaTime;
+      if (newLockOnTime >= lockOnDuration) {
+        newIsLockedOn = true;
+        lockEstablished = true;
+      }
     }
-    
-    return { isLockedOn: newIsLockedOn, lockOnTime: newLockOnTime, lockEstablished };
+  } else {
+    // Reset lock if target is out of range
+    newIsLockedOn = false;
+    newLockOnTime = 0;
+  }
+
+  return { isLockedOn: newIsLockedOn, lockOnTime: newLockOnTime, lockEstablished };
 }
 ```
 
@@ -426,14 +467,14 @@ The `WorkerManager` class provides centralized worker communication:
 ```typescript
 // Example usage for Iskander missiles
 const result = await this.workerManager.updateMissilePhysics({
-    position: { x: this.position.x, y: this.position.y, z: this.position.z },
-    velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
-    missileType: 'iskander',
-    // ... Iskander-specific properties
-    flareTargets: this.flareTargets.map(flare => ({ x: flare.x, y: flare.y, z: flare.z })),
-    lockOnRange: this.lockOnRange,
-    isLockedOn: this.isLockedOn,
-    // ... additional properties
+  position: { x: this.position.x, y: this.position.y, z: this.position.z },
+  velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
+  missileType: 'iskander',
+  // ... Iskander-specific properties
+  flareTargets: this.flareTargets.map((flare) => ({ x: flare.x, y: flare.y, z: flare.z })),
+  lockOnRange: this.lockOnRange,
+  isLockedOn: this.isLockedOn,
+  // ... additional properties
 });
 ```
 
