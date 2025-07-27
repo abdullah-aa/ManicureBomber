@@ -45,7 +45,7 @@ export class Game {
   // Iskander missile system
   private iskanderMissiles: IskanderMissile[] = [];
   private lastIskanderLaunchTime: number = -Infinity;
-  private iskanderLaunchInterval: number = 20;
+  private iskanderLaunchInterval: number = 30;
   private iskanderRandomInterval: number = 25;
 
   // Camera toggle properties
@@ -144,20 +144,20 @@ export class Game {
     // Clear with transparent background
     ctx.clearRect(0, 0, textureSize, textureSize);
 
-    // Draw the 'X'
-    ctx.strokeStyle = 'rgba(200, 200, 200, 0.3)'; // Dimmer, more translucent white
-    ctx.lineWidth = 1; // Thinner line
+    // Draw a simple crosshair (+)
+    ctx.strokeStyle = 'rgba(255, 255, 0, 0.8)'; // Bright yellow
+    ctx.lineWidth = 4; // Thicker for better visibility
 
-    // Line 1 (\\)
+    // Vertical line
     ctx.beginPath();
-    ctx.moveTo(textureSize * 0.3, textureSize * 0.3);
-    ctx.lineTo(textureSize * 0.7, textureSize * 0.7);
+    ctx.moveTo(textureSize * 0.5, textureSize * 0.2);
+    ctx.lineTo(textureSize * 0.5, textureSize * 0.8);
     ctx.stroke();
 
-    // Line 2 (/)
+    // Horizontal line
     ctx.beginPath();
-    ctx.moveTo(textureSize * 0.7, textureSize * 0.3);
-    ctx.lineTo(textureSize * 0.3, textureSize * 0.7);
+    ctx.moveTo(textureSize * 0.2, textureSize * 0.5);
+    ctx.lineTo(textureSize * 0.8, textureSize * 0.5);
     ctx.stroke();
 
     dynamicTexture.update();
@@ -206,6 +206,12 @@ export class Game {
         this.handleIskanderLaunch(safeCurrentTime);
         this.handleCountermeasures();
         this.handleCameraToggle(safeCurrentTime);
+        
+        // Enforce minimum flight height (double the max building height)
+        const maxBuildingHeight = this.terrainManager.getMaxBuildingHeight();
+        const minimumFlightHeight = maxBuildingHeight * 2;
+        this.bomber.setMinimumAltitude(minimumFlightHeight);
+        
         this.bomber.update(safeDeltaTime, this.inputManager);
         this.cameraController.update(safeDeltaTime, this.inputManager);
         this.updateBombs(safeDeltaTime);
@@ -461,22 +467,6 @@ export class Game {
     return this.bomber.getHealthPercentage();
   }
 
-  public hasIskanderMissilesInRange(): boolean {
-    const bomberPosition = this.bomber.getPosition();
-    const flareDetectionRange = this.bomber.getFlareDetectionRange();
-
-    for (const missile of this.iskanderMissiles) {
-      if (missile.isLaunched() && !missile.hasExploded() && missile.getIsLockedOn()) {
-        const missilePosition = missile.getPosition();
-        const distance = Vector3.Distance(bomberPosition, missilePosition);
-        if (distance <= flareDetectionRange) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
   public hasIskanderMissilesForAlert(): boolean {
     const bomberPosition = this.bomber.getPosition();
     const alertDetectionRange = 500; // Much larger range for alerts - 500 units
@@ -537,8 +527,14 @@ export class Game {
     if (cameraMode === CameraLockMode.GROUND) {
       this.groundCrosshair.setEnabled(true);
       const bomberPosition = this.bomber.getPosition();
-      const terrainHeight = this.terrainManager.getHeightAtPosition(bomberPosition.x, bomberPosition.z);
-      this.groundCrosshair.position.set(bomberPosition.x, terrainHeight + 0.5, bomberPosition.z);
+      const bomberRotation = this.bomber.getRotation();
+
+      // Calculate position in front of bomber based on its heading
+      const forwardDistance = 10; // Units in front of bomber
+      const forwardX = bomberPosition.x + Math.sin(bomberRotation.y) * forwardDistance;
+      const forwardZ = bomberPosition.z + Math.cos(bomberRotation.y) * forwardDistance;
+
+      this.groundCrosshair.position.set(forwardX, 1, forwardZ);
     } else {
       this.groundCrosshair.setEnabled(false);
     }

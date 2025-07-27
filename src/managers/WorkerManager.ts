@@ -14,7 +14,6 @@ export class WorkerManager {
   private terrainWorker!: Worker;
   private missilePhysicsWorker!: Worker;
   private collisionDetectionWorker!: Worker;
-  private particlePhysicsWorker!: Worker;
 
   private messageCallbacks: Map<string, (result: any) => void> = new Map();
   private messageIdCounter: number = 0;
@@ -42,11 +41,6 @@ export class WorkerManager {
     });
     this.setupWorkerListener(this.collisionDetectionWorker, 'collisionDetectionWorker');
 
-    // Initialize particle physics worker
-    this.particlePhysicsWorker = new Worker(new URL('../workers/particle-physics.worker.ts', import.meta.url), {
-      type: 'module',
-    });
-    this.setupWorkerListener(this.particlePhysicsWorker, 'particlePhysicsWorker');
   }
 
   private setupWorkerListener(worker: Worker, workerName: string): void {
@@ -153,27 +147,6 @@ export class WorkerManager {
     });
   }
 
-  // Particle physics worker methods
-  public updateParticleSystem(particleSystemData: any): Promise<any> {
-    return this.sendMessageToWorker(this.particlePhysicsWorker, {
-      type: 'UPDATE_PARTICLE_SYSTEM',
-      data: particleSystemData,
-    });
-  }
-
-  public batchUpdateParticleSystems(particleSystemsData: any[]): Promise<any> {
-    return this.sendMessageToWorker(this.particlePhysicsWorker, {
-      type: 'BATCH_UPDATE_PARTICLE_SYSTEMS',
-      data: { systems: particleSystemsData },
-    });
-  }
-
-  public generateParticles(particleSystemData: any, deltaTime: number): Promise<any> {
-    return this.sendMessageToWorker(this.particlePhysicsWorker, {
-      type: 'GENERATE_PARTICLES',
-      data: { system: particleSystemData, deltaTime },
-    });
-  }
 
   // Generic message sending with async/await and timeout
   private async sendMessageToWorker(worker: Worker, message: any): Promise<any> {
@@ -215,7 +188,6 @@ export class WorkerManager {
     this.terrainWorker.terminate();
     this.missilePhysicsWorker.terminate();
     this.collisionDetectionWorker.terminate();
-    this.particlePhysicsWorker.terminate();
 
     this.messageCallbacks.clear();
   }
