@@ -7,7 +7,6 @@ import {
   Color3,
   ParticleSystem,
   Texture,
-  Sound,
   Color4,
   PointLight,
   TransformNode,
@@ -631,11 +630,7 @@ export class TomahawkMissile {
       })
       .catch(() => {
         this.pendingPhysicsUpdate = false;
-        // Fallback: update position slightly to prevent missile from being stuck
-        this.position.x += this.velocity.x * deltaTime;
-        this.position.y += this.velocity.y * deltaTime;
-        this.position.z += this.velocity.z * deltaTime;
-        this.missileGroup.position = this.position.clone();
+        // Skip update if worker fails - don't apply fallback physics
       });
   }
   

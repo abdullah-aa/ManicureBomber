@@ -24,8 +24,8 @@ export class IskanderMissile {
   private rotation: Vector3;
   private targetPosition: Vector3;
   private bomber: Bomber;
-  private speed: number = 135;
-  private turnRate: number = 1.5; // Increased turn rate for better responsiveness
+  private speed: number = 120;
+  private turnRate: number = 1.25; // Increased turn rate for better responsiveness
   private launched: boolean = false;
   private exploded: boolean = false;
   private exhaustParticles!: ParticleSystem;

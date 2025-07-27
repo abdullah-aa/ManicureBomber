@@ -45,8 +45,8 @@ export class Game {
   // Iskander missile system
   private iskanderMissiles: IskanderMissile[] = [];
   private lastIskanderLaunchTime: number = -Infinity;
-  private iskanderLaunchInterval: number = Infinity;
-  private iskanderRandomInterval: number = 25;
+  private iskanderLaunchInterval: number = 30;
+  private iskanderRandomInterval: number = 45;
 
   // Camera toggle properties
   private lastCameraToggleTime: number = 0;
@@ -60,7 +60,6 @@ export class Game {
   private gameOver: boolean = false;
   private gameOverTime: number = 0;
   private gameOverDelay: number = 5; // 5 seconds before restart
-  private reloadTriggered: boolean = false;
 
   // Performance optimization: frame rate control
   private targetFrameRate: number = 60;

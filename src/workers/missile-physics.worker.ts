@@ -326,7 +326,6 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
 
   if (data.missileType === 'iskander') {
     // Enhanced Iskander missile physics with curved path and flare targeting
-    const currentTime = data.currentTime || 0;
 
     // Handle flare targeting if flare targets exist - check every frame for responsiveness
     let currentTargetPosition = data.targetPosition;
@@ -467,20 +466,35 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
         const directionToLookAhead = vector3Normalize(vector3Subtract(lookAheadPos, newPosition));
         
         if (directionToLookAhead.x * directionToLookAhead.x + directionToLookAhead.z * directionToLookAhead.z > 0.01) {
-          // Calculate yaw (horizontal rotation around Y axis)
-          newRotation.y = Math.atan2(directionToLookAhead.x, directionToLookAhead.z);
-          
-          // Calculate pitch (vertical rotation around X axis)
+          // Calculate target rotation
+          const targetYaw = Math.atan2(directionToLookAhead.x, directionToLookAhead.z);
           const horizontalSpeed = Math.sqrt(
             directionToLookAhead.x * directionToLookAhead.x + directionToLookAhead.z * directionToLookAhead.z
           );
-          if (horizontalSpeed > 0.001) {
-            newRotation.x = Math.atan2(-directionToLookAhead.y, horizontalSpeed);
-          } else {
-            newRotation.x = 0;
+          const targetPitch = horizontalSpeed > 0.001 ? Math.atan2(-directionToLookAhead.y, horizontalSpeed) : 0;
+          
+          // Smooth rotation interpolation
+          const rotationSpeed = 3.0; // How fast the missile can rotate
+          const maxRotationChange = rotationSpeed * data.deltaTime;
+          
+          // Handle yaw wrapping (shortest rotation path)
+          let yawDiff = targetYaw - newRotation.y;
+          while (yawDiff > Math.PI) yawDiff -= 2 * Math.PI;
+          while (yawDiff < -Math.PI) yawDiff += 2 * Math.PI;
+          
+          // Apply limited rotation change
+          if (Math.abs(yawDiff) > maxRotationChange) {
+            yawDiff = Math.sign(yawDiff) * maxRotationChange;
           }
+          newRotation.y += yawDiff;
+          
+          // Smooth pitch change
+          let pitchDiff = targetPitch - newRotation.x;
+          if (Math.abs(pitchDiff) > maxRotationChange) {
+            pitchDiff = Math.sign(pitchDiff) * maxRotationChange;
+          }
+          newRotation.x += pitchDiff;
         }
-        lastSegmentChangeTime = currentTime;
       }
     } else {
       // Head directly to target when curve is complete
@@ -490,16 +504,31 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
 
     // Update rotation based on velocity (only if not updating orientation to look ahead)
     if (!shouldUpdateOrientation && newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z > 0.01) {
-      // Calculate yaw (horizontal rotation around Y axis)
-      newRotation.y = Math.atan2(newVelocity.x, newVelocity.z);
-
-      // Calculate pitch (vertical rotation around X axis)
+      // Calculate target rotation based on velocity
+      const targetYaw = Math.atan2(newVelocity.x, newVelocity.z);
       const horizontalSpeed = Math.sqrt(newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z);
-      if (horizontalSpeed > 0.001) {
-        newRotation.x = Math.atan2(-newVelocity.y, horizontalSpeed);
-      } else {
-        newRotation.x = 0;
+      const targetPitch = horizontalSpeed > 0.001 ? Math.atan2(-newVelocity.y, horizontalSpeed) : 0;
+      
+      // Smooth rotation interpolation
+      const rotationSpeed = 3.0;
+      const maxRotationChange = rotationSpeed * data.deltaTime;
+      
+      // Handle yaw wrapping
+      let yawDiff = targetYaw - newRotation.y;
+      while (yawDiff > Math.PI) yawDiff -= 2 * Math.PI;
+      while (yawDiff < -Math.PI) yawDiff += 2 * Math.PI;
+      
+      if (Math.abs(yawDiff) > maxRotationChange) {
+        yawDiff = Math.sign(yawDiff) * maxRotationChange;
       }
+      newRotation.y += yawDiff;
+      
+      // Smooth pitch change
+      let pitchDiff = targetPitch - newRotation.x;
+      if (Math.abs(pitchDiff) > maxRotationChange) {
+        pitchDiff = Math.sign(pitchDiff) * maxRotationChange;
+      }
+      newRotation.x += pitchDiff;
     }
   } else {
     // Defense missile physics - optimized for performance

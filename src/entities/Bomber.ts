@@ -9,7 +9,6 @@ import {
   TransformNode,
   ParticleSystem,
   Texture,
-  Animation,
   PointLight,
   DynamicTexture,
 } from '@babylonjs/core';
@@ -416,12 +415,13 @@ export class Bomber {
         `exhaust${index}`,
         {
           height: 2,
-          diameter: 1.5,
+          diameterTop: 1.5,
+          diameterBottom: 0,
         },
         this.scene,
       );
 
-      exhaust.position = pos.add(new Vector3(0, 0, -2));
+      exhaust.position = pos.add(new Vector3(0, 0, -3));
       exhaust.rotation.x = Math.PI / 2;
       exhaust.parent = this.bomberGroup;
 
