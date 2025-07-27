@@ -510,17 +510,19 @@ export class TomahawkMissile {
     // Create launch animation that moves missile from launcher to flight path
     const launchAnimation = new Animation(
       'missileLaunch',
-      'position.y',
+      'position',
       30,
       Animation.ANIMATIONTYPE_VECTOR3,
       Animation.ANIMATIONLOOPMODE_CONSTANT,
     );
 
-    // Start from beneath the bomber, then move forward and establish cruise altitude
+    // Start from launch position, then move forward and establish cruise altitude
+    const startPos = this.position.clone();
     const keys = [
-      { frame: 0, value: this.position.clone() },
-      { frame: 15, value: this.position.add(new Vector3(10, -1, 10)) }, // Move forward and slightly down
-      { frame: 30, value: this.position.add(new Vector3(20, -2, 20)) }, // Continue forward and establish cruise altitude
+      { frame: 0, value: startPos.clone() },
+      { frame: 15, value: startPos.add(new Vector3(5, -10, 5)) }, // Move forward and down
+      { frame: 30, value: startPos.add(new Vector3(10, -15, 10)) }, // Continue forward and establish cruise altitude
+      { frame: 60, value: startPos.add(new Vector3(15, -20, 15)) }, // Final launch position
     ];
 
     launchAnimation.setKeys(keys);
@@ -533,23 +535,31 @@ export class TomahawkMissile {
     if (this.launched) return;
 
     this.launched = true;
-    this.pathStartTime = performance.now() / 1000;
 
-    // Start all particle effects
-    this.exhaustParticles.start();
+    // Start trail particles immediately
     this.trailParticles.start();
-    this.flightSmokeParticles.start();
 
-    // Play launch animation
+    // Play launch animation first
     this.launchAnimationGroup.play(false);
 
-    // After launch animation, start guided flight
+    // After launch animation completes (60 frames at 30 FPS = 2 seconds), start guided flight
     setTimeout(() => {
       this.startGuidedFlight();
-    }, 1000);
+    }, 2000);
   }
 
   private startGuidedFlight(): void {
+    // Update position to current missile group position after animation
+    this.position = this.missileGroup.position.clone();
+    
+    // Start remaining particle effects now that launch animation is complete
+    this.pathStartTime = performance.now() / 1000;
+    this.exhaustParticles.start();
+    this.flightSmokeParticles.start();
+    
+    // Regenerate curved path from the new launch position to target
+    this.generateCurvedPath();
+    
     // Initialize path time for curved navigation
     this.pathTime = 0;
     this.lastSegmentChangeTime = performance.now() / 1000;

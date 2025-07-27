@@ -208,59 +208,6 @@ export class TerrainManager {
     }
   }
 
-  private calculateHeightFromNoise(x: number, z: number): number {
-    let height = 0;
-    height += this.noiseGenerator.fractalNoise(x * 0.005, z * 0.005, 4) * 25;
-    height += this.noiseGenerator.fractalNoise(x * 0.015, z * 0.015, 3) * 15;
-    height += this.noiseGenerator.fractalNoise(x * 0.03, z * 0.03, 2) * 8;
-    height += this.noiseGenerator.fractalNoise(x * 0.08, z * 0.08, 1) * 3;
-    return Math.max(0, Math.min(height, 60));
-  }
-
-  public getHeightAtPosition(x: number, z: number): number {
-    const chunkX = Math.floor(x / this.chunkSize);
-    const chunkZ = Math.floor(z / this.chunkSize);
-    const chunkKey = `${chunkX}_${chunkZ}`;
-    const heights = this.heightmapCache.get(chunkKey);
-
-    if (!heights) {
-      return this.calculateHeightFromNoise(x, z);
-    }
-
-    const worldChunkX = chunkX * this.chunkSize;
-    const worldChunkZ = chunkZ * this.chunkSize;
-
-    const localX = x - worldChunkX;
-    const localZ = z - worldChunkZ;
-
-    const gridX = ((localX + this.chunkSize / 2) / this.chunkSize) * this.subdivisions;
-    const gridZ = ((localZ + this.chunkSize / 2) / this.chunkSize) * this.subdivisions;
-
-    const gridX0 = Math.floor(gridX);
-    const gridZ0 = Math.floor(gridZ);
-
-    if (gridX0 < 0 || gridX0 >= this.subdivisions || gridZ0 < 0 || gridZ0 >= this.subdivisions) {
-      return this.calculateHeightFromNoise(x, z);
-    }
-
-    const tx = gridX - gridX0;
-    const tz = gridZ - gridZ0;
-
-    const h00 = heights[gridZ0 * (this.subdivisions + 1) + gridX0];
-    const h10 = heights[gridZ0 * (this.subdivisions + 1) + (gridX0 + 1)];
-    const h01 = heights[(gridZ0 + 1) * (this.subdivisions + 1) + gridX0];
-    const h11 = heights[(gridZ0 + 1) * (this.subdivisions + 1) + (gridX0 + 1)];
-
-    if (h00 === undefined || h10 === undefined || h01 === undefined || h11 === undefined) {
-      return this.calculateHeightFromNoise(x, z);
-    }
-
-    const h_x1 = h00 * (1 - tx) + h10 * tx;
-    const h_x2 = h01 * (1 - tx) + h11 * tx;
-
-    return h_x1 * (1 - tz) + h_x2 * tz;
-  }
-
   public update(bomberPosition: Vector3): void {
     const currentChunkX = Math.floor(bomberPosition.x / this.chunkSize);
     const currentChunkZ = Math.floor(bomberPosition.z / this.chunkSize);
