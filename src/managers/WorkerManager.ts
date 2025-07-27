@@ -147,6 +147,13 @@ export class WorkerManager {
     });
   }
 
+  public generateTomahawkPath(pathData: any): Promise<any> {
+    return this.sendMessageToWorker(this.missilePhysicsWorker, {
+      type: 'GENERATE_TOMAHAWK_PATH',
+      data: pathData,
+    });
+  }
+
 
   // Generic message sending with async/await and timeout
   private async sendMessageToWorker(worker: Worker, message: any): Promise<any> {

@@ -80,12 +80,27 @@ export class TomahawkMissile {
     this.setupParticleEffects();
     this.setupExplosionEffects();
     this.createLaunchAnimation();
-    this.generateCurvedPath();
+    this.generateInitialPath().catch(() => {
+      // Fallback: use simple waypoints
+      this.waypoints = [this.position.clone(), this.targetPosition.clone()];
+    });
   }
 
-  private generateCurvedPath(): void {
-    // Simple curved path - just store start and end points
-    this.waypoints = [this.position.clone(), this.targetPosition.clone()];
+  private async generateInitialPath(): Promise<void> {
+    try {
+      const pathData = {
+        launchPosition: { x: this.position.x, y: this.position.y, z: this.position.z },
+        targetPosition: { x: this.targetPosition.x, y: this.targetPosition.y, z: this.targetPosition.z },
+        animationOffset: { x: 15, y: -20, z: 15 } // From launch animation final keyframe
+      };
+      
+      const result = await this.workerManager.generateTomahawkPath(pathData);
+      this.waypoints = result.waypoints.map((wp: any) => new Vector3(wp.x, wp.y, wp.z));
+    } catch (error) {
+      // Fallback: use predicted end position
+      const predictedEndPosition = this.position.add(new Vector3(15, -20, 15));
+      this.waypoints = [predictedEndPosition.clone(), this.targetPosition.clone()];
+    }
   }
 
 
@@ -542,10 +557,10 @@ export class TomahawkMissile {
     // Play launch animation first
     this.launchAnimationGroup.play(false);
 
-    // After launch animation completes (60 frames at 30 FPS = 2 seconds), start guided flight
-    setTimeout(() => {
+    // Start guided flight immediately after animation completes without delay
+    this.launchAnimationGroup.onAnimationGroupEndObservable.add(() => {
       this.startGuidedFlight();
-    }, 2000);
+    });
   }
 
   private startGuidedFlight(): void {
@@ -557,25 +572,9 @@ export class TomahawkMissile {
     this.exhaustParticles.start();
     this.flightSmokeParticles.start();
     
-    // Regenerate curved path from the new launch position to target
-    this.generateCurvedPath();
-    
-    // Initialize path time for curved navigation
-    this.pathTime = 0;
+    // Initialize path time for curved navigation (path is already generated)
+    this.pathTime = 0.01; // Small offset to start on curved path
     this.lastSegmentChangeTime = performance.now() / 1000;
-
-    // Calculate initial velocity toward target
-    const directionToTarget = this.targetPosition.subtract(this.position).normalize();
-    this.velocity = directionToTarget.scale(this.speed);
-
-    // Set initial orientation toward target
-    if (this.velocity.lengthSquared() > 0.01) {
-      this.rotation.y = Math.atan2(this.velocity.x, this.velocity.z);
-      const horizontalSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
-      if (horizontalSpeed > 0.001) {
-        this.rotation.x = Math.atan2(-this.velocity.y, horizontalSpeed);
-      }
-    }
   }
 
   public update(deltaTime: number): void {

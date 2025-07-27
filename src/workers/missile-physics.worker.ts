@@ -594,6 +594,24 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
   return result;
 }
 
+interface TomahawkPathRequest {
+  launchPosition: Vector3;
+  targetPosition: Vector3;
+  animationOffset: Vector3;
+}
+
+function generateTomahawkPath(request: TomahawkPathRequest): { waypoints: Vector3[] } {
+  const { launchPosition, targetPosition, animationOffset } = request;
+  
+  // Calculate predicted start position after launch animation
+  const predictedStartPos = vector3Add(launchPosition, animationOffset);
+  
+  // Generate waypoints for curved path using original calculation
+  const waypoints = [predictedStartPos, targetPosition];
+  
+  return { waypoints };
+}
+
 // Handle worker messages
 self.onmessage = (event) => {
   const { type, data, messageId } = event.data;
@@ -613,6 +631,15 @@ self.onmessage = (event) => {
       (self as any).postMessage({
         type: 'BATCH_MISSILE_PHYSICS_RESULT',
         data: { results },
+        messageId,
+      });
+      break;
+
+    case 'GENERATE_TOMAHAWK_PATH':
+      const pathResult = generateTomahawkPath(data);
+      (self as any).postMessage({
+        type: 'TOMAHAWK_PATH_RESULT',
+        data: pathResult,
         messageId,
       });
       break;
