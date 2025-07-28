@@ -170,19 +170,20 @@ export class WorkerManager {
     });
 
     // Create timeout promise
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        if (this.messageCallbacks.has(messageId)) {
-          this.messageCallbacks.delete(messageId);
-          reject(new Error('Worker response timeout'));
-        }
-      }, this.WORKER_TIMEOUT);
-    });
+    // const timeoutPromise = new Promise<never>((_, reject) => {
+    //   setTimeout(() => {
+    //     if (this.messageCallbacks.has(messageId)) {
+    //       this.messageCallbacks.delete(messageId);
+    //       reject(new Error('Worker response timeout'));
+    //     }
+    //   }, this.WORKER_TIMEOUT);
+    // });
 
     try {
       // Race between response and timeout
-      const result = await Promise.race([responsePromise, timeoutPromise]);
-      return result;
+      // const result = await Promise.race([responsePromise, timeoutPromise]);
+      // return result;
+      return responsePromise;
     } catch (error) {
       // Clean up callback if it still exists
       this.messageCallbacks.delete(messageId);
