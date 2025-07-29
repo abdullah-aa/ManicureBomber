@@ -45,6 +45,7 @@ export class Game {
   // Iskander missile system
   private iskanderMissiles: IskanderMissile[] = [];
   private lastIskanderLaunchTime: number = -Infinity;
+  private nextIskanderLaunchTime: number = -Infinity;
   private iskanderLaunchInterval: number = 30;
   private iskanderRandomInterval: number = 45;
 
@@ -109,6 +110,10 @@ export class Game {
     this.bomber.setTerrainManager(this.terrainManager);
     this.terrainManager.setBomber(this.bomber);
     await this.terrainManager.generateInitialTerrain(this.bomber.getPosition());
+
+    // Initialize first Iskander launch time
+    const initialInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
+    this.nextIskanderLaunchTime = performance.now() / 1000 + initialInterval;
 
     this.startGameLoop();
   }
@@ -309,12 +314,13 @@ export class Game {
 
   private handleIskanderLaunch(currentTime: number): void {
     // Check if it's time to launch an Iskander missile
-    const timeSinceLastLaunch = currentTime - this.lastIskanderLaunchTime;
-    const totalInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
-
-    if (timeSinceLastLaunch >= totalInterval) {
+    if (currentTime >= this.nextIskanderLaunchTime) {
       this.launchIskanderMissile();
       this.lastIskanderLaunchTime = currentTime;
+      
+      // Calculate next launch time
+      const totalInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
+      this.nextIskanderLaunchTime = currentTime + totalInterval;
     }
   }
 
