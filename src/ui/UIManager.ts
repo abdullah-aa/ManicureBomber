@@ -64,8 +64,15 @@ export class UIManager {
 
     // Listen for missile button clicks
     this.missileButton.addEventListener('click', () => {
-      if (this.game.getBomber().canLaunchMissile() && this.game.getBomber().hasValidTarget()) {
-        this.inputManager.triggerMissileKeyPress();
+      if (this.game.getBomber().canLaunchMissile()) {
+        // Use promise-based callback instead of await
+        this.game.getBomber().hasValidTarget().then((hasValidTarget) => {
+          if (hasValidTarget) {
+            this.inputManager.triggerMissileKeyPress();
+          }
+        }).catch(() => {
+          // Silent error handling
+        });
       }
     });
 
@@ -605,20 +612,38 @@ export class UIManager {
     const shouldCheckTarget = missileCooldownStatus >= 1; // Only check when cooldown is ready
 
     if (shouldCheckTarget && currentTime - this.lastTargetCheckTime > this.targetCheckInterval) {
-      this.cachedHasValidTarget = this.game.getBomber().hasValidTarget();
-      this.lastTargetCheckTime = currentTime;
-    }
+      // Use promise-based callback instead of await
+      this.game.getBomber().hasValidTarget().then((hasValidTarget) => {
+        this.cachedHasValidTarget = hasValidTarget;
+        this.lastTargetCheckTime = currentTime;
+        
+        const hasTarget = this.cachedHasValidTarget && missileCooldownStatus >= 1;
 
-    const hasTarget = this.cachedHasValidTarget && missileCooldownStatus >= 1;
+        // Only update target indicator if changed
+        if (hasTarget !== this.lastHasTarget) {
+          if (hasTarget) {
+            this.missileButton.classList.add('has-target');
+          } else {
+            this.missileButton.classList.remove('has-target');
+          }
+          this.lastHasTarget = hasTarget;
+        }
+      }).catch(() => {
+        // Silent error handling - keep previous cached value
+      });
+    } else {
+      // Use cached value if not checking
+      const hasTarget = this.cachedHasValidTarget && missileCooldownStatus >= 1;
 
-    // Only update target indicator if changed
-    if (hasTarget !== this.lastHasTarget) {
-      if (hasTarget) {
-        this.missileButton.classList.add('has-target');
-      } else {
-        this.missileButton.classList.remove('has-target');
+      // Only update target indicator if changed
+      if (hasTarget !== this.lastHasTarget) {
+        if (hasTarget) {
+          this.missileButton.classList.add('has-target');
+        } else {
+          this.missileButton.classList.remove('has-target');
+        }
+        this.lastHasTarget = hasTarget;
       }
-      this.lastHasTarget = hasTarget;
     }
   }
 

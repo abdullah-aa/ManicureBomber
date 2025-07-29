@@ -22,7 +22,7 @@ export class DefenseMissile {
   private position: Vector3;
   private velocity: Vector3;
   private targetPosition: Vector3;
-  private speed: number = 80; // Slower than Tomahawk
+  private speed: number = 120 + Math.random() * 60; // Variable speed between 120-180 units/sec
   private launched: boolean = false;
   private exploded: boolean = false;
   private exhaustParticles!: ParticleSystem;

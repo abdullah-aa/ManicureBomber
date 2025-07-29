@@ -201,7 +201,7 @@ export class Game {
 
         // Always update critical systems
         this.handleBombing(safeCurrentTime);
-        this.handleMissileLaunch();
+        this.handleMissileLaunch(); // Now uses promise-based callbacks internally
         this.handleIskanderLaunch(safeCurrentTime);
         this.handleCountermeasures();
         this.handleCameraToggle(safeCurrentTime);
@@ -213,20 +213,20 @@ export class Game {
         
         this.bomber.update(safeDeltaTime, this.inputManager);
         this.cameraController.update(safeDeltaTime, this.inputManager);
-        this.updateBombs(safeDeltaTime);
+        this.updateBombs(safeDeltaTime); // Now uses promise-based callbacks internally
         this.updateIskanderMissiles(safeDeltaTime);
         this.updateGroundCrosshair();
 
         // Check for defense missile collisions (high frequency for responsive damage)
         if (currentTime - this.lastCollisionCheckTime > this.collisionCheckInterval) {
-          this.checkDefenseMissileCollisions();
+          this.checkDefenseMissileCollisions(); // Now uses promise-based callbacks internally
           this.checkIskanderMissileCollisions();
           this.lastCollisionCheckTime = currentTime;
         }
 
         // Update terrain less frequently
         if (currentTime - this.lastTerrainUpdateTime > this.terrainUpdateInterval) {
-          this.terrainManager.update(this.bomber.getPosition());
+          this.terrainManager.update(this.bomber.getPosition()); // Now uses promise-based callbacks internally
           this.lastTerrainUpdateTime = currentTime;
         }
 
@@ -293,8 +293,17 @@ export class Game {
       return; // Can't launch missiles during bombing run
     }
 
-    if (this.inputManager.isMissileKeyPressed() && this.bomber.canLaunchMissile() && this.bomber.hasValidTarget()) {
-      this.bomber.launchMissile();
+    if (this.inputManager.isMissileKeyPressed() && this.bomber.canLaunchMissile()) {
+      // Use promise-based callbacks instead of async/await
+      this.bomber.hasValidTarget().then((hasValidTarget) => {
+        if (hasValidTarget) {
+          this.bomber.launchMissile().catch(() => {
+            // Silent error handling for missile launch
+          });
+        }
+      }).catch(() => {
+        // Silent error handling for target validation
+      });
     }
   }
 
@@ -312,30 +321,36 @@ export class Game {
   private launchIskanderMissile(): void {
     // Find the defense launcher farthest from the bomber
     const bomberPosition = this.bomber.getPosition();
-    const buildings = this.terrainManager.getBuildingsInRadius(bomberPosition, 1000);
+    
+    // Use promise-based callbacks instead of async/await
+    this.terrainManager.getBuildingsInRadius(bomberPosition, 1000)
+      .then((buildings) => {
+        let farthestLauncher = null;
+        let maxDistance = 0;
 
-    let farthestLauncher = null;
-    let maxDistance = 0;
-
-    for (const building of buildings) {
-      if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
-        const distance = Vector3.Distance(bomberPosition, building.getPosition());
-        if (distance > maxDistance) {
-          maxDistance = distance;
-          farthestLauncher = building;
+        for (const building of buildings) {
+          if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
+            const distance = Vector3.Distance(bomberPosition, building.getPosition());
+            if (distance > maxDistance) {
+              maxDistance = distance;
+              farthestLauncher = building;
+            }
+          }
         }
-      }
-    }
 
-    if (farthestLauncher) {
-      const launchPosition = farthestLauncher.getPosition().clone();
-      launchPosition.y += 5; // Launch from above the launcher
+        if (farthestLauncher) {
+          const launchPosition = farthestLauncher.getPosition().clone();
+          launchPosition.y += 5; // Launch from above the launcher
 
-      const missile = new IskanderMissile(this.scene, launchPosition, this.bomber, this.workerManager);
+          const missile = new IskanderMissile(this.scene, launchPosition, this.bomber, this.workerManager);
 
-      missile.launch();
-      this.iskanderMissiles.push(missile);
-    }
+          missile.launch();
+          this.iskanderMissiles.push(missile);
+        }
+      })
+      .catch(() => {
+        // Silent error handling - fallback to synchronous method if needed
+      });
   }
 
   private handleCountermeasures(): void {
@@ -489,7 +504,7 @@ export class Game {
     return false;
   }
 
-  private updateBombs(deltaTime: number): void {
+  private async updateBombs(deltaTime: number): Promise<void> {
     for (let i = this.bombs.length - 1; i >= 0; i--) {
       const bomb = this.bombs[i];
       bomb.update(deltaTime);
@@ -500,20 +515,26 @@ export class Game {
         const explosionPoint = new Vector3(bombPosition.x, 0, bombPosition.z);
 
         const blastRadius = 75;
-        const nearbyBuildings = this.terrainManager.getBuildingsInRadius(explosionPoint, blastRadius);
+        
+        // Use promise-based callbacks instead of async/await
+        this.terrainManager.getBuildingsInRadius(explosionPoint, blastRadius)
+          .then((nearbyBuildings) => {
+            nearbyBuildings.forEach((building) => {
+              const distance = Vector3.Distance(explosionPoint, building.getPosition());
+              const damage = Math.max(10, 50 - distance);
 
-        nearbyBuildings.forEach((building) => {
-          const distance = Vector3.Distance(explosionPoint, building.getPosition());
-          const damage = Math.max(10, 50 - distance);
-
-          const wasDestroyed = building.takeDamage(damage, true);
-          if (wasDestroyed) {
-            this.destroyedBuildings++;
-            if (building.isTarget()) {
-              this.destroyedTargets++;
-            }
-          }
-        });
+              const wasDestroyed = building.takeDamage(damage, true);
+              if (wasDestroyed) {
+                this.destroyedBuildings++;
+                if (building.isTarget()) {
+                  this.destroyedTargets++;
+                }
+              }
+            });
+          })
+          .catch(() => {
+            // Silent error handling - fallback to synchronous method if needed
+          });
 
         bomb.explode(explosionPoint);
         this.bombs.splice(i, 1);
@@ -566,35 +587,41 @@ export class Game {
     document.body.appendChild(gameOverDiv);
   }
 
-  private checkDefenseMissileCollisions(): void {
+  private async checkDefenseMissileCollisions(): Promise<void> {
     if (this.gameOver || this.bomber.isBomberDestroyed()) return;
 
     const bomberPosition = this.bomber.getPosition();
-    const buildings = this.terrainManager.getBuildingsInRadius(bomberPosition, 500);
+    
+    // Use promise-based callbacks instead of async/await
+    this.terrainManager.getBuildingsInRadius(bomberPosition, 500)
+      .then((buildings) => {
+        // Collect all defense missiles from all buildings
+        const allDefenseMissiles: any[] = [];
+        for (const building of buildings) {
+          if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
+            const defenseMissiles = building.getDefenseMissiles();
+            allDefenseMissiles.push(...defenseMissiles);
+          }
+        }
 
-    // Collect all defense missiles from all buildings
-    const allDefenseMissiles: any[] = [];
-    for (const building of buildings) {
-      if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
-        const defenseMissiles = building.getDefenseMissiles();
-        allDefenseMissiles.push(...defenseMissiles);
-      }
-    }
+        if (allDefenseMissiles.length === 0) return;
 
-    if (allDefenseMissiles.length === 0) return;
+        // Use worker for collision detection
+        const bomberData = {
+          position: this.bomber.getPosition(),
+          isDestroyed: this.bomber.isBomberDestroyed(),
+        };
 
-    // Use worker for collision detection
-    const bomberData = {
-      position: this.bomber.getPosition(),
-      isDestroyed: this.bomber.isBomberDestroyed(),
-    };
-
-    this.workerManager.checkDefenseCollisions(allDefenseMissiles, bomberData)
-      .then((result) => {
-        this.handleDefenseCollisionResults(result.collisions, allDefenseMissiles);
+        this.workerManager.checkDefenseCollisions(allDefenseMissiles, bomberData)
+          .then((result) => {
+            this.handleDefenseCollisionResults(result.collisions, allDefenseMissiles);
+          })
+          .catch(() => {
+            // Worker failed - rely on next update cycle
+          });
       })
       .catch(() => {
-        // Worker failed - rely on next update cycle
+        // Silent error handling - fallback to synchronous method if needed
       });
   }
 

@@ -63,10 +63,67 @@ export class WorkerManager {
   // Terrain worker methods
   public generateTerrainChunk(chunkX: number, chunkZ: number, chunkSize: number, subdivisions: number): Promise<any> {
     return this.sendMessageToWorker(this.terrainWorker, {
-      chunkX,
-      chunkZ,
-      chunkSize,
-      subdivisions,
+      type: 'GENERATE_TERRAIN_CHUNK',
+      data: {
+        chunkX,
+        chunkZ,
+        chunkSize,
+        subdivisions,
+      },
+    });
+  }
+
+  public getBuildingsInRadius(bomberPosition: Vector3, chunks: any[], radius: number): Promise<any> {
+    return this.sendMessageToWorker(this.terrainWorker, {
+      type: 'GET_BUILDINGS_IN_RADIUS',
+      data: {
+        bomberPosition: { x: bomberPosition.x, y: bomberPosition.y, z: bomberPosition.z },
+        chunks,
+        radius,
+      },
+    });
+  }
+
+  public getDistanceToNearestChunkEdge(position: Vector3, chunkSize: number): Promise<any> {
+    return this.sendMessageToWorker(this.terrainWorker, {
+      type: 'GET_DISTANCE_TO_CHUNK_EDGE',
+      data: {
+        position: { x: position.x, z: position.z },
+        chunkSize,
+      },
+    });
+  }
+
+  public getTerrainHeight(position: Vector3, heightmap: Float32Array, chunkSize: number, subdivisions: number): Promise<any> {
+    return this.sendMessageToWorker(this.terrainWorker, {
+      type: 'GET_TERRAIN_HEIGHT',
+      data: {
+        position: { x: position.x, z: position.z },
+        heightmap,
+        chunkSize,
+        subdivisions,
+      },
+    });
+  }
+
+  public generateChunksNearPlayer(
+    currentChunkX: number,
+    currentChunkZ: number,
+    bomberPosition: Vector3,
+    existingChunks: string[],
+    maxTotalChunks: number,
+    maxChunksPerUpdate: number
+  ): Promise<any> {
+    return this.sendMessageToWorker(this.terrainWorker, {
+      type: 'GENERATE_CHUNKS_NEAR_PLAYER',
+      data: {
+        currentChunkX,
+        currentChunkZ,
+        bomberPosition: { x: bomberPosition.x, z: bomberPosition.z },
+        existingChunks,
+        maxTotalChunks,
+        maxChunksPerUpdate,
+      },
     });
   }
 
@@ -93,7 +150,7 @@ export class WorkerManager {
     });
   }
 
-  public getBuildingsInRadius(bomberPosition: Vector3, buildings: any[], radius: number): Promise<any> {
+  public getBuildingsInRadiusForCollision(bomberPosition: Vector3, buildings: any[], radius: number): Promise<any> {
     return this.sendMessageToWorker(this.collisionDetectionWorker, {
       type: 'GET_BUILDINGS_IN_RADIUS',
       data: {

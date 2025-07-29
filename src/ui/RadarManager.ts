@@ -114,8 +114,9 @@ export class RadarManager {
     destroyedTargets: number,
     iskanderMissiles: IskanderMissile[] = [],
   ): void {
-    // Performance optimization: limit update frequency
     const currentTime = performance.now();
+
+    // Performance optimization: limit update frequency
     if (currentTime - this.lastUpdateTime < this.updateInterval) {
       return;
     }
@@ -150,10 +151,32 @@ export class RadarManager {
     if (!this.positionCacheValid || distanceMoved > this.positionCacheThreshold || rotationChanged) {
       this.cachedBomberPosition.copyFrom(bomberPosition);
       this.cachedBomberRotation = bomberRotationY;
-      this.cachedBuildings = terrainManager.getBuildingsInRadius(bomberPosition, this.radarRadius);
-      this.positionCacheValid = true;
+      
+      // Use promise-based callbacks instead of async/await
+      terrainManager.getBuildingsInRadius(bomberPosition, this.radarRadius)
+        .then((buildings) => {
+          this.cachedBuildings = buildings;
+          this.positionCacheValid = true;
+          this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles);
+        })
+        .catch(() => {
+          // Silent error handling - use empty array if worker fails
+          this.cachedBuildings = [];
+          this.positionCacheValid = true;
+          this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles);
+        });
+    } else {
+      // Use cached data
+      this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles);
     }
+  }
 
+  private processRadarUpdate(
+    bomberPosition: Vector3,
+    bomberRotationY: number,
+    destroyedTargets: number,
+    iskanderMissiles: IskanderMissile[],
+  ): void {
     // Pre-calculate sin and cos for rotation
     const cosY = Math.cos(bomberRotationY);
     const sinY = Math.sin(bomberRotationY);
@@ -212,7 +235,7 @@ export class RadarManager {
 
     // Update active missiles list and add missile markers
     this.activeIskanderMissiles = iskanderMissiles.filter((missile) => missile.isLaunched() && !missile.hasExploded());
-    this.updateMissileMarkers(bomberPosition, bomberRotationY, cosY, sinY, terrainManager, markerCount);
+    this.updateMissileMarkers(bomberPosition, bomberRotationY, cosY, sinY, markerCount);
 
     // Update score display - only targets
     this.targetCountElement.textContent = destroyedTargets.toString();
@@ -223,14 +246,12 @@ export class RadarManager {
     bomberRotationY: number,
     cosY: number,
     sinY: number,
-    terrainManager: TerrainManager,
     currentMarkerCount: number,
   ): void {
-    // Get all buildings to collect their active missiles
-    const allBuildings = terrainManager.getBuildingsInRadius(bomberPosition, this.radarRadius);
+    // Use cached buildings for missile markers
     this.activeMissiles = [];
 
-    allBuildings.forEach((building) => {
+    this.cachedBuildings.forEach((building) => {
       if (building.isDefenseLauncher()) {
         // Get missiles from the building
         const buildingMissiles = building.getActiveMissiles();

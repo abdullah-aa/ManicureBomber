@@ -53,7 +53,7 @@ export class Building {
   private launcherMesh: Mesh | null = null;
   private defenseMissiles: DefenseMissile[] = [];
   private lastMissileLaunchTime: number = 0;
-  private missileLaunchInterval: number = 8; // Launch every 8 seconds
+  private missileLaunchInterval: number = 4 + Math.random() * 6; // Random interval between 4-10 seconds
   private radarScanRange: number = 300; // Detection range
 
   // Callback for destruction notification
@@ -698,6 +698,9 @@ export class Building {
     ) {
       this.launchDefenseMissile(bomberPosition);
       this.lastMissileLaunchTime = currentTime;
+      
+      // Randomize the next launch interval for more dynamic behavior
+      this.missileLaunchInterval = 3 + Math.random() * 8; // 3-11 seconds
     }
   }
 
@@ -707,8 +710,8 @@ export class Building {
     const launchPosition = this.getPosition().clone();
     launchPosition.y += this.config.height + 3; // Launch from top of launcher
 
-    // Add some inaccuracy to make the missile aim slightly off target
-    const inaccuracy = 20; // Units of inaccuracy
+    // Add more inaccuracy to make the missile aim slightly off target
+    const inaccuracy = 30 + Math.random() * 20; // Variable inaccuracy between 30-50 units
     const targetPosition = bomberPosition.clone();
     targetPosition.x += (Math.random() - 0.5) * inaccuracy;
     targetPosition.y += (Math.random() - 0.5) * inaccuracy;

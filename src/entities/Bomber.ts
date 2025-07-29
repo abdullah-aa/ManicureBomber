@@ -785,53 +785,50 @@ export class Bomber {
     return Math.min(timeSinceLastLaunch / this.missileCooldownTime, 1);
   }
 
-  public findClosestDefenseBuilding(): Building | null {
-    if (!this.terrainManager) return null;
-
+  public async findClosestDefenseBuilding(): Promise<Building | null> {
     const currentTime = performance.now() / 1000;
-    const distanceMoved = Vector3.Distance(this.position, this.lastTargetCheckPosition);
 
     // Use cached result if recent enough and position hasn't changed significantly
     if (
       this.cachedTarget &&
       currentTime - this.lastTargetCheckTime < this.targetCheckInterval &&
-      distanceMoved < this.targetCheckPositionThreshold
+      Vector3.Distance(this.position, this.lastTargetCheckPosition) < this.targetCheckPositionThreshold
     ) {
-      // Verify cached target is still valid
-      if (
-        !this.cachedTarget.getIsDestroyed() &&
-        Vector3.Distance(this.position, this.cachedTarget.getPosition()) <= 300
-      ) {
-        return this.cachedTarget;
-      }
+      return this.cachedTarget;
     }
 
-    // Perform expensive target detection
+    // Update cache timing and position
     this.lastTargetCheckTime = currentTime;
     this.lastTargetCheckPosition.copyFrom(this.position);
 
     const defenseRange = 300; // Same range as defense buildings
-    const nearbyBuildings = this.terrainManager.getBuildingsInRadius(this.position, defenseRange);
+    
+    try {
+      const nearbyBuildings = await this.terrainManager!.getBuildingsInRadius(this.position, defenseRange);
 
-    let closestBuilding: Building | null = null;
-    let closestDistance = Infinity;
+      let closestBuilding: Building | null = null;
+      let closestDistance = Infinity;
 
-    for (const building of nearbyBuildings) {
-      if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
-        const distance = Vector3.Distance(this.position, building.getPosition());
-        if (distance < closestDistance) {
-          closestDistance = distance;
-          closestBuilding = building;
+      for (const building of nearbyBuildings) {
+        if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
+          const distance = Vector3.Distance(this.position, building.getPosition());
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestBuilding = building;
+          }
         }
       }
-    }
 
-    this.cachedTarget = closestBuilding;
-    return closestBuilding;
+      this.cachedTarget = closestBuilding;
+      return closestBuilding;
+    } catch (error) {
+      // Silent error handling - return null if worker fails
+      return null;
+    }
   }
 
-  public hasValidTarget(): boolean {
-    return this.findClosestDefenseBuilding() !== null;
+  public async hasValidTarget(): Promise<boolean> {
+    return (await this.findClosestDefenseBuilding()) !== null;
   }
 
   public invalidateTargetCache(): void {
@@ -839,62 +836,64 @@ export class Bomber {
     this.lastTargetCheckTime = 0;
   }
 
-  public launchMissile(): boolean {
-    if (!this.canLaunchMissile()) return false;
+  public launchMissile(): Promise<boolean> {
+    if (!this.canLaunchMissile()) return Promise.resolve(false);
 
-    // Find the closest defense building
-    const targetBuilding = this.findClosestDefenseBuilding();
-    if (!targetBuilding) return false; // No valid target in range
+    // Use promise-based callbacks instead of async/await
+    return this.findClosestDefenseBuilding().then((targetBuilding) => {
+      if (!targetBuilding) return false; // No valid target in range
 
-    // Check if bomb bay is ready for launch
-    if (this.bombBayState === 'closed') {
-      // Open bomb bay first, then launch missile when fully open
-      this.missileLaunchPending = true;
-      this.openBombBay();
-      return true; // Return true to indicate launch sequence started
-    } else if (this.bombBayState === 'opening') {
-      // Still opening, wait for it to complete
-      this.missileLaunchPending = true;
-      return true; // Return true to indicate launch sequence in progress
-    } else if (this.bombBayState === 'closing') {
-      // Doors are closing, can't launch
-      return false;
-    }
+      // Check if bomb bay is ready for launch
+      if (this.bombBayState === 'closed') {
+        // Open bomb bay first, then launch missile when fully open
+        this.missileLaunchPending = true;
+        this.openBombBay();
+        return true; // Return true to indicate launch sequence started
+      } else if (this.bombBayState === 'opening') {
+        // Still opening, wait for it to complete
+        this.missileLaunchPending = true;
+        return true; // Return true to indicate launch sequence in progress
+      } else if (this.bombBayState === 'closing') {
+        // Doors are closing, can't launch
+        return false;
+      }
 
-    // Bomb bay is open, proceed with launch
-    this.executeMissileLaunch();
-    return true;
+      // Bomb bay is open, proceed with launch
+      this.executeMissileLaunch();
+      return true;
+    });
   }
 
   private executeMissileLaunch(): void {
-    // Find the closest defense building
-    const targetBuilding = this.findClosestDefenseBuilding();
-    if (!targetBuilding) return; // No valid target in range
+    // Use promise-based callbacks instead of async/await
+    this.findClosestDefenseBuilding().then((targetBuilding) => {
+      if (!targetBuilding) return; // No valid target in range
 
-    const currentTime = performance.now() / 1000;
-    this.lastMissileLaunchTime = currentTime;
+      const currentTime = performance.now() / 1000;
+      this.lastMissileLaunchTime = currentTime;
 
-    // Launch position from bomb bay
-    const launcherPosition = this.bomberGroup.position.add(new Vector3(0, -2, -1));
+      // Launch position from bomb bay
+      const launcherPosition = this.bomberGroup.position.add(new Vector3(0, -2, -1));
 
-    // Create and launch missile targeting the defense building
-    const missile = new TomahawkMissile(this.scene, launcherPosition, targetBuilding, this.rotation.clone(), this.workerManager);
+      // Create and launch missile targeting the defense building
+      const missile = new TomahawkMissile(this.scene, launcherPosition, targetBuilding, this.rotation.clone(), this.workerManager);
 
-    // Set up target destruction callback
-    missile.setOnTargetDestroyedCallback((building: Building) => {
-      if (this.onTargetDestroyedCallback) {
-        this.onTargetDestroyedCallback(building);
-      }
+      // Set up target destruction callback
+      missile.setOnTargetDestroyedCallback((building: Building) => {
+        if (this.onTargetDestroyedCallback) {
+          this.onTargetDestroyedCallback(building);
+        }
+      });
+
+      this.missiles.push(missile);
+      missile.launch();
+
+      // Immediately start closing bomb bay after launch
+      this.closeBombBay();
+
+      // Ensure missile launch pending is reset
+      this.missileLaunchPending = false;
     });
-
-    this.missiles.push(missile);
-    missile.launch();
-
-    // Immediately start closing bomb bay after launch
-    this.closeBombBay();
-
-    // Ensure missile launch pending is reset
-    this.missileLaunchPending = false;
   }
 
   private updateMissiles(deltaTime: number): void {

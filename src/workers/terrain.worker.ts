@@ -18,6 +18,50 @@ interface BuildingConfig {
   isDefenseLauncher?: boolean;
 }
 
+interface BuildingData {
+  id: string;
+  position: { x: number; y: number; z: number };
+  width: number;
+  height: number;
+  depth: number;
+  isTarget: boolean;
+  isDefenseLauncher: boolean;
+  isDestroyed: boolean;
+}
+
+interface ChunkData {
+  chunkX: number;
+  chunkZ: number;
+  buildings: BuildingData[];
+}
+
+interface BuildingsInRadiusRequest {
+  bomberPosition: { x: number; y: number; z: number };
+  chunks: ChunkData[];
+  radius: number;
+}
+
+interface TerrainHeightRequest {
+  position: { x: number; z: number };
+  heightmap: Float32Array;
+  chunkSize: number;
+  subdivisions: number;
+}
+
+interface ChunkDistanceRequest {
+  position: { x: number; z: number };
+  chunkSize: number;
+}
+
+interface ChunkGenerationRequest {
+  currentChunkX: number;
+  currentChunkZ: number;
+  bomberPosition: { x: number; z: number };
+  existingChunks: string[];
+  maxTotalChunks: number;
+  maxChunksPerUpdate: number;
+}
+
 const noiseGenerator = new NoiseGenerator();
 
 function calculateHeightFromNoise(x: number, z: number): number {
@@ -176,19 +220,187 @@ function getHeightAtPosition(
   return h_x1 * (1 - tz) + h_x2 * tz;
 }
 
-self.onmessage = (event) => {
-  const { chunkX, chunkZ, chunkSize, subdivisions, messageId } = event.data;
-  const heightmap = generateHeightmap(chunkX, chunkZ, chunkSize, subdivisions);
-  const buildingConfigs = generateBuildings(chunkX, chunkZ, chunkSize, heightmap, subdivisions);
+// New functions for offloaded calculations
 
-  (self as any).postMessage({
-    type: 'TERRAIN_CHUNK_READY',
-    messageId,
-    data: {
-      chunkX,
-      chunkZ,
-      heightmap,
-      buildingConfigs,
-    },
-  });
+function calculateDistance(pos1: { x: number; y: number; z: number }, pos2: { x: number; y: number; z: number }): number {
+  const dx = pos1.x - pos2.x;
+  const dy = pos1.y - pos2.y;
+  const dz = pos1.z - pos2.z;
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+function getBuildingsInRadius(request: BuildingsInRadiusRequest): BuildingData[] {
+  const { bomberPosition, chunks, radius } = request;
+  const buildings: BuildingData[] = [];
+
+  for (const chunk of chunks) {
+    for (const building of chunk.buildings) {
+      // Return ALL buildings within radius, not just defense launchers
+      if (!building.isDestroyed) {
+        const distance = calculateDistance(bomberPosition, building.position);
+        if (distance <= radius) {
+          buildings.push(building);
+        }
+      }
+    }
+  }
+
+  return buildings;
+}
+
+function getDistanceToNearestChunkEdge(request: ChunkDistanceRequest): number {
+  const { position, chunkSize } = request;
+  
+  const chunkX = Math.floor(position.x / chunkSize);
+  const chunkZ = Math.floor(position.z / chunkSize);
+
+  const chunkCenterX = (chunkX + 0.5) * chunkSize;
+  const chunkCenterZ = (chunkZ + 0.5) * chunkSize;
+
+  const distanceToEdgeX = Math.abs(position.x - chunkCenterX);
+  const distanceToEdgeZ = Math.abs(position.z - chunkCenterZ);
+
+  return Math.min(chunkSize / 2 - distanceToEdgeX, chunkSize / 2 - distanceToEdgeZ);
+}
+
+function getTerrainHeight(request: TerrainHeightRequest): number {
+  const { position, heightmap, chunkSize, subdivisions } = request;
+  
+  const localX = position.x;
+  const localZ = position.z;
+  
+  return getHeightAtPosition(localX, localZ, heightmap, chunkSize, subdivisions);
+}
+
+function generateChunksNearPlayer(request: ChunkGenerationRequest): { chunkX: number; chunkZ: number }[] {
+  const { currentChunkX, currentChunkZ, bomberPosition, existingChunks, maxTotalChunks, maxChunksPerUpdate } = request;
+  
+  const chunksToGenerate: { chunkX: number; chunkZ: number }[] = [];
+  let chunksGenerated = 0;
+
+  // Generate chunks in immediate vicinity
+  for (let x = currentChunkX - 1; x <= currentChunkX + 1 && chunksGenerated < maxChunksPerUpdate; x++) {
+    for (let z = currentChunkZ - 1; z <= currentChunkZ + 1 && chunksGenerated < maxChunksPerUpdate; z++) {
+      const chunkKey = `${x}_${z}`;
+      if (!existingChunks.includes(chunkKey)) {
+        chunksToGenerate.push({ chunkX: x, chunkZ: z });
+        chunksGenerated++;
+      }
+    }
+  }
+
+  // Generate additional chunks based on direction if needed
+  if (chunksGenerated < maxChunksPerUpdate && existingChunks.length < maxTotalChunks) {
+    // Calculate direction based on bomber position relative to current chunk center
+    const chunkCenterX = (currentChunkX + 0.5) * 500; // Assuming chunkSize = 500
+    const chunkCenterZ = (currentChunkZ + 0.5) * 500;
+    
+    const directionX = bomberPosition.x > chunkCenterX ? 1 : -1;
+    const directionZ = bomberPosition.z > chunkCenterZ ? 1 : -1;
+    
+    // Prioritize direction with larger offset
+    const offsetX = Math.abs(bomberPosition.x - chunkCenterX);
+    const offsetZ = Math.abs(bomberPosition.z - chunkCenterZ);
+    
+    if (offsetX > offsetZ) {
+      // Generate chunks in X direction
+      for (let z = currentChunkZ - 1; z <= currentChunkZ + 1 && chunksGenerated < maxChunksPerUpdate; z++) {
+        const chunkKey = `${currentChunkX + directionX * 2}_${z}`;
+        if (!existingChunks.includes(chunkKey)) {
+          chunksToGenerate.push({ chunkX: currentChunkX + directionX * 2, chunkZ: z });
+          chunksGenerated++;
+        }
+      }
+    } else {
+      // Generate chunks in Z direction
+      for (let x = currentChunkX - 1; x <= currentChunkX + 1 && chunksGenerated < maxChunksPerUpdate; x++) {
+        const chunkKey = `${x}_${currentChunkZ + directionZ * 2}`;
+        if (!existingChunks.includes(chunkKey)) {
+          chunksToGenerate.push({ chunkX: x, chunkZ: currentChunkZ + directionZ * 2 });
+          chunksGenerated++;
+        }
+      }
+    }
+  }
+
+  return chunksToGenerate;
+}
+
+self.onmessage = (event) => {
+  const { type, data, messageId } = event.data;
+
+  switch (type) {
+    case 'GENERATE_TERRAIN_CHUNK':
+      const { chunkX, chunkZ, chunkSize, subdivisions } = data;
+      const heightmap = generateHeightmap(chunkX, chunkZ, chunkSize, subdivisions);
+      const buildingConfigs = generateBuildings(chunkX, chunkZ, chunkSize, heightmap, subdivisions);
+
+      (self as any).postMessage({
+        type: 'TERRAIN_CHUNK_READY',
+        messageId,
+        data: {
+          chunkX,
+          chunkZ,
+          heightmap,
+          buildingConfigs,
+        },
+      });
+      break;
+
+    case 'GET_BUILDINGS_IN_RADIUS':
+      const buildingsInRadius = getBuildingsInRadius(data);
+      (self as any).postMessage({
+        type: 'BUILDINGS_IN_RADIUS_RESULT',
+        messageId,
+        data: { buildings: buildingsInRadius },
+      });
+      break;
+
+    case 'GET_DISTANCE_TO_CHUNK_EDGE':
+      const distance = getDistanceToNearestChunkEdge(data);
+      (self as any).postMessage({
+        type: 'CHUNK_DISTANCE_RESULT',
+        messageId,
+        data: { distance },
+      });
+      break;
+
+    case 'GET_TERRAIN_HEIGHT':
+      const height = getTerrainHeight(data);
+      (self as any).postMessage({
+        type: 'TERRAIN_HEIGHT_RESULT',
+        messageId,
+        data: { height },
+      });
+      break;
+
+    case 'GENERATE_CHUNKS_NEAR_PLAYER':
+      const chunksToGenerate = generateChunksNearPlayer(data);
+      (self as any).postMessage({
+        type: 'CHUNKS_TO_GENERATE_RESULT',
+        messageId,
+        data: { chunks: chunksToGenerate },
+      });
+      break;
+
+    default:
+      // Handle legacy terrain chunk generation
+      if (data.chunkX !== undefined && data.chunkZ !== undefined) {
+        const { chunkX, chunkZ, chunkSize, subdivisions } = data;
+        const heightmap = generateHeightmap(chunkX, chunkZ, chunkSize, subdivisions);
+        const buildingConfigs = generateBuildings(chunkX, chunkZ, chunkSize, heightmap, subdivisions);
+
+        (self as any).postMessage({
+          type: 'TERRAIN_CHUNK_READY',
+          messageId,
+          data: {
+            chunkX,
+            chunkZ,
+            heightmap,
+            buildingConfigs,
+          },
+        });
+      }
+      break;
+  }
 };

@@ -225,11 +225,21 @@ export class TerrainManager {
       return;
     }
 
-    const distanceToChunkEdge = this.getDistanceToNearestChunkEdge(bomberPosition);
-
-    if (distanceToChunkEdge < this.generationThreshold) {
-      this.generateChunksNearPlayer(currentChunkX, currentChunkZ, bomberPosition);
-    }
+    // Use worker to calculate distance to chunk edge with promise-based callbacks
+    this.workerManager
+      .getDistanceToNearestChunkEdge(bomberPosition, this.chunkSize)
+      .then((result: { distance: number }) => {
+        if (result.distance < this.generationThreshold) {
+          this.generateChunksNearPlayerAsync(currentChunkX, currentChunkZ, bomberPosition);
+        }
+      })
+      .catch(() => {
+        // Fallback to synchronous calculation if worker fails
+        const distanceToChunkEdge = this.getDistanceToNearestChunkEdge(bomberPosition);
+        if (distanceToChunkEdge < this.generationThreshold) {
+          this.generateChunksNearPlayer(currentChunkX, currentChunkZ, bomberPosition);
+        }
+      });
 
     const chunksToRemove: string[] = [];
     let chunksProcessed = 0;
@@ -260,6 +270,42 @@ export class TerrainManager {
     });
   }
 
+  private generateChunksNearPlayerAsync(currentChunkX: number, currentChunkZ: number, bomberPosition: Vector3): void {
+    // Don't generate chunks if not safe for worker calls
+    if (!this.isSafeForWorkerCalls()) {
+      return;
+    }
+
+    const maxTotalChunks = 25;
+    if (this.chunks.size >= maxTotalChunks) {
+      return;
+    }
+
+    const existingChunks = Array.from(this.chunks.keys());
+    const maxChunksPerUpdate = 4;
+
+    // Use promise-based callbacks instead of async/await
+    this.workerManager.generateChunksNearPlayer(
+      currentChunkX,
+      currentChunkZ,
+      bomberPosition,
+      existingChunks,
+      maxTotalChunks,
+      maxChunksPerUpdate
+    )
+      .then((result) => {
+        const chunksToGenerate = result.chunks as { chunkX: number; chunkZ: number }[];
+        chunksToGenerate.forEach(({ chunkX, chunkZ }) => {
+          this.generateChunk(chunkX, chunkZ);
+        });
+      })
+      .catch(() => {
+        // Fallback to synchronous generation if worker fails
+        this.generateChunksNearPlayer(currentChunkX, currentChunkZ, bomberPosition);
+      });
+  }
+
+  // Fallback synchronous method for distance calculation
   private getDistanceToNearestChunkEdge(position: Vector3): number {
     const chunkX = Math.floor(position.x / this.chunkSize);
     const chunkZ = Math.floor(position.z / this.chunkSize);
@@ -273,6 +319,7 @@ export class TerrainManager {
     return Math.min(this.chunkSize / 2 - distanceToEdgeX, this.chunkSize / 2 - distanceToEdgeZ);
   }
 
+  // Fallback synchronous method for chunk generation
   private generateChunksNearPlayer(currentChunkX: number, currentChunkZ: number, bomberPosition: Vector3): void {
     // Don't generate chunks if not safe for worker calls
     if (!this.isSafeForWorkerCalls()) {
@@ -342,7 +389,7 @@ export class TerrainManager {
     return maxHeight;
   }
 
-  public getBuildingsInRadius(position: Vector3, radius: number): Building[] {
+  public async getBuildingsInRadius(position: Vector3, radius: number): Promise<Building[]> {
     const cacheKey = `${Math.floor(position.x / 50)}_${Math.floor(position.z / 50)}_${radius}`;
     const currentTime = performance.now();
 
@@ -353,6 +400,78 @@ export class TerrainManager {
       });
     }
 
+    // Prepare chunk data for worker
+    const chunks: any[] = [];
+    const chunkRadius = Math.ceil(radius / this.chunkSize) + 1;
+    const centerChunkX = Math.floor(position.x / this.chunkSize);
+    const centerChunkZ = Math.floor(position.z / this.chunkSize);
+
+    for (let x = centerChunkX - chunkRadius; x <= centerChunkX + chunkRadius; x++) {
+      for (let z = centerChunkZ - chunkRadius; z <= centerChunkZ + chunkRadius; z++) {
+        const chunkKey = `${x}_${z}`;
+        const chunk = this.chunks.get(chunkKey);
+
+        if (chunk) {
+          const chunkCenterX = x * this.chunkSize;
+          const chunkCenterZ = z * this.chunkSize;
+          const chunkDistance = Math.sqrt(
+            Math.pow(position.x - chunkCenterX, 2) + Math.pow(position.z - chunkCenterZ, 2),
+          );
+
+          if (chunkDistance <= radius + this.chunkSize * 0.7) {
+            const buildingData = chunk.buildings.map((building) => ({
+              id: building.getPosition().toString(), // Use position as ID for now
+              position: {
+                x: building.getPosition().x,
+                y: building.getPosition().y,
+                z: building.getPosition().z,
+              },
+              width: building.getMaxHeight(), // Approximate
+              height: building.getMaxHeight(),
+              depth: building.getMaxHeight(), // Approximate
+              isTarget: building.isTarget(),
+              isDefenseLauncher: building.isDefenseLauncher(),
+              isDestroyed: building.getIsDestroyed(),
+            }));
+
+            chunks.push({
+              chunkX: x,
+              chunkZ: z,
+              buildings: buildingData,
+            });
+          }
+        }
+      }
+    }
+
+    try {
+      const result = await this.workerManager.getBuildingsInRadius(position, chunks, radius);
+      const buildingIds = result.buildings.map((b: any) => b.id);
+      
+      // Convert back to Building objects
+      const buildings: Building[] = [];
+      this.chunks.forEach((chunk) => {
+        if (chunk) {
+          chunk.buildings.forEach((building) => {
+            if (buildingIds.includes(building.getPosition().toString())) {
+              buildings.push(building);
+            }
+          });
+        }
+      });
+
+      this.buildingCache.set(cacheKey, buildings);
+      this.lastCacheTime = currentTime;
+
+      return buildings;
+    } catch (error) {
+      // Fallback to synchronous calculation if worker fails
+      return this.getBuildingsInRadiusSync(position, radius);
+    }
+  }
+
+  // Fallback synchronous method for building radius calculation
+  private getBuildingsInRadiusSync(position: Vector3, radius: number): Building[] {
     const buildings: Building[] = [];
 
     const chunkRadius = Math.ceil(radius / this.chunkSize) + 1;
@@ -383,9 +502,6 @@ export class TerrainManager {
       }
     }
 
-    this.buildingCache.set(cacheKey, buildings);
-    this.lastCacheTime = currentTime;
-
     return buildings;
   }
 
@@ -398,13 +514,25 @@ export class TerrainManager {
 
   public updateDefenseLaunchers(bomberPosition: Vector3, currentTime: number, deltaTime: number): void {
     const maxRange = 400;
-    const buildings = this.getBuildingsInRadius(bomberPosition, maxRange);
-
-    buildings.forEach((building) => {
-      if (building.isDefenseLauncher()) {
-        building.updateDefenseLauncher(bomberPosition, currentTime, deltaTime);
-      }
-    });
+    
+    // Use promise-based callbacks instead of async/await
+    this.getBuildingsInRadius(bomberPosition, maxRange)
+      .then((buildings) => {
+        buildings.forEach((building) => {
+          if (building.isDefenseLauncher()) {
+            building.updateDefenseLauncher(bomberPosition, currentTime, deltaTime);
+          }
+        });
+      })
+      .catch(() => {
+        // Fallback to synchronous method if async fails
+        const buildings = this.getBuildingsInRadiusSync(bomberPosition, maxRange);
+        buildings.forEach((building) => {
+          if (building.isDefenseLauncher()) {
+            building.updateDefenseLauncher(bomberPosition, currentTime, deltaTime);
+          }
+        });
+      });
   }
 
   public setBomber(bomber: any): void {
