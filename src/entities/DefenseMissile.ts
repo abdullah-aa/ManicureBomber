@@ -27,9 +27,8 @@ export class DefenseMissile {
   private exploded: boolean = false;
   private exhaustParticles!: ParticleSystem;
   private light!: PointLight;
-  private lifeTime: number = 0;
-  private maxLifeTime: number = 10; // Missiles self-destruct after 10 seconds
   private targetSet: boolean = false; // Performance optimization flag
+  private maxAltitude: number = 200; // Maximum altitude before detonation
   
   // Worker-related properties
   private pendingPhysicsUpdate: boolean = false;
@@ -187,7 +186,6 @@ export class DefenseMissile {
   public update(deltaTime: number): void {
     if (!this.launched || this.exploded) return;
 
-    this.lifeTime += deltaTime;
     const currentTime = performance.now() / 1000;
     
     // Use worker for physics calculations
@@ -218,9 +216,8 @@ export class DefenseMissile {
       deltaTime: deltaTime,
       launched: this.launched,
       exploded: this.exploded,
-      lifeTime: this.lifeTime,
-      maxLifeTime: this.maxLifeTime,
-      targetSet: this.targetSet
+      targetSet: this.targetSet,
+      maxAltitude: this.maxAltitude
     };
     
     // Send to worker and handle response
@@ -336,6 +333,10 @@ export class DefenseMissile {
 
   public hasExploded(): boolean {
     return this.exploded;
+  }
+
+  public setMaxAltitude(altitude: number): void {
+    this.maxAltitude = altitude;
   }
 
   public dispose(): void {

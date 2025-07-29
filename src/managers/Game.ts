@@ -232,7 +232,7 @@ export class Game {
 
         // Update defense launchers less frequently
         if (currentTime - this.lastDefenseUpdateTime > this.defenseUpdateInterval) {
-          this.terrainManager.updateDefenseLaunchers(this.bomber.getPosition(), safeCurrentTime, safeDeltaTime);
+          this.terrainManager.updateDefenseLaunchers(this.bomber.getPosition(), this.bomber.getVelocity(), safeCurrentTime, safeDeltaTime);
           this.lastDefenseUpdateTime = currentTime;
         }
 

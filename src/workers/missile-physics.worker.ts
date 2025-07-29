@@ -48,6 +48,9 @@ interface MissilePhysicsData {
   lastTargetUpdateTime?: number;
   targetUpdateInterval?: number;
   currentTime?: number;
+
+  // Defense missile-specific properties
+  maxAltitude?: number;
 }
 
 interface MissilePhysicsResult {
@@ -587,9 +590,12 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
     
     reachedTarget = distanceToTarget <= 5 || newPosition.y <= 0 || flareExplosion;
   } else {
-    // Defense missile has lifetime and distance checks
-    const newLifeTime = data.lifeTime + data.deltaTime;
-    reachedTarget = distanceToTarget < 5 || newLifeTime > data.maxLifeTime;
+    // Defense missile has altitude check only
+    // Check for altitude-based detonation
+    const maxAltitude = data.maxAltitude || 1000; // Default max altitude of 1000 units
+    const altitudeExceeded = newPosition.y >= maxAltitude;
+    
+    reachedTarget = altitudeExceeded;
   }
 
   shouldExplode = reachedTarget;
@@ -601,7 +607,7 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
     pathTime: newPathTime,
     reachedTarget,
     shouldExplode,
-    distanceToTarget,
+    distanceToTarget: vector3Distance(newPosition, data.targetPosition),
     targetSet: data.targetSet,
   };
 

@@ -675,7 +675,7 @@ export class Building {
     return this.config.height;
   }
 
-  public updateDefenseLauncher(bomberPosition: Vector3, currentTime: number, deltaTime: number): void {
+  public updateDefenseLauncher(bomberPosition: Vector3, bomberVelocity: Vector3, currentTime: number, deltaTime: number): void {
     if (!this.config.isDefenseLauncher || this.isDestroyed) return;
 
     // Update existing missiles
@@ -696,7 +696,7 @@ export class Building {
       distanceToBomber <= this.radarScanRange &&
       currentTime - this.lastMissileLaunchTime >= this.missileLaunchInterval
     ) {
-      this.launchDefenseMissile(bomberPosition);
+      this.launchDefenseMissile(bomberPosition, bomberVelocity);
       this.lastMissileLaunchTime = currentTime;
       
       // Randomize the next launch interval for more dynamic behavior
@@ -704,15 +704,28 @@ export class Building {
     }
   }
 
-  private launchDefenseMissile(bomberPosition: Vector3): void {
+  private launchDefenseMissile(bomberPosition: Vector3, bomberVelocity: Vector3): void {
     if (!this.config.isDefenseLauncher || this.isDestroyed) return;
 
     const launchPosition = this.getPosition().clone();
     launchPosition.y += this.config.height + 3; // Launch from top of launcher
 
-    // Add more inaccuracy to make the missile aim slightly off target
+    // Calculate missile speed (average of the variable speed range)
+    const missileSpeed = 150; // Average of 120-180 units/sec range
+    
+    // Calculate distance to bomber
+    const distanceToBomber = Vector3.Distance(launchPosition, bomberPosition);
+    
+    // Calculate time for missile to reach bomber
+    const timeToReachBomber = distanceToBomber / missileSpeed;
+    
+    // Predict bomber's future position based on missile travel time
+    const bomberFuturePosition = bomberPosition.clone();
+    bomberFuturePosition.addInPlace(bomberVelocity.scale(timeToReachBomber));
+
+    // Add inaccuracy to make the missile aim slightly off target
     const inaccuracy = 30 + Math.random() * 20; // Variable inaccuracy between 30-50 units
-    const targetPosition = bomberPosition.clone();
+    const targetPosition = bomberFuturePosition.clone();
     targetPosition.x += (Math.random() - 0.5) * inaccuracy;
     targetPosition.y += (Math.random() - 0.5) * inaccuracy;
     targetPosition.z += (Math.random() - 0.5) * inaccuracy;

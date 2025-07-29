@@ -551,7 +551,7 @@ export class Bomber {
 
     // Keep altitude within reasonable bounds - above terrain (max ~80) but still allow low flying
     // Minimum altitude will be dynamically set by the game based on building heights
-    this.altitude = Math.max(30, Math.min(300, this.altitude));
+    this.altitude = Math.max(15, Math.min(300, this.altitude));
 
     // Cache trigonometric calculations to avoid repeated sin/cos calls
     if (!this.trigCacheValid || Math.abs(this.rotation.y - this.lastRotationY) > 0.01) {

@@ -512,7 +512,7 @@ export class TerrainManager {
     return this.chunks.get(chunkKey) ?? undefined;
   }
 
-  public updateDefenseLaunchers(bomberPosition: Vector3, currentTime: number, deltaTime: number): void {
+  public updateDefenseLaunchers(bomberPosition: Vector3, bomberVelocity: Vector3, currentTime: number, deltaTime: number): void {
     const maxRange = 400;
     
     // Use promise-based callbacks instead of async/await
@@ -520,7 +520,7 @@ export class TerrainManager {
       .then((buildings) => {
         buildings.forEach((building) => {
           if (building.isDefenseLauncher()) {
-            building.updateDefenseLauncher(bomberPosition, currentTime, deltaTime);
+            building.updateDefenseLauncher(bomberPosition, bomberVelocity, currentTime, deltaTime);
           }
         });
       })
@@ -529,7 +529,7 @@ export class TerrainManager {
         const buildings = this.getBuildingsInRadiusSync(bomberPosition, maxRange);
         buildings.forEach((building) => {
           if (building.isDefenseLauncher()) {
-            building.updateDefenseLauncher(bomberPosition, currentTime, deltaTime);
+            building.updateDefenseLauncher(bomberPosition, bomberVelocity, currentTime, deltaTime);
           }
         });
       });
