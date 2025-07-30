@@ -211,11 +211,6 @@ export class Game {
         this.handleCountermeasures();
         this.handleCameraToggle(safeCurrentTime);
         
-        // Enforce minimum flight height (double the max building height)
-        const maxBuildingHeight = this.terrainManager.getMaxBuildingHeight();
-        const minimumFlightHeight = maxBuildingHeight * 2;
-        this.bomber.setMinimumAltitude(minimumFlightHeight);
-        
         this.bomber.update(safeDeltaTime, this.inputManager);
         this.cameraController.update(safeDeltaTime, this.inputManager);
         this.updateBombs(safeDeltaTime); // Now uses promise-based callbacks internally
