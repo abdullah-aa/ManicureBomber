@@ -79,27 +79,25 @@ export class TomahawkMissile {
     this.setupParticleEffects();
     this.setupExplosionEffects();
     this.createLaunchAnimation();
-    this.generateInitialPath().catch(() => {
-      // Fallback: use simple waypoints
-      this.waypoints = [this.position.clone(), this.targetPosition.clone()];
-    });
+    this.generateInitialPath();
   }
 
-  private async generateInitialPath(): Promise<void> {
-    try {
-      const pathData = {
-        launchPosition: { x: this.position.x, y: this.position.y, z: this.position.z },
-        targetPosition: { x: this.targetPosition.x, y: this.targetPosition.y, z: this.targetPosition.z },
-        animationOffset: { x: 15, y: -20, z: 15 } // From launch animation final keyframe
-      };
-      
-      const result = await this.workerManager.generateTomahawkPath(pathData);
-      this.waypoints = result.waypoints.map((wp: any) => new Vector3(wp.x, wp.y, wp.z));
-    } catch (error) {
-      // Fallback: use predicted end position
-      const predictedEndPosition = this.position.add(new Vector3(15, -20, 15));
-      this.waypoints = [predictedEndPosition.clone(), this.targetPosition.clone()];
-    }
+  private generateInitialPath(): void {
+    const pathData = {
+      launchPosition: { x: this.position.x, y: this.position.y, z: this.position.z },
+      targetPosition: { x: this.targetPosition.x, y: this.targetPosition.y, z: this.targetPosition.z },
+      animationOffset: { x: 15, y: -20, z: 15 } // From launch animation final keyframe
+    };
+    
+    this.workerManager.generateTomahawkPath(pathData)
+      .then((result) => {
+        this.waypoints = result.waypoints.map((wp: any) => new Vector3(wp.x, wp.y, wp.z));
+      })
+      .catch(() => {
+        // Fallback: use predicted end position
+        const predictedEndPosition = this.position.add(new Vector3(15, -20, 15));
+        this.waypoints = [predictedEndPosition.clone(), this.targetPosition.clone()];
+      });
   }
 
 

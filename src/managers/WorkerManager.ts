@@ -223,8 +223,8 @@ export class WorkerManager {
   }
 
 
-  // Generic message sending with async/await and timeout
-  private async sendMessageToWorker(worker: Worker, message: any): Promise<any> {
+  // Generic message sending with promise-based approach
+  private sendMessageToWorker(worker: Worker, message: any): Promise<any> {
     const messageId = `msg_${this.messageIdCounter++}`;
     const messageWithId = { ...message, messageId };
 
@@ -247,16 +247,9 @@ export class WorkerManager {
     //   }, this.WORKER_TIMEOUT);
     // });
 
-    try {
-      // Race between response and timeout
-      // const result = await Promise.race([responsePromise, timeoutPromise]);
-      // return result;
-      return responsePromise;
-    } catch (error) {
-      // Clean up callback if it still exists
-      this.messageCallbacks.delete(messageId);
-      throw error;
-    }
+    // Race between response and timeout
+    // return Promise.race([responsePromise, timeoutPromise]);
+    return responsePromise;
   }
 
   // Cleanup method

@@ -785,7 +785,7 @@ export class Bomber {
     return Math.min(timeSinceLastLaunch / this.missileCooldownTime, 1);
   }
 
-  public async findClosestDefenseBuilding(): Promise<Building | null> {
+  public findClosestDefenseBuilding(): Promise<Building | null> {
     const currentTime = performance.now() / 1000;
 
     // Use cached result if recent enough and position hasn't changed significantly
@@ -794,7 +794,7 @@ export class Bomber {
       currentTime - this.lastTargetCheckTime < this.targetCheckInterval &&
       Vector3.Distance(this.position, this.lastTargetCheckPosition) < this.targetCheckPositionThreshold
     ) {
-      return this.cachedTarget;
+      return Promise.resolve(this.cachedTarget);
     }
 
     // Update cache timing and position
@@ -803,32 +803,32 @@ export class Bomber {
 
     const defenseRange = 300; // Same range as defense buildings
     
-    try {
-      const nearbyBuildings = await this.terrainManager!.getBuildingsInRadius(this.position, defenseRange);
+    return this.terrainManager!.getBuildingsInRadius(this.position, defenseRange)
+      .then((nearbyBuildings) => {
+        let closestBuilding: Building | null = null;
+        let closestDistance = Infinity;
 
-      let closestBuilding: Building | null = null;
-      let closestDistance = Infinity;
-
-      for (const building of nearbyBuildings) {
-        if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
-          const distance = Vector3.Distance(this.position, building.getPosition());
-          if (distance < closestDistance) {
-            closestDistance = distance;
-            closestBuilding = building;
+        for (const building of nearbyBuildings) {
+          if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
+            const distance = Vector3.Distance(this.position, building.getPosition());
+            if (distance < closestDistance) {
+              closestDistance = distance;
+              closestBuilding = building;
+            }
           }
         }
-      }
 
-      this.cachedTarget = closestBuilding;
-      return closestBuilding;
-    } catch (error) {
-      // Silent error handling - return null if worker fails
-      return null;
-    }
+        this.cachedTarget = closestBuilding;
+        return closestBuilding;
+      })
+      .catch(() => {
+        // Silent error handling - return null if worker fails
+        return null;
+      });
   }
 
-  public async hasValidTarget(): Promise<boolean> {
-    return (await this.findClosestDefenseBuilding()) !== null;
+  public hasValidTarget(): Promise<boolean> {
+    return this.findClosestDefenseBuilding().then((building) => building !== null);
   }
 
   public invalidateTargetCache(): void {

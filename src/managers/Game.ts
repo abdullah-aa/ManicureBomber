@@ -81,7 +81,7 @@ export class Game {
     this.canvas = canvas;
   }
 
-  public async initialize(): Promise<void> {
+  public initialize(): Promise<void> {
     this.setupLighting();
     this.setupCamera();
 
@@ -109,13 +109,15 @@ export class Game {
 
     this.bomber.setTerrainManager(this.terrainManager);
     this.terrainManager.setBomber(this.bomber);
-    await this.terrainManager.generateInitialTerrain(this.bomber.getPosition());
+    
+    return this.terrainManager.generateInitialTerrain(this.bomber.getPosition())
+      .then(() => {
+        // Initialize first Iskander launch time
+        const initialInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
+        this.nextIskanderLaunchTime = performance.now() / 1000 + initialInterval;
 
-    // Initialize first Iskander launch time
-    const initialInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
-    this.nextIskanderLaunchTime = performance.now() / 1000 + initialInterval;
-
-    this.startGameLoop();
+        this.startGameLoop();
+      });
   }
 
   private setupLighting(): void {
@@ -505,7 +507,7 @@ export class Game {
     return false;
   }
 
-  private async updateBombs(deltaTime: number): Promise<void> {
+  private updateBombs(deltaTime: number): void {
     for (let i = this.bombs.length - 1; i >= 0; i--) {
       const bomb = this.bombs[i];
       bomb.update(deltaTime);
@@ -588,7 +590,7 @@ export class Game {
     document.body.appendChild(gameOverDiv);
   }
 
-  private async checkDefenseMissileCollisions(): Promise<void> {
+  private checkDefenseMissileCollisions(): void {
     if (this.gameOver || this.bomber.isBomberDestroyed()) return;
 
     const bomberPosition = this.bomber.getPosition();

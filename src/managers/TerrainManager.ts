@@ -48,45 +48,41 @@ export class TerrainManager {
     this.createClearSky();
   }
 
-  private async generateChunk(chunkX: number, chunkZ: number): Promise<void> {
+  private generateChunk(chunkX: number, chunkZ: number): Promise<void> {
     const chunkKey = `${chunkX}_${chunkZ}`;
-    if (this.chunks.has(chunkKey)) return;
+    if (this.chunks.has(chunkKey)) return Promise.resolve();
 
     // Check if this chunk is already being generated
     if (this.activeWorkerCalls.has(chunkKey)) {
-      return; // Already being processed
+      return Promise.resolve(); // Already being processed
     }
 
     this.chunks.set(chunkKey, null); // Placeholder to prevent re-generation
     this.activeWorkerCalls.add(chunkKey); // Track this worker call
 
-    try {
-      // Use async/await with timeout
-      this.workerManager
-        .generateTerrainChunk(chunkX, chunkZ, this.chunkSize, this.subdivisions)
-        .then(
-          (result: {
-            chunkX: number;
-            chunkZ: number;
-            heightmap: Float32Array;
-            buildingConfigs: Array<BuildingConfig>;
-          }) => {
-            // Only process result if we're still not disposing
-            if (!this.isDisposing) {
-              this.processTerrainChunkResult(result, chunkX, chunkZ);
-            }
-          },
-        )
-        .catch((error: any) => {
-          // Remove failed chunk from tracking
-          this.chunks.delete(chunkKey);
-        });
-    } catch (error) {
-      // Don't log worker errors during disposal to reduce console noise
-    } finally {
-      // Always clean up the tracking
-      this.activeWorkerCalls.delete(chunkKey);
-    }
+    return this.workerManager
+      .generateTerrainChunk(chunkX, chunkZ, this.chunkSize, this.subdivisions)
+      .then(
+        (result: {
+          chunkX: number;
+          chunkZ: number;
+          heightmap: Float32Array;
+          buildingConfigs: Array<BuildingConfig>;
+        }) => {
+          // Only process result if we're still not disposing
+          if (!this.isDisposing) {
+            this.processTerrainChunkResult(result, chunkX, chunkZ);
+          }
+        },
+      )
+      .catch((error: any) => {
+        // Remove failed chunk from tracking
+        this.chunks.delete(chunkKey);
+      })
+      .finally(() => {
+        // Always clean up the tracking
+        this.activeWorkerCalls.delete(chunkKey);
+      });
   }
 
   private processTerrainChunkResult(result: any, chunkX: number, chunkZ: number): void {
@@ -190,18 +186,22 @@ export class TerrainManager {
     this.scene.clearColor = new Color4(0.5, 0.7, 0.9, 1.0);
   }
 
-  public async generateInitialTerrain(center: Vector3): Promise<void> {
+  public generateInitialTerrain(center: Vector3): Promise<void> {
     if (!this.isSafeForWorkerCalls()) {
-      return;
+      return Promise.resolve();
     }
 
     const chunkX = Math.floor(center.x / this.chunkSize);
     const chunkZ = Math.floor(center.z / this.chunkSize);
+    
+    const chunkPromises: Promise<void>[] = [];
     for (let x = chunkX - 1; x <= chunkX + 1; x++) {
       for (let z = chunkZ - 1; z <= chunkZ + 1; z++) {
-        await this.generateChunk(x, z);
+        chunkPromises.push(this.generateChunk(x, z));
       }
     }
+    
+    return Promise.all(chunkPromises).then(() => {});
   }
 
   public update(bomberPosition: Vector3): void {
@@ -316,15 +316,15 @@ export class TerrainManager {
     return maxHeight;
   }
 
-  public async getBuildingsInRadius(position: Vector3, radius: number): Promise<Building[]> {
+  public getBuildingsInRadius(position: Vector3, radius: number): Promise<Building[]> {
     const cacheKey = `${Math.floor(position.x / 50)}_${Math.floor(position.z / 50)}_${radius}`;
     const currentTime = performance.now();
 
     if (this.buildingCache.has(cacheKey) && currentTime - this.lastCacheTime < this.cacheTimeout) {
-      return this.buildingCache.get(cacheKey)!.filter((building) => {
+      return Promise.resolve(this.buildingCache.get(cacheKey)!.filter((building) => {
         const distance = Vector3.Distance(position, building.getPosition());
         return distance <= radius;
-      });
+      }));
     }
 
     // Gather all buildings in all loaded chunks (or optimize to only nearby chunks)
@@ -351,24 +351,25 @@ export class TerrainManager {
       }
     });
 
-    try {
-      const result = await this.workerManager.getBuildingsInRadiusMinimal(position, buildingData, radius);
-      const buildingIds = result.buildingIds as string[];
+    return this.workerManager.getBuildingsInRadiusMinimal(position, buildingData, radius)
+      .then((result) => {
+        const buildingIds = result.buildingIds as string[];
 
-      const buildings: Building[] = [];
-      for (const id of buildingIds) {
-        const b = buildingMap.get(id);
-        if (b) buildings.push(b);
-      }
+        const buildings: Building[] = [];
+        for (const id of buildingIds) {
+          const b = buildingMap.get(id);
+          if (b) buildings.push(b);
+        }
 
-      this.buildingCache.set(cacheKey, buildings);
-      this.lastCacheTime = currentTime;
+        this.buildingCache.set(cacheKey, buildings);
+        this.lastCacheTime = currentTime;
 
-      return buildings;
-    } catch (error) {
-      // Skip on failed updates - no fallback
-      return [];
-    }
+        return buildings;
+      })
+      .catch(() => {
+        // Skip on failed updates - no fallback
+        return [];
+      });
   }
 
   // Simple synchronous fallback for when worker fails
