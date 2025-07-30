@@ -28,7 +28,7 @@ export class DefenseMissile {
   private exhaustParticles!: ParticleSystem;
   private light!: PointLight;
   private targetSet: boolean = false; // Performance optimization flag
-  private maxAltitude: number = 200; // Maximum altitude before detonation
+  private maxAltitude: number = 120 + Math.random() * 80; // Maximum altitude before detonation
   
   // Worker-related properties
   private pendingPhysicsUpdate: boolean = false;
@@ -333,10 +333,6 @@ export class DefenseMissile {
 
   public hasExploded(): boolean {
     return this.exploded;
-  }
-
-  public setMaxAltitude(altitude: number): void {
-    this.maxAltitude = altitude;
   }
 
   public dispose(): void {
