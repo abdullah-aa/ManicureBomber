@@ -94,18 +94,6 @@ export class WorkerManager {
     });
   }
 
-  public getTerrainHeight(position: Vector3, heightmap: Float32Array, chunkSize: number, subdivisions: number): Promise<any> {
-    return this.sendMessageToWorker(this.terrainWorker, {
-      type: 'GET_TERRAIN_HEIGHT',
-      data: {
-        position: { x: position.x, z: position.z },
-        heightmap,
-        chunkSize,
-        subdivisions,
-      },
-    });
-  }
-
   public generateChunksNearPlayer(
     currentChunkX: number,
     currentChunkZ: number,
@@ -123,6 +111,29 @@ export class WorkerManager {
         existingChunks,
         maxTotalChunks,
         maxChunksPerUpdate,
+      },
+    });
+  }
+
+  public getChunksToRemove(currentChunkX: number, currentChunkZ: number, existingChunks: string[], maxDistance: number): Promise<any> {
+    return this.sendMessageToWorker(this.terrainWorker, {
+      type: 'GET_CHUNKS_TO_REMOVE',
+      data: {
+        currentChunkX,
+        currentChunkZ,
+        existingChunks,
+        maxDistance,
+      },
+    });
+  }
+
+  public getBuildingsInRadiusMinimal(position: Vector3, buildings: any[], radius: number): Promise<any> {
+    return this.sendMessageToWorker(this.terrainWorker, {
+      type: 'GET_BUILDINGS_IN_RADIUS_MINIMAL',
+      data: {
+        position: { x: position.x, y: position.y, z: position.z },
+        buildings,
+        radius,
       },
     });
   }

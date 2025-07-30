@@ -326,6 +326,62 @@ function generateChunksNearPlayer(request: ChunkGenerationRequest): { chunkX: nu
   return chunksToGenerate;
 }
 
+function getChunksToRemove(request: { currentChunkX: number; currentChunkZ: number; existingChunks: string[]; maxDistance: number }): string[] {
+  const { currentChunkX, currentChunkZ, existingChunks, maxDistance } = request;
+  const chunksToRemove: string[] = [];
+
+  for (const chunkKey of existingChunks) {
+    const [chunkX, chunkZ] = chunkKey.split('_').map(Number);
+    const distance = Math.abs(chunkX - currentChunkX) + Math.abs(chunkZ - currentChunkZ);
+    if (distance > maxDistance) {
+      chunksToRemove.push(chunkKey);
+    }
+  }
+
+  return chunksToRemove;
+}
+
+function prepareBuildingDataForRadius(request: { position: { x: number; y: number; z: number }; radius: number; chunkSize: number; chunks: [string, any][] }): string[] {
+  const { position, radius, chunkSize, chunks } = request;
+  const relevantChunkKeys: string[] = [];
+  
+  for (const [chunkKey, chunk] of chunks) {
+    const [chunkX, chunkZ] = chunkKey.split('_').map(Number);
+    
+    // Check if chunk is within radius
+    const chunkCenterX = chunkX * chunkSize;
+    const chunkCenterZ = chunkZ * chunkSize;
+    const chunkDistance = Math.sqrt(
+      Math.pow(position.x - chunkCenterX, 2) + Math.pow(position.z - chunkCenterZ, 2)
+    );
+
+    if (chunkDistance <= radius + chunkSize * 0.7) {
+      relevantChunkKeys.push(chunkKey);
+    }
+  }
+
+  return relevantChunkKeys;
+}
+
+function getBuildingsInRadiusMinimal(request: { position: { x: number; y: number; z: number }, buildings: any[], radius: number }): string[] {
+  const { position, buildings, radius } = request;
+  const ids: string[] = [];
+  
+  for (const building of buildings) {
+    if (!building.isDestroyed) {
+      const dx = position.x - building.position.x;
+      const dy = position.y - building.position.y;
+      const dz = position.z - building.position.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist <= radius) {
+        ids.push(building.id);
+      }
+    }
+  }
+  
+  return ids;
+}
+
 self.onmessage = (event) => {
   const { type, data, messageId } = event.data;
 
@@ -380,6 +436,33 @@ self.onmessage = (event) => {
         type: 'CHUNKS_TO_GENERATE_RESULT',
         messageId,
         data: { chunks: chunksToGenerate },
+      });
+      break;
+
+    case 'GET_CHUNKS_TO_REMOVE':
+      const chunksToRemove = getChunksToRemove(data);
+      (self as any).postMessage({
+        type: 'CHUNKS_TO_REMOVE_RESULT',
+        messageId,
+        data: { chunksToRemove },
+      });
+      break;
+
+    case 'PREPARE_BUILDING_DATA_FOR_RADIUS':
+      const relevantChunkKeys = prepareBuildingDataForRadius(data);
+      (self as any).postMessage({
+        type: 'BUILDING_DATA_PREPARED_RESULT',
+        messageId,
+        data: { relevantChunkKeys },
+      });
+      break;
+
+    case 'GET_BUILDINGS_IN_RADIUS_MINIMAL':
+      const buildingIds = getBuildingsInRadiusMinimal(data);
+      (self as any).postMessage({
+        type: 'BUILDINGS_IN_RADIUS_MINIMAL_RESULT',
+        messageId,
+        data: { buildingIds },
       });
       break;
 

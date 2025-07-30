@@ -8,7 +8,6 @@ import {
   Color4,
   DynamicTexture,
 } from '@babylonjs/core';
-import { NoiseGenerator } from '../utils/NoiseGenerator';
 import { Building, BuildingConfig } from '../entities/Building';
 import { WorkerManager } from './WorkerManager';
 
@@ -36,7 +35,6 @@ export class TerrainManager {
   private lastCacheTime: number = 0;
 
   private workerManager: WorkerManager;
-  private noiseGenerator: NoiseGenerator; // Kept for fallback height calculation
 
   private isDisposing: boolean = false;
 
@@ -46,7 +44,6 @@ export class TerrainManager {
   constructor(scene: Scene, workerManager: WorkerManager) {
     this.scene = scene;
     this.workerManager = workerManager;
-    this.noiseGenerator = new NoiseGenerator(); // Fallback for synchronous height requests
     this.createTerrainMaterial();
     this.createClearSky();
   }
@@ -81,7 +78,6 @@ export class TerrainManager {
           },
         )
         .catch((error: any) => {
-          console.log('Terrain worker error:', error);
           // Remove failed chunk from tracking
           this.chunks.delete(chunkKey);
         });
@@ -225,7 +221,7 @@ export class TerrainManager {
       return;
     }
 
-    // Use worker to calculate distance to chunk edge with promise-based callbacks
+    // Use worker to calculate distance to chunk edge and generate chunks if needed
     this.workerManager
       .getDistanceToNearestChunkEdge(bomberPosition, this.chunkSize)
       .then((result: { distance: number }) => {
@@ -234,30 +230,29 @@ export class TerrainManager {
         }
       })
       .catch(() => {
-        // Fallback to synchronous calculation if worker fails
-        const distanceToChunkEdge = this.getDistanceToNearestChunkEdge(bomberPosition);
-        if (distanceToChunkEdge < this.generationThreshold) {
-          this.generateChunksNearPlayer(currentChunkX, currentChunkZ, bomberPosition);
-        }
+        // Skip on failed updates - no fallback
+        return;
       });
 
-    const chunksToRemove: string[] = [];
+    // Use worker to determine which chunks to remove
+    this.workerManager
+      .getChunksToRemove(currentChunkX, currentChunkZ, Array.from(this.chunks.keys()), 3)
+      .then((result: { chunksToRemove: string[] }) => {
+        this.removeChunks(result.chunksToRemove);
+      })
+      .catch(() => {
+        // Skip on failed updates - no fallback
+        return;
+      });
+  }
+
+  private removeChunks(chunksToRemove: string[]): void {
     let chunksProcessed = 0;
     const maxChunksToProcessPerFrame = 2;
 
-    this.chunks.forEach((chunk, key) => {
+    chunksToRemove.forEach((key) => {
       if (chunksProcessed >= maxChunksToProcessPerFrame) return;
 
-      if (chunk) {
-        const distance = Math.abs(chunk.x - currentChunkX) + Math.abs(chunk.z - currentChunkZ);
-        if (distance > 3) {
-          chunksToRemove.push(key);
-          chunksProcessed++;
-        }
-      }
-    });
-
-    chunksToRemove.forEach((key) => {
       const chunk = this.chunks.get(key);
       if (chunk) {
         chunk.buildings.forEach((building) => building.dispose());
@@ -266,6 +261,7 @@ export class TerrainManager {
         this.heightmapCache.delete(key);
         chunk.mesh.dispose();
         this.chunks.delete(key);
+        chunksProcessed++;
       }
     });
   }
@@ -300,78 +296,9 @@ export class TerrainManager {
         });
       })
       .catch(() => {
-        // Fallback to synchronous generation if worker fails
-        this.generateChunksNearPlayer(currentChunkX, currentChunkZ, bomberPosition);
+        // Skip on failed updates - no fallback
+        return;
       });
-  }
-
-  // Fallback synchronous method for distance calculation
-  private getDistanceToNearestChunkEdge(position: Vector3): number {
-    const chunkX = Math.floor(position.x / this.chunkSize);
-    const chunkZ = Math.floor(position.z / this.chunkSize);
-
-    const chunkCenterX = (chunkX + 0.5) * this.chunkSize;
-    const chunkCenterZ = (chunkZ + 0.5) * this.chunkSize;
-
-    const distanceToEdgeX = Math.abs(position.x - chunkCenterX);
-    const distanceToEdgeZ = Math.abs(position.z - chunkCenterZ);
-
-    return Math.min(this.chunkSize / 2 - distanceToEdgeX, this.chunkSize / 2 - distanceToEdgeZ);
-  }
-
-  // Fallback synchronous method for chunk generation
-  private generateChunksNearPlayer(currentChunkX: number, currentChunkZ: number, bomberPosition: Vector3): void {
-    // Don't generate chunks if not safe for worker calls
-    if (!this.isSafeForWorkerCalls()) {
-      return;
-    }
-
-    const maxTotalChunks = 25;
-    if (this.chunks.size >= maxTotalChunks) {
-      return;
-    }
-
-    let chunksGenerated = 0;
-    const maxChunksPerUpdate = 4;
-
-    for (let x = currentChunkX - 1; x <= currentChunkX + 1 && chunksGenerated < maxChunksPerUpdate; x++) {
-      for (let z = currentChunkZ - 1; z <= currentChunkZ + 1 && chunksGenerated < maxChunksPerUpdate; z++) {
-        const chunkKey = `${x}_${z}`;
-        if (!this.chunks.has(chunkKey)) {
-          this.generateChunk(x, z);
-          chunksGenerated++;
-        }
-      }
-    }
-
-    if (chunksGenerated < maxChunksPerUpdate && this.chunks.size < maxTotalChunks) {
-      const bomberVelocity = this.getBomberDirection(bomberPosition);
-      if (Math.abs(bomberVelocity.x) > Math.abs(bomberVelocity.z)) {
-        const directionX = bomberVelocity.x > 0 ? 1 : -1;
-        for (let z = currentChunkZ - 1; z <= currentChunkZ + 1 && chunksGenerated < maxChunksPerUpdate; z++) {
-          const chunkKey = `${currentChunkX + directionX * 2}_${z}`;
-          if (!this.chunks.has(chunkKey)) {
-            this.generateChunk(currentChunkX + directionX * 2, z);
-            chunksGenerated++;
-          }
-        }
-      } else {
-        const directionZ = bomberVelocity.z > 0 ? 1 : -1;
-        for (let x = currentChunkX - 1; x <= currentChunkX + 1 && chunksGenerated < maxChunksPerUpdate; x++) {
-          const chunkKey = `${x}_${currentChunkZ + directionZ * 2}`;
-          if (!this.chunks.has(chunkKey)) {
-            this.generateChunk(x, currentChunkZ + directionZ * 2);
-            chunksGenerated++;
-          }
-        }
-      }
-    }
-  }
-
-  private getBomberDirection(bomberPosition: Vector3): Vector3 {
-    const direction = bomberPosition.subtract(this.lastBomberPosition);
-    this.lastBomberPosition = bomberPosition.clone();
-    return direction;
   }
 
   public getMaxBuildingHeight(): number {
@@ -400,107 +327,64 @@ export class TerrainManager {
       });
     }
 
-    // Prepare chunk data for worker
-    const chunks: any[] = [];
-    const chunkRadius = Math.ceil(radius / this.chunkSize) + 1;
-    const centerChunkX = Math.floor(position.x / this.chunkSize);
-    const centerChunkZ = Math.floor(position.z / this.chunkSize);
+    // Gather all buildings in all loaded chunks (or optimize to only nearby chunks)
+    const buildingData: any[] = [];
+    const buildingMap: Map<string, Building> = new Map();
 
-    for (let x = centerChunkX - chunkRadius; x <= centerChunkX + chunkRadius; x++) {
-      for (let z = centerChunkZ - chunkRadius; z <= centerChunkZ + chunkRadius; z++) {
-        const chunkKey = `${x}_${z}`;
-        const chunk = this.chunks.get(chunkKey);
-
-        if (chunk) {
-          const chunkCenterX = x * this.chunkSize;
-          const chunkCenterZ = z * this.chunkSize;
-          const chunkDistance = Math.sqrt(
-            Math.pow(position.x - chunkCenterX, 2) + Math.pow(position.z - chunkCenterZ, 2),
-          );
-
-          if (chunkDistance <= radius + this.chunkSize * 0.7) {
-            const buildingData = chunk.buildings.map((building) => ({
-              id: building.getPosition().toString(), // Use position as ID for now
-              position: {
-                x: building.getPosition().x,
-                y: building.getPosition().y,
-                z: building.getPosition().z,
-              },
-              width: building.getMaxHeight(), // Approximate
-              height: building.getMaxHeight(),
-              depth: building.getMaxHeight(), // Approximate
-              isTarget: building.isTarget(),
-              isDefenseLauncher: building.isDefenseLauncher(),
-              isDestroyed: building.getIsDestroyed(),
-            }));
-
-            chunks.push({
-              chunkX: x,
-              chunkZ: z,
-              buildings: buildingData,
-            });
-          }
-        }
+    this.chunks.forEach((chunk) => {
+      if (chunk) {
+        chunk.buildings.forEach((building) => {
+          const id = building.getPosition().toString();
+          buildingData.push({
+            id,
+            position: {
+              x: building.getPosition().x,
+              y: building.getPosition().y,
+              z: building.getPosition().z,
+            },
+            isTarget: building.isTarget(),
+            isDefenseLauncher: building.isDefenseLauncher(),
+            isDestroyed: building.getIsDestroyed(),
+          });
+          buildingMap.set(id, building);
+        });
       }
-    }
+    });
 
     try {
-      const result = await this.workerManager.getBuildingsInRadius(position, chunks, radius);
-      const buildingIds = result.buildings.map((b: any) => b.id);
-      
-      // Convert back to Building objects
+      const result = await this.workerManager.getBuildingsInRadiusMinimal(position, buildingData, radius);
+      const buildingIds = result.buildingIds as string[];
+
       const buildings: Building[] = [];
-      this.chunks.forEach((chunk) => {
-        if (chunk) {
-          chunk.buildings.forEach((building) => {
-            if (buildingIds.includes(building.getPosition().toString())) {
-              buildings.push(building);
-            }
-          });
-        }
-      });
+      for (const id of buildingIds) {
+        const b = buildingMap.get(id);
+        if (b) buildings.push(b);
+      }
 
       this.buildingCache.set(cacheKey, buildings);
       this.lastCacheTime = currentTime;
 
       return buildings;
     } catch (error) {
-      // Fallback to synchronous calculation if worker fails
-      return this.getBuildingsInRadiusSync(position, radius);
+      // Skip on failed updates - no fallback
+      return [];
     }
   }
 
-  // Fallback synchronous method for building radius calculation
+  // Simple synchronous fallback for when worker fails
   private getBuildingsInRadiusSync(position: Vector3, radius: number): Building[] {
     const buildings: Building[] = [];
-
-    const chunkRadius = Math.ceil(radius / this.chunkSize) + 1;
-    const centerChunkX = Math.floor(position.x / this.chunkSize);
-    const centerChunkZ = Math.floor(position.z / this.chunkSize);
-
-    for (let x = centerChunkX - chunkRadius; x <= centerChunkX + chunkRadius; x++) {
-      for (let z = centerChunkZ - chunkRadius; z <= centerChunkZ + chunkRadius; z++) {
-        const chunkKey = `${x}_${z}`;
-        const chunk = this.chunks.get(chunkKey);
-
-        if (chunk) {
-          const chunkCenterX = x * this.chunkSize;
-          const chunkCenterZ = z * this.chunkSize;
-          const chunkDistance = Math.sqrt(
-            Math.pow(position.x - chunkCenterX, 2) + Math.pow(position.z - chunkCenterZ, 2),
-          );
-
-          if (chunkDistance <= radius + this.chunkSize * 0.7) {
-            chunk.buildings.forEach((building) => {
-              const distance = Vector3.Distance(position, building.getPosition());
-              if (distance <= radius) {
-                buildings.push(building);
-              }
-            });
+    
+    this.chunks.forEach((chunk) => {
+      if (chunk) {
+        chunk.buildings.forEach((building) => {
+          const distance = Vector3.Distance(position, building.getPosition());
+          if (distance <= radius) {
+            buildings.push(building);
           }
-        }
+        });
       }
-    }
+    });
 
     return buildings;
   }
@@ -525,13 +409,8 @@ export class TerrainManager {
         });
       })
       .catch(() => {
-        // Fallback to synchronous method if async fails
-        const buildings = this.getBuildingsInRadiusSync(bomberPosition, maxRange);
-        buildings.forEach((building) => {
-          if (building.isDefenseLauncher()) {
-            building.updateDefenseLauncher(bomberPosition, bomberVelocity, currentTime, deltaTime);
-          }
-        });
+        // Skip on failed updates - no fallback
+        return;
       });
   }
 
