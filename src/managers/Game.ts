@@ -60,7 +60,6 @@ export class Game {
   // Game state
   private gameOver: boolean = false;
   private gameOverTime: number = 0;
-  private gameOverDelay: number = 5; // 5 seconds before restart
 
   // Performance optimization: frame rate control
   private targetFrameRate: number = 60;
@@ -186,14 +185,9 @@ export class Game {
       try {
         const currentTime = performance.now();
 
-        // Check for game over condition FIRST, before any frame rate limiting
+        // Check for game over condition - stop processing but don't auto-restart
         if (this.gameOver) {
-          const timeSinceGameOver = currentTime / 1000 - this.gameOverTime;
-          if (timeSinceGameOver >= this.gameOverDelay) {
-            // Restart the game
-            location.reload();
-            return; // Exit early to prevent further processing
-          }
+          return; // Exit early to prevent further processing
         }
 
         // Performance optimization: frame rate limiting
@@ -584,7 +578,7 @@ export class Game {
                 <p>Your Bomber has been destroyed!</p>
                 <p>Buildings Destroyed: ${this.destroyedBuildings}</p>
                 <p>Targets Eliminated: ${this.destroyedTargets}</p>
-                <p>Restarting in ${this.gameOverDelay} seconds...</p>
+                <button id="restart-button" onclick="location.reload()">Restart Mission</button>
             </div>
         `;
     document.body.appendChild(gameOverDiv);
