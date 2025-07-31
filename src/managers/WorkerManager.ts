@@ -119,12 +119,27 @@ export class WorkerManager {
   }
 
   // Missile physics worker methods
-  public updateMissilePhysics(missileData: any): Promise<any> {
+  public updateDefenseMissile(missileData: any): Promise<any> {
     return this.sendMessageToWorker(this.missilePhysicsWorker, {
-      type: 'UPDATE_MISSILE_PHYSICS',
+      type: 'UPDATE_DEFENSE_MISSILE',
       data: missileData,
     });
   }
+
+  public updateTomahawkMissile(missileData: any): Promise<any> {
+    return this.sendMessageToWorker(this.missilePhysicsWorker, {
+      type: 'UPDATE_TOMAHAWK_MISSILE',
+      data: missileData,
+    });
+  }
+
+  public updateIskanderMissile(missileData: any): Promise<any> {
+    return this.sendMessageToWorker(this.missilePhysicsWorker, {
+      type: 'UPDATE_ISKANDER_MISSILE',
+      data: missileData,
+    });
+  }
+
 
   public checkIskanderCollisions(iskanderMissiles: any[], bomberData: any): Promise<any> {
     return this.sendMessageToWorker(this.collisionDetectionWorker, {

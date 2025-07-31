@@ -208,11 +208,11 @@ export class DefenseMissile {
     this.lastWorkerUpdateTime = currentTime;
     this.pendingPhysicsUpdate = true;
     
-    // Prepare physics data for worker
+    // Prepare physics data for worker (only required data)
     const physicsData: any = {
-      missileType: 'defense',
       position: { x: this.position.x, y: this.position.y, z: this.position.z },
       velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
+      rotation: { x: this.missileGroup.rotation.x, y: this.missileGroup.rotation.y, z: this.missileGroup.rotation.z },
       targetPosition: { x: this.targetPosition.x, y: this.targetPosition.y, z: this.targetPosition.z },
       speed: this.speed,
       deltaTime: deltaTime,
@@ -228,7 +228,7 @@ export class DefenseMissile {
     }
     
     // Send to worker and handle response
-    this.workerManager.updateMissilePhysics(physicsData)
+    this.workerManager.updateDefenseMissile(physicsData)
       .then((result) => {
         this.pendingPhysicsUpdate = false;
         this.applyPhysicsResult(result);

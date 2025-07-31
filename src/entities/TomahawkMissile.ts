@@ -597,10 +597,8 @@ export class TomahawkMissile {
     this.lastWorkerUpdateTime = currentTime;
     this.pendingPhysicsUpdate = true;
     
-    // Prepare physics data for worker
+    // Prepare physics data for worker - only required data
     const physicsData = {
-      missileType: 'tomahawk',
-      id: Math.random().toString(36),
       position: { x: this.position.x, y: this.position.y, z: this.position.z },
       velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
       rotation: { x: this.rotation.x, y: this.rotation.y, z: this.rotation.z },
@@ -608,20 +606,19 @@ export class TomahawkMissile {
       speed: this.speed,
       turnRate: this.turnRate,
       deltaTime: deltaTime,
-      currentTime: currentTime,
       pathTime: this.pathTime,
       pathSpeed: this.pathSpeed,
-      pathStartTime: this.pathStartTime,
       launched: this.launched,
       exploded: this.exploded,
       lookAheadDistance: this.lookAheadDistance,
       orientationUpdateThreshold: this.orientationUpdateThreshold,
       lastSegmentChangeTime: this.lastSegmentChangeTime,
+      currentTime: currentTime,
       waypoints: this.waypoints.map(wp => ({ x: wp.x, y: wp.y, z: wp.z }))
     };
     
     // Send to worker and handle response
-    this.workerManager.updateMissilePhysics(physicsData)
+    this.workerManager.updateTomahawkMissile(physicsData)
       .then((result) => {
         this.pendingPhysicsUpdate = false;
         this.applyPhysicsResult(result);

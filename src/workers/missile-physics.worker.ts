@@ -9,72 +9,89 @@ import {
   vector3Length,
 } from './worker-utils';
 
-interface MissilePhysicsData {
+// Base interface for common missile properties
+interface BaseMissileData {
   position: Vector3;
   velocity: Vector3;
   rotation: Vector3;
   targetPosition: Vector3;
-  bomberVelocity?: Vector3;
   speed: number;
-  turnRate: number;
   deltaTime: number;
+  launched: boolean;
+  exploded: boolean;
+}
+
+// Defense missile specific data
+interface DefenseMissileData extends BaseMissileData {
+  bomberVelocity?: Vector3;
+  targetSet: boolean;
+  maxAltitude: number;
+}
+
+// Tomahawk missile specific data
+interface TomahawkMissileData extends BaseMissileData {
+  turnRate: number;
   pathTime: number;
   pathSpeed: number;
   waypoints: Vector3[];
-  launched: boolean;
-  exploded: boolean;
-  lifeTime: number;
-  maxLifeTime: number;
-  missileType: 'tomahawk' | 'defense' | 'iskander';
-  targetSet: boolean;
-
-  // Tomahawk-specific properties
-  pathStartTime?: number;
-  lookAheadDistance?: number;
-  orientationUpdateThreshold?: number;
-  lastSegmentChangeTime?: number;
-
-  // Iskander-specific properties
-  flareTargets?: Vector3[];
-  flareDetectionRange?: number;
-  flareAttractionStrength?: number;
-  originalTargetPosition?: Vector3;
-  isTargetingFlare?: boolean;
-  lockOnRange?: number;
-  isLockedOn?: boolean;
-  lockOnTime?: number;
-  lockOnDuration?: number;
-  guidanceStrength?: number;
-  maxTurnRate?: number;
-  lastTargetUpdateTime?: number;
-  targetUpdateInterval?: number;
-  currentTime?: number;
-
-  // Defense missile-specific properties
-  maxAltitude?: number;
+  lookAheadDistance: number;
+  orientationUpdateThreshold: number;
+  lastSegmentChangeTime: number;
+  currentTime: number;
 }
 
-interface MissilePhysicsResult {
+// Iskander missile specific data
+interface IskanderMissileData extends BaseMissileData {
+  turnRate: number;
+  pathTime: number;
+  pathSpeed: number;
+  waypoints: Vector3[];
+  flareTargets: Vector3[];
+  flareDetectionRange: number;
+  originalTargetPosition: Vector3;
+  isTargetingFlare: boolean;
+  lockOnRange: number;
+  isLockedOn: boolean;
+  lockOnTime: number;
+  lockOnDuration: number;
+  guidanceStrength: number;
+  maxTurnRate: number;
+  currentTime: number;
+}
+
+
+// Base result interface
+interface BaseMissileResult {
   position: Vector3;
   velocity: Vector3;
   rotation: Vector3;
-  pathTime: number;
   reachedTarget: boolean;
   shouldExplode: boolean;
   distanceToTarget: number;
-  targetSet: boolean;
-
-  // Tomahawk-specific results
-  lastSegmentChangeTime?: number;
-
-  // Iskander-specific results
-  isLockedOn?: boolean;
-  lockOnTime?: number;
-  lockProgress?: number;
-  isTargetingFlare?: boolean;
-  flareTargets?: Vector3[];
-  lockEstablished?: boolean;
 }
+
+// Defense missile specific result
+interface DefenseMissileResult extends BaseMissileResult {
+  targetSet: boolean;
+}
+
+// Tomahawk missile specific result
+interface TomahawkMissileResult extends BaseMissileResult {
+  pathTime: number;
+  lastSegmentChangeTime: number;
+}
+
+// Iskander missile specific result
+interface IskanderMissileResult extends BaseMissileResult {
+  pathTime: number;
+  isLockedOn: boolean;
+  lockOnTime: number;
+  lockProgress: number;
+  isTargetingFlare: boolean;
+  flareTargets: Vector3[];
+  lockEstablished: boolean;
+}
+
 
 // Tomahawk missile curved path calculation
 function getCurvedPathPosition(waypoints: Vector3[], t: number): Vector3 {
@@ -174,9 +191,6 @@ function checkForFlareTargets(
 
 // Update Iskander lock-on system
 function updateIskanderLockOnSystem(
-  position: Vector3,
-  targetPosition: Vector3,
-  lockOnRange: number,
   isLockedOn: boolean,
   lockOnTime: number,
   lockOnDuration: number,
@@ -301,14 +315,13 @@ function updateIskanderInitialGuidance(
   return { velocity: finalVelocity, rotation };
 }
 
-// Update missile physics
-function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
+// Defense missile physics handler
+function updateDefenseMissilePhysics(data: DefenseMissileData): DefenseMissileResult {
   if (!data.launched || data.exploded) {
     return {
       position: data.position,
       velocity: data.velocity,
       rotation: data.rotation,
-      pathTime: data.pathTime,
       reachedTarget: false,
       shouldExplode: false,
       distanceToTarget: vector3Distance(data.position, data.targetPosition),
@@ -319,267 +332,348 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
   let newPosition = { ...data.position };
   let newVelocity = { ...data.velocity };
   let newRotation = { ...data.rotation };
+  let reachedTarget = false;
+  let shouldExplode = false;
+
+  if (!data.targetSet) {
+    // Initial target setting with lead calculation
+    let calculatedTargetPosition = data.targetPosition;
+    
+    // Calculate lead if bomber velocity is available
+    if (data.bomberVelocity) {
+      // Calculate distance to bomber
+      const distanceToBomber = vector3Distance(newPosition, data.targetPosition);
+      
+      // Calculate time for missile to reach bomber
+      const timeToReachBomber = distanceToBomber / data.speed;
+      
+      // Predict bomber's future position based on missile travel time
+      const bomberFuturePosition = {
+        x: data.targetPosition.x + data.bomberVelocity.x * timeToReachBomber,
+        y: data.targetPosition.y + data.bomberVelocity.y * timeToReachBomber,
+        z: data.targetPosition.z + data.bomberVelocity.z * timeToReachBomber
+      };
+      
+      // Add inaccuracy to make the missile aim off target
+      const inaccuracy = 50 + Math.random() * 50; // Variable inaccuracy between 50-100 units
+      calculatedTargetPosition = {
+        x: bomberFuturePosition.x + (Math.random() - 0.5) * inaccuracy,
+        y: bomberFuturePosition.y + (Math.random() - 0.5) * inaccuracy,
+        z: bomberFuturePosition.z + (Math.random() - 0.5) * inaccuracy
+      };
+    }
+    
+    // Calculate direction to calculated target
+    newVelocity = vector3Scale(vector3Normalize(vector3Subtract(calculatedTargetPosition, newPosition)), data.speed);
+
+    // Calculate yaw (horizontal rotation around Y axis)
+    newRotation.y = Math.atan2(newVelocity.x, newVelocity.z) + Math.PI; // Add 180° to flip missile
+
+    // Calculate pitch (vertical rotation around X axis)
+    const horizontalSpeed = Math.sqrt(newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z);
+    newRotation.x = Math.atan2(newVelocity.y, horizontalSpeed) + Math.PI;
+
+    // Mark target as set to avoid future recalculations
+    data.targetSet = true;
+  } else {
+    // Target already set - maintain current velocity and rotation
+    newVelocity = data.velocity;
+    newRotation = data.rotation;
+  }
+
+  // Update position
+  newPosition.x += newVelocity.x * data.deltaTime;
+  newPosition.y += newVelocity.y * data.deltaTime;
+  newPosition.z += newVelocity.z * data.deltaTime;
+
+  // Check collision conditions
+  reachedTarget = newPosition.y >= data.maxAltitude;
+  shouldExplode = reachedTarget;
+
+  return {
+    position: newPosition,
+    velocity: newVelocity,
+    rotation: newRotation,
+    reachedTarget,
+    shouldExplode,
+    distanceToTarget: vector3Distance(newPosition, data.targetPosition),
+    targetSet: data.targetSet,
+  };
+}
+
+// Tomahawk missile physics handler
+function updateTomahawkMissilePhysics(data: TomahawkMissileData): TomahawkMissileResult {
+  if (!data.launched || data.exploded) {
+    return {
+      position: data.position,
+      velocity: data.velocity,
+      rotation: data.rotation,
+      pathTime: data.pathTime,
+      reachedTarget: false,
+      shouldExplode: false,
+      distanceToTarget: vector3Distance(data.position, data.targetPosition),
+      lastSegmentChangeTime: data.lastSegmentChangeTime,
+    };
+  }
+
+  let newPosition = { ...data.position };
+  let newVelocity = { ...data.velocity };
+  let newRotation = { ...data.rotation };
   let newPathTime = data.pathTime;
   let reachedTarget = false;
   let shouldExplode = false;
-  let isLockedOn = data.isLockedOn || false;
-  let lockOnTime = data.lockOnTime || 0;
-  let isTargetingFlare = data.isTargetingFlare || false;
-  let flareTargets = data.flareTargets || [];
-  let lockEstablished = false;
+  let lastSegmentChangeTime = data.lastSegmentChangeTime;
+  
+  const currentTime = data.currentTime;
+  
+  newPathTime += data.deltaTime * data.pathSpeed;
 
-  if (data.missileType === 'iskander') {
-    // Enhanced Iskander missile physics with curved path and flare targeting
+  // Check if we should update orientation at curve segment boundaries
+  const segmentSize = 0.2;
+  const segmentProgress = (newPathTime % segmentSize) / segmentSize;
+  const orientationUpdateThreshold = data.orientationUpdateThreshold;
+  
+  const shouldUpdateOrientation =
+    (segmentProgress <= orientationUpdateThreshold || segmentProgress >= 0.9) &&
+    currentTime - lastSegmentChangeTime > 0.2;
 
-    // Handle flare targeting if flare targets exist - check every frame for responsiveness
-    let currentTargetPosition = data.targetPosition;
-    if (data.flareTargets && data.flareTargets.length > 0) {
-      const flareResult = checkForFlareTargets(
-        newPosition,
-        data.flareTargets,
-        data.flareDetectionRange || 80,
-        data.originalTargetPosition || data.targetPosition
-      );
-      currentTargetPosition = flareResult.targetPosition;
-      isTargetingFlare = flareResult.isTargetingFlare;
-      flareTargets = flareResult.flareTargets;
-    }
+  if (newPathTime <= 1.0) {
+    // Follow the curved path
+    const targetPosition = getCurvedPathPosition(data.waypoints, newPathTime);
+    const directionToTarget = vector3Normalize(vector3Subtract(targetPosition, newPosition));
+    const desiredVelocity = vector3Scale(directionToTarget, data.speed);
 
-    // Check for overshoot condition - if we passed the target, increase turn rate dramatically
-    const directionToTarget = vector3Normalize(vector3Subtract(currentTargetPosition, newPosition));
-    const velocityDirection = vector3Normalize(newVelocity);
-    const dotProduct = directionToTarget.x * velocityDirection.x + directionToTarget.y * velocityDirection.y + directionToTarget.z * velocityDirection.z;
-    const isOvershooting = dotProduct < 0.3; // If angle > 72 degrees, we're likely overshooting
-
-    // Adjust guidance parameters based on overshoot
-    let effectiveGuidanceStrength = data.guidanceStrength || 4.0;
-    let effectiveMaxTurnRate = data.maxTurnRate || 5.0;
+    // Smoothly interpolate velocity for curved movement
+    newVelocity.x = newVelocity.x + (desiredVelocity.x - newVelocity.x) * data.turnRate * data.deltaTime;
+    newVelocity.y = newVelocity.y + (desiredVelocity.y - newVelocity.y) * data.turnRate * data.deltaTime;
+    newVelocity.z = newVelocity.z + (desiredVelocity.z - newVelocity.z) * data.turnRate * data.deltaTime;
     
-    if (isOvershooting) {
-      effectiveGuidanceStrength *= 3.0; // Triple guidance strength when overshooting
-      effectiveMaxTurnRate *= 2.0; // Double turn rate for rapid correction
-    }
-
-    // Use curved path for initial phase, then direct guidance when locked on
-    newPathTime += data.deltaTime * (data.pathSpeed || 0.4);
-    
-    if (newPathTime <= 1.0 && !isLockedOn) {
-      // Follow curved path during initial phase
-      const curvedTargetPosition = getIskanderCurvedPathPosition(data.waypoints, newPathTime);
+    // Update orientation with look-ahead if it's time
+    if (shouldUpdateOrientation) {
+      const lookAheadDistance = data.lookAheadDistance;
+      const lookAheadTime = Math.min(newPathTime + lookAheadDistance, 1.0);
+      const lookAheadPos = getCurvedPathPosition(data.waypoints, lookAheadTime);
+      const directionToLookAhead = vector3Normalize(vector3Subtract(lookAheadPos, newPosition));
       
-      // Blend curved path with target tracking
-      const blendFactor = Math.min(newPathTime * 2, 1.0); // Gradually blend toward target
-      const blendedTarget = vector3Lerp(curvedTargetPosition, currentTargetPosition, blendFactor);
-      
-      const directionToTarget = vector3Normalize(vector3Subtract(blendedTarget, newPosition));
-      const desiredVelocity = vector3Scale(directionToTarget, data.speed);
-
-      // Smooth velocity interpolation for curved movement with effective turn rate
-      const effectiveTurnRate = isOvershooting ? (data.turnRate || 2.5) * 2.0 : (data.turnRate || 2.5);
-      newVelocity.x = newVelocity.x + (desiredVelocity.x - newVelocity.x) * effectiveTurnRate * data.deltaTime;
-      newVelocity.y = newVelocity.y + (desiredVelocity.y - newVelocity.y) * effectiveTurnRate * data.deltaTime;
-      newVelocity.z = newVelocity.z + (desiredVelocity.z - newVelocity.z) * effectiveTurnRate * data.deltaTime;
-    } else if (isLockedOn) {
-      // Use advanced guidance when locked on
-      const guidanceResult = updateIskanderLockedOnGuidance(
-        newPosition,
-        newVelocity,
-        currentTargetPosition,
-        data.speed,
-        effectiveGuidanceStrength,
-        effectiveMaxTurnRate,
-        data.deltaTime
-      );
-      newVelocity = guidanceResult.velocity;
-      newRotation = guidanceResult.rotation;
-    } else {
-      // Use initial guidance before lock-on established
-      const guidanceResult = updateIskanderInitialGuidance(
-        newPosition,
-        newVelocity,
-        currentTargetPosition,
-        data.speed,
-        effectiveMaxTurnRate,
-        data.deltaTime
-      );
-      newVelocity = guidanceResult.velocity;
-      newRotation = guidanceResult.rotation;
-    }
-
-    // Update lock-on system
-    const lockResult = updateIskanderLockOnSystem(
-      newPosition,
-      currentTargetPosition,
-      data.lockOnRange || Infinity,
-      isLockedOn,
-      lockOnTime,
-      data.lockOnDuration || 1.0,
-      data.deltaTime
-    );
-    isLockedOn = lockResult.isLockedOn;
-    lockOnTime = lockResult.lockOnTime;
-    lockEstablished = lockResult.lockEstablished;
-
-    // Ensure minimum velocity for guaranteed movement
-    const velocityLength = vector3Length(newVelocity);
-    if (velocityLength < data.speed * 0.1) {
-      const directionToTarget = vector3Normalize(vector3Subtract(currentTargetPosition, newPosition));
-      newVelocity = vector3Scale(directionToTarget, data.speed * 0.5);
-    }
-
-    // Update rotation if not already set by guidance system
-    if (!isLockedOn && (newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z > 0.01)) {
-      newRotation.y = Math.atan2(newVelocity.x, newVelocity.z);
-      const horizontalSpeed = Math.sqrt(newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z);
-      if (horizontalSpeed > 0.001) {
-        newRotation.x = Math.atan2(-newVelocity.y, horizontalSpeed);
-      }
-    }
-  } else if (data.missileType === 'tomahawk') {
-    // Tomahawk missile physics with curved path and look-ahead orientation
-    const currentTime = data.currentTime || 0;
-    let lastSegmentChangeTime = data.lastSegmentChangeTime || 0;
-    
-    newPathTime += data.deltaTime * (data.pathSpeed || 0.5);
-
-    // Check if we should update orientation at curve segment boundaries
-    const segmentSize = 0.2;
-    const segmentProgress = (newPathTime % segmentSize) / segmentSize;
-    const orientationUpdateThreshold = data.orientationUpdateThreshold || 0.15;
-    
-    const shouldUpdateOrientation =
-      (segmentProgress <= orientationUpdateThreshold || segmentProgress >= 0.9) &&
-      currentTime - lastSegmentChangeTime > 0.2;
-
-    if (newPathTime <= 1.0) {
-      // Follow the curved path
-      const targetPosition = getCurvedPathPosition(data.waypoints, newPathTime);
-      const directionToTarget = vector3Normalize(vector3Subtract(targetPosition, newPosition));
-      const desiredVelocity = vector3Scale(directionToTarget, data.speed);
-
-      // Smoothly interpolate velocity for curved movement
-      newVelocity.x = newVelocity.x + (desiredVelocity.x - newVelocity.x) * data.turnRate * data.deltaTime;
-      newVelocity.y = newVelocity.y + (desiredVelocity.y - newVelocity.y) * data.turnRate * data.deltaTime;
-      newVelocity.z = newVelocity.z + (desiredVelocity.z - newVelocity.z) * data.turnRate * data.deltaTime;
-      
-      // Update orientation with look-ahead if it's time
-      if (shouldUpdateOrientation) {
-        const lookAheadDistance = data.lookAheadDistance || 0.4;
-        const lookAheadTime = Math.min(newPathTime + lookAheadDistance, 1.0);
-        const lookAheadPos = getCurvedPathPosition(data.waypoints, lookAheadTime);
-        const directionToLookAhead = vector3Normalize(vector3Subtract(lookAheadPos, newPosition));
+      if (directionToLookAhead.x * directionToLookAhead.x + directionToLookAhead.z * directionToLookAhead.z > 0.01) {
+        // Calculate target rotation
+        const targetYaw = Math.atan2(directionToLookAhead.x, directionToLookAhead.z);
+        const horizontalSpeed = Math.sqrt(
+          directionToLookAhead.x * directionToLookAhead.x + directionToLookAhead.z * directionToLookAhead.z
+        );
+        const targetPitch = horizontalSpeed > 0.001 ? Math.atan2(-directionToLookAhead.y, horizontalSpeed) : 0;
         
-        if (directionToLookAhead.x * directionToLookAhead.x + directionToLookAhead.z * directionToLookAhead.z > 0.01) {
-          // Calculate target rotation
-          const targetYaw = Math.atan2(directionToLookAhead.x, directionToLookAhead.z);
-          const horizontalSpeed = Math.sqrt(
-            directionToLookAhead.x * directionToLookAhead.x + directionToLookAhead.z * directionToLookAhead.z
-          );
-          const targetPitch = horizontalSpeed > 0.001 ? Math.atan2(-directionToLookAhead.y, horizontalSpeed) : 0;
-          
-          // Smooth rotation interpolation
-          const rotationSpeed = 3.0; // How fast the missile can rotate
-          const maxRotationChange = rotationSpeed * data.deltaTime;
-          
-          // Handle yaw wrapping (shortest rotation path)
-          let yawDiff = targetYaw - newRotation.y;
-          while (yawDiff > Math.PI) yawDiff -= 2 * Math.PI;
-          while (yawDiff < -Math.PI) yawDiff += 2 * Math.PI;
-          
-          // Apply limited rotation change
-          if (Math.abs(yawDiff) > maxRotationChange) {
-            yawDiff = Math.sign(yawDiff) * maxRotationChange;
-          }
-          newRotation.y += yawDiff;
-          
-          // Smooth pitch change
-          let pitchDiff = targetPitch - newRotation.x;
-          if (Math.abs(pitchDiff) > maxRotationChange) {
-            pitchDiff = Math.sign(pitchDiff) * maxRotationChange;
-          }
-          newRotation.x += pitchDiff;
+        // Smooth rotation interpolation
+        const rotationSpeed = 3.0; // How fast the missile can rotate
+        const maxRotationChange = rotationSpeed * data.deltaTime;
+        
+        // Handle yaw wrapping (shortest rotation path)
+        let yawDiff = targetYaw - newRotation.y;
+        while (yawDiff > Math.PI) yawDiff -= 2 * Math.PI;
+        while (yawDiff < -Math.PI) yawDiff += 2 * Math.PI;
+        
+        // Apply limited rotation change
+        if (Math.abs(yawDiff) > maxRotationChange) {
+          yawDiff = Math.sign(yawDiff) * maxRotationChange;
         }
+        newRotation.y += yawDiff;
+        
+        // Smooth pitch change
+        let pitchDiff = targetPitch - newRotation.x;
+        if (Math.abs(pitchDiff) > maxRotationChange) {
+          pitchDiff = Math.sign(pitchDiff) * maxRotationChange;
+        }
+        newRotation.x += pitchDiff;
       }
-    } else {
-      // Head directly to target when curve is complete
-      const directionToTarget = vector3Normalize(vector3Subtract(data.targetPosition, newPosition));
-      newVelocity = vector3Scale(directionToTarget, data.speed);
-    }
-
-    // Update rotation based on velocity (only if not updating orientation to look ahead)
-    if (!shouldUpdateOrientation && newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z > 0.01) {
-      // Calculate target rotation based on velocity
-      const targetYaw = Math.atan2(newVelocity.x, newVelocity.z);
-      const horizontalSpeed = Math.sqrt(newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z);
-      const targetPitch = horizontalSpeed > 0.001 ? Math.atan2(-newVelocity.y, horizontalSpeed) : 0;
-      
-      // Smooth rotation interpolation
-      const rotationSpeed = 3.0;
-      const maxRotationChange = rotationSpeed * data.deltaTime;
-      
-      // Handle yaw wrapping
-      let yawDiff = targetYaw - newRotation.y;
-      while (yawDiff > Math.PI) yawDiff -= 2 * Math.PI;
-      while (yawDiff < -Math.PI) yawDiff += 2 * Math.PI;
-      
-      if (Math.abs(yawDiff) > maxRotationChange) {
-        yawDiff = Math.sign(yawDiff) * maxRotationChange;
-      }
-      newRotation.y += yawDiff;
-      
-      // Smooth pitch change
-      let pitchDiff = targetPitch - newRotation.x;
-      if (Math.abs(pitchDiff) > maxRotationChange) {
-        pitchDiff = Math.sign(pitchDiff) * maxRotationChange;
-      }
-      newRotation.x += pitchDiff;
     }
   } else {
-    // Defense missile physics - optimized for performance
-    if (!data.targetSet) {
-      // Initial target setting with lead calculation
-      let calculatedTargetPosition = data.targetPosition;
-      
-      // Calculate lead if bomber velocity is available
-      if (data.bomberVelocity) {
-        // Calculate distance to bomber
-        const distanceToBomber = vector3Distance(newPosition, data.targetPosition);
-        
-        // Calculate time for missile to reach bomber
-        const timeToReachBomber = distanceToBomber / data.speed;
-        
-        // Predict bomber's future position based on missile travel time
-        const bomberFuturePosition = {
-          x: data.targetPosition.x + data.bomberVelocity.x * timeToReachBomber,
-          y: data.targetPosition.y + data.bomberVelocity.y * timeToReachBomber,
-          z: data.targetPosition.z + data.bomberVelocity.z * timeToReachBomber
-        };
-        
-        // Add inaccuracy to make the missile aim off target
-        const inaccuracy = 50 + Math.random() * 50; // Variable inaccuracy between 50-100 units
-        calculatedTargetPosition = {
-          x: bomberFuturePosition.x + (Math.random() - 0.5) * inaccuracy,
-          y: bomberFuturePosition.y + (Math.random() - 0.5) * inaccuracy,
-          z: bomberFuturePosition.z + (Math.random() - 0.5) * inaccuracy
-        };
-      }
-      
-      // Calculate direction to calculated target
-      newVelocity = vector3Scale(vector3Normalize(vector3Subtract(calculatedTargetPosition, newPosition)), data.speed);
+    // Head directly to target when curve is complete
+    const directionToTarget = vector3Normalize(vector3Subtract(data.targetPosition, newPosition));
+    newVelocity = vector3Scale(directionToTarget, data.speed);
+  }
 
-      // Calculate yaw (horizontal rotation around Y axis)
-      newRotation.y = Math.atan2(newVelocity.x, newVelocity.z) + Math.PI; // Add 180° to flip missile
+  // Update rotation based on velocity (only if not updating orientation to look ahead)
+  if (!shouldUpdateOrientation && newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z > 0.01) {
+    // Calculate target rotation based on velocity
+    const targetYaw = Math.atan2(newVelocity.x, newVelocity.z);
+    const horizontalSpeed = Math.sqrt(newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z);
+    const targetPitch = horizontalSpeed > 0.001 ? Math.atan2(-newVelocity.y, horizontalSpeed) : 0;
+    
+    // Smooth rotation interpolation
+    const rotationSpeed = 3.0;
+    const maxRotationChange = rotationSpeed * data.deltaTime;
+    
+    // Handle yaw wrapping
+    let yawDiff = targetYaw - newRotation.y;
+    while (yawDiff > Math.PI) yawDiff -= 2 * Math.PI;
+    while (yawDiff < -Math.PI) yawDiff += 2 * Math.PI;
+    
+    if (Math.abs(yawDiff) > maxRotationChange) {
+      yawDiff = Math.sign(yawDiff) * maxRotationChange;
+    }
+    newRotation.y += yawDiff;
+    
+    // Smooth pitch change
+    let pitchDiff = targetPitch - newRotation.x;
+    if (Math.abs(pitchDiff) > maxRotationChange) {
+      pitchDiff = Math.sign(pitchDiff) * maxRotationChange;
+    }
+    newRotation.x += pitchDiff;
+  }
 
-      // Calculate pitch (vertical rotation around X axis)
-      const horizontalSpeed = Math.sqrt(newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z);
-      newRotation.x = Math.atan2(newVelocity.y, horizontalSpeed) + Math.PI;
+  // Update position
+  newPosition.x += newVelocity.x * data.deltaTime;
+  newPosition.y += newVelocity.y * data.deltaTime;
+  newPosition.z += newVelocity.z * data.deltaTime;
 
-      // Mark target as set to avoid future recalculations
-      data.targetSet = true;
-    } else {
-      // Target already set - maintain current velocity and rotation
-      newVelocity = data.velocity;
-      newRotation = data.rotation;
+  // Check collision conditions
+  const distanceToTarget = vector3Distance(newPosition, data.targetPosition);
+  reachedTarget = distanceToTarget <= 5 || newPosition.y <= 0;
+  shouldExplode = reachedTarget;
+
+  return {
+    position: newPosition,
+    velocity: newVelocity,
+    rotation: newRotation,
+    pathTime: newPathTime,
+    reachedTarget,
+    shouldExplode,
+    distanceToTarget,
+    lastSegmentChangeTime,
+  };
+}
+
+// Iskander missile physics handler
+function updateIskanderMissilePhysics(data: IskanderMissileData): IskanderMissileResult {
+  if (!data.launched || data.exploded) {
+    return {
+      position: data.position,
+      velocity: data.velocity,
+      rotation: data.rotation,
+      pathTime: data.pathTime,
+      reachedTarget: false,
+      shouldExplode: false,
+      distanceToTarget: vector3Distance(data.position, data.targetPosition),
+      isLockedOn: false,
+      lockOnTime: 0,
+      lockProgress: 0,
+      isTargetingFlare: false,
+      flareTargets: [],
+      lockEstablished: false,
+    };
+  }
+
+  let newPosition = { ...data.position };
+  let newVelocity = { ...data.velocity };
+  let newRotation = { ...data.rotation };
+  let newPathTime = data.pathTime;
+  let reachedTarget = false;
+  let shouldExplode = false;
+  let isLockedOn = data.isLockedOn;
+  let lockOnTime = data.lockOnTime;
+  let isTargetingFlare = data.isTargetingFlare;
+  let flareTargets = data.flareTargets;
+  let lockEstablished = false;
+
+  // Handle flare targeting if flare targets exist - check every frame for responsiveness
+  let currentTargetPosition = data.targetPosition;
+  if (data.flareTargets && data.flareTargets.length > 0) {
+    const flareResult = checkForFlareTargets(
+      newPosition,
+      data.flareTargets,
+      data.flareDetectionRange,
+      data.originalTargetPosition
+    );
+    currentTargetPosition = flareResult.targetPosition;
+    isTargetingFlare = flareResult.isTargetingFlare;
+    flareTargets = flareResult.flareTargets;
+  }
+
+  // Check for overshoot condition - if we passed the target, increase turn rate dramatically
+  const directionToTarget = vector3Normalize(vector3Subtract(currentTargetPosition, newPosition));
+  const velocityDirection = vector3Normalize(newVelocity);
+  const dotProduct = directionToTarget.x * velocityDirection.x + directionToTarget.y * velocityDirection.y + directionToTarget.z * velocityDirection.z;
+  const isOvershooting = dotProduct < 0.3; // If angle > 72 degrees, we're likely overshooting
+
+  // Adjust guidance parameters based on overshoot
+  let effectiveGuidanceStrength = data.guidanceStrength;
+  let effectiveMaxTurnRate = data.maxTurnRate;
+  
+  if (isOvershooting) {
+    effectiveGuidanceStrength *= 3.0; // Triple guidance strength when overshooting
+    effectiveMaxTurnRate *= 2.0; // Double turn rate for rapid correction
+  }
+
+  // Use curved path for initial phase, then direct guidance when locked on
+  newPathTime += data.deltaTime * data.pathSpeed;
+  
+  if (newPathTime <= 1.0 && !isLockedOn) {
+    // Follow curved path during initial phase
+    const curvedTargetPosition = getIskanderCurvedPathPosition(data.waypoints, newPathTime);
+    
+    // Blend curved path with target tracking
+    const blendFactor = Math.min(newPathTime * 2, 1.0); // Gradually blend toward target
+    const blendedTarget = vector3Lerp(curvedTargetPosition, currentTargetPosition, blendFactor);
+    
+    const directionToTarget = vector3Normalize(vector3Subtract(blendedTarget, newPosition));
+    const desiredVelocity = vector3Scale(directionToTarget, data.speed);
+
+    // Smooth velocity interpolation for curved movement with effective turn rate
+    const effectiveTurnRate = isOvershooting ? data.turnRate * 2.0 : data.turnRate;
+    newVelocity.x = newVelocity.x + (desiredVelocity.x - newVelocity.x) * effectiveTurnRate * data.deltaTime;
+    newVelocity.y = newVelocity.y + (desiredVelocity.y - newVelocity.y) * effectiveTurnRate * data.deltaTime;
+    newVelocity.z = newVelocity.z + (desiredVelocity.z - newVelocity.z) * effectiveTurnRate * data.deltaTime;
+  } else if (isLockedOn) {
+    // Use advanced guidance when locked on
+    const guidanceResult = updateIskanderLockedOnGuidance(
+      newPosition,
+      newVelocity,
+      currentTargetPosition,
+      data.speed,
+      effectiveGuidanceStrength,
+      effectiveMaxTurnRate,
+      data.deltaTime
+    );
+    newVelocity = guidanceResult.velocity;
+    newRotation = guidanceResult.rotation;
+  } else {
+    // Use initial guidance before lock-on established
+    const guidanceResult = updateIskanderInitialGuidance(
+      newPosition,
+      newVelocity,
+      currentTargetPosition,
+      data.speed,
+      effectiveMaxTurnRate,
+      data.deltaTime
+    );
+    newVelocity = guidanceResult.velocity;
+    newRotation = guidanceResult.rotation;
+  }
+
+  // Update lock-on system
+  const lockResult = updateIskanderLockOnSystem(
+    isLockedOn,
+    lockOnTime,
+    data.lockOnDuration,
+    data.deltaTime
+  );
+  isLockedOn = lockResult.isLockedOn;
+  lockOnTime = lockResult.lockOnTime;
+  lockEstablished = lockResult.lockEstablished;
+
+  // Ensure minimum velocity for guaranteed movement
+  const velocityLength = vector3Length(newVelocity);
+  if (velocityLength < data.speed * 0.1) {
+    const directionToTarget = vector3Normalize(vector3Subtract(currentTargetPosition, newPosition));
+    newVelocity = vector3Scale(directionToTarget, data.speed * 0.5);
+  }
+
+  // Update rotation if not already set by guidance system
+  if (!isLockedOn && (newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z > 0.01)) {
+    newRotation.y = Math.atan2(newVelocity.x, newVelocity.z);
+    const horizontalSpeed = Math.sqrt(newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z);
+    if (horizontalSpeed > 0.001) {
+      newRotation.x = Math.atan2(-newVelocity.y, horizontalSpeed);
     }
   }
 
@@ -591,44 +685,32 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
   // Check collision conditions
   const distanceToTarget = vector3Distance(newPosition, data.targetPosition);
 
-  if (data.missileType === 'tomahawk') {
-    reachedTarget = distanceToTarget <= 5 || newPosition.y <= 0;
-  } else if (data.missileType === 'iskander') {
-    // Check if close to any flare target and explode
-    let flareExplosion = false;
-    
-    // If missile is targeting a flare (or was targeting one), check distance to target position
-    if (isTargetingFlare || data.isTargetingFlare) {
-      // Use the distance to target which should be the flare position when targeting flares
-      if (distanceToTarget <= 12) { // Explode when close to flare lock position
-        flareExplosion = true;
-      }
+  // Check if close to any flare target and explode
+  let flareExplosion = false;
+  
+  // If missile is targeting a flare (or was targeting one), check distance to target position
+  if (isTargetingFlare || data.isTargetingFlare) {
+    // Use the distance to target which should be the flare position when targeting flares
+    if (distanceToTarget <= 12) { // Explode when close to flare lock position
+      flareExplosion = true;
     }
-    
-    // Also check active flare positions if any exist
-    if (!flareExplosion && data.flareTargets && data.flareTargets.length > 0) {
-      for (const flarePos of data.flareTargets) {
-        const distanceToFlare = vector3Distance(newPosition, flarePos);
-        if (distanceToFlare <= 8) { // Explode when very close to active flare
-          flareExplosion = true;
-          break;
-        }
-      }
-    }
-    
-    reachedTarget = distanceToTarget <= 5 || newPosition.y <= 0 || flareExplosion;
-  } else {
-    // Defense missile has altitude check only
-    // Check for altitude-based detonation
-    const maxAltitude = data.maxAltitude || 1000; // Default max altitude of 1000 units
-    const altitudeExceeded = newPosition.y >= maxAltitude;
-    
-    reachedTarget = altitudeExceeded;
   }
-
+  
+  // Also check active flare positions if any exist
+  if (!flareExplosion && data.flareTargets && data.flareTargets.length > 0) {
+    for (const flarePos of data.flareTargets) {
+      const distanceToFlare = vector3Distance(newPosition, flarePos);
+      if (distanceToFlare <= 8) { // Explode when very close to active flare
+        flareExplosion = true;
+        break;
+      }
+    }
+  }
+  
+  reachedTarget = distanceToTarget <= 5 || newPosition.y <= 0 || flareExplosion;
   shouldExplode = reachedTarget;
 
-  const result: MissilePhysicsResult = {
+  return {
     position: newPosition,
     velocity: newVelocity,
     rotation: newRotation,
@@ -636,26 +718,15 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
     reachedTarget,
     shouldExplode,
     distanceToTarget: vector3Distance(newPosition, data.targetPosition),
-    targetSet: data.targetSet,
+    isLockedOn,
+    lockOnTime,
+    lockProgress: Math.min(lockOnTime / data.lockOnDuration, 1.0),
+    isTargetingFlare,
+    flareTargets,
+    lockEstablished,
   };
-
-  // Add Tomahawk-specific results
-  if (data.missileType === 'tomahawk') {
-    result.lastSegmentChangeTime = data.lastSegmentChangeTime;
-  }
-
-  // Add Iskander-specific results
-  if (data.missileType === 'iskander') {
-    result.isLockedOn = isLockedOn;
-    result.lockOnTime = lockOnTime;
-    result.lockProgress = Math.min(lockOnTime / (data.lockOnDuration || 1.0), 1.0);
-    result.isTargetingFlare = isTargetingFlare;
-    result.flareTargets = flareTargets;
-    result.lockEstablished = lockEstablished;
-  }
-
-  return result;
 }
+
 
 interface TomahawkPathRequest {
   launchPosition: Vector3;
@@ -680,23 +751,33 @@ self.onmessage = (event) => {
   const { type, data, messageId } = event.data;
 
   switch (type) {
-    case 'UPDATE_MISSILE_PHYSICS':
-      const result = updateMissilePhysics(data);
+    case 'UPDATE_DEFENSE_MISSILE':
+      const defenseResult = updateDefenseMissilePhysics(data);
       (self as any).postMessage({
-        type: 'MISSILE_PHYSICS_RESULT',
-        data: result,
+        type: 'DEFENSE_MISSILE_RESULT',
+        data: defenseResult,
         messageId,
       });
       break;
 
-    case 'BATCH_UPDATE_MISSILES':
-      const results = data.missiles.map((missileData: MissilePhysicsData) => updateMissilePhysics(missileData));
+    case 'UPDATE_TOMAHAWK_MISSILE':
+      const tomahawkResult = updateTomahawkMissilePhysics(data);
       (self as any).postMessage({
-        type: 'BATCH_MISSILE_PHYSICS_RESULT',
-        data: { results },
+        type: 'TOMAHAWK_MISSILE_RESULT',
+        data: tomahawkResult,
         messageId,
       });
       break;
+
+    case 'UPDATE_ISKANDER_MISSILE':
+      const iskanderResult = updateIskanderMissilePhysics(data);
+      (self as any).postMessage({
+        type: 'ISKANDER_MISSILE_RESULT',
+        data: iskanderResult,
+        messageId,
+      });
+      break;
+
 
     case 'GENERATE_TOMAHAWK_PATH':
       const pathResult = generateTomahawkPath(data);

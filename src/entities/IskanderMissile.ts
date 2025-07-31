@@ -588,16 +588,11 @@ export class IskanderMissile {
       waypoints: this.waypoints.map(wp => ({ x: wp.x, y: wp.y, z: wp.z })),
       launched: this.launched,
       exploded: this.exploded,
-      lifeTime: 0,
-      maxLifeTime: 60,
-      missileType: 'iskander' as const,
-      targetSet: true,
       currentTime: currentTime,
 
       // Iskander-specific properties
       flareTargets: this.flareTargets.map(ft => ({ x: ft.x, y: ft.y, z: ft.z })),
       flareDetectionRange: this.flareDetectionRange,
-      flareAttractionStrength: this.flareAttractionStrength,
       originalTargetPosition: { x: this.originalTargetPosition.x, y: this.originalTargetPosition.y, z: this.originalTargetPosition.z },
       isTargetingFlare: this.isTargetingFlare,
       lockOnRange: this.lockOnRange,
@@ -606,13 +601,11 @@ export class IskanderMissile {
       lockOnDuration: this.lockOnDuration,
       guidanceStrength: this.guidanceStrength,
       maxTurnRate: this.maxTurnRate,
-      lastTargetUpdateTime: this.lastTargetUpdateTime,
-      targetUpdateInterval: this.targetUpdateInterval,
     };
 
     // Send to worker
     this.pendingPhysicsUpdate = true;
-    this.workerManager.updateMissilePhysics(physicsData).then((result) => {
+    this.workerManager.updateIskanderMissile(physicsData).then((result) => {
       this.pendingPhysicsUpdate = false;
       this.applyPhysicsResult(result);
     }).catch((error) => {
