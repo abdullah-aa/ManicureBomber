@@ -472,7 +472,7 @@ export class UIManager {
             #health-bar {
                 position: fixed;
                 top: 20px;
-                left: 240px; /* Position to the right of radar overlay (20px + 200px + 20px gap) */
+                right: 120px; /* Position to the left of camera toggle button (20px + 80px + 20px gap) */
                 width: 200px;
                 height: 20px;
                 background-color: rgba(0, 0, 0, 0.5);
