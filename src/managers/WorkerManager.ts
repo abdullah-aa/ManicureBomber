@@ -119,9 +119,9 @@ export class WorkerManager {
   }
 
   // Missile physics worker methods
-  public updateDefenseMissile(missileData: any): Promise<any> {
+  public calculateDefenseTrajectory(missileData: any): Promise<any> {
     return this.sendMessageToWorker(this.missilePhysicsWorker, {
-      type: 'UPDATE_DEFENSE_MISSILE',
+      type: 'CALCULATE_DEFENSE_TRAJECTORY',
       data: missileData,
     });
   }

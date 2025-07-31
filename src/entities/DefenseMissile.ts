@@ -31,10 +31,9 @@ export class DefenseMissile {
   private targetSet: boolean = false; // Performance optimization flag
   private maxAltitude: number = 120 + Math.random() * 80; // Maximum altitude before detonation
   
-  // Worker-related properties
-  private pendingPhysicsUpdate: boolean = false;
-  private lastWorkerUpdateTime: number = 0;
-  private workerUpdateInterval: number = 1 / 60; // 60 FPS max updates
+  // Trajectory calculation properties
+  private trajectoryCalculated: boolean = false;
+  private pendingTrajectoryCalculation: boolean = false;
 
   constructor(scene: Scene, launchPosition: Vector3, targetPosition: Vector3, bomberVelocity: Vector3, workerManager: WorkerManager) {
     this.scene = scene;
@@ -188,81 +187,71 @@ export class DefenseMissile {
   public update(deltaTime: number): void {
     if (!this.launched || this.exploded) return;
 
-    const currentTime = performance.now() / 1000;
+    // Calculate trajectory only once when launched
+    if (!this.trajectoryCalculated && !this.pendingTrajectoryCalculation) {
+      this.calculateInitialTrajectory();
+      return;
+    }
     
-    // Use worker for physics calculations
-    this.updatePhysicsWorker(deltaTime, currentTime);
+    // Skip update if trajectory calculation is pending
+    if (this.pendingTrajectoryCalculation) {
+      return;
+    }
+    
+    // Simple straight-line movement once trajectory is set
+    this.updateStraightLineMovement(deltaTime);
   }
   
-  private updatePhysicsWorker(deltaTime: number, currentTime: number): void {
-    // Performance optimization: limit worker update frequency
-    if (currentTime - this.lastWorkerUpdateTime < this.workerUpdateInterval) {
-      return;
-    }
+  private calculateInitialTrajectory(): void {
+    this.pendingTrajectoryCalculation = true;
     
-    // Don't send new requests if one is already pending
-    if (this.pendingPhysicsUpdate) {
-      return;
-    }
-    
-    this.lastWorkerUpdateTime = currentTime;
-    this.pendingPhysicsUpdate = true;
-    
-    // Prepare physics data for worker (only required data)
-    const physicsData: any = {
+    // Prepare data for trajectory calculation
+    const trajectoryData: any = {
       position: { x: this.position.x, y: this.position.y, z: this.position.z },
       velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
       rotation: { x: this.missileGroup.rotation.x, y: this.missileGroup.rotation.y, z: this.missileGroup.rotation.z },
       targetPosition: { x: this.targetPosition.x, y: this.targetPosition.y, z: this.targetPosition.z },
+      bomberVelocity: { x: this.bomberVelocity.x, y: this.bomberVelocity.y, z: this.bomberVelocity.z },
       speed: this.speed,
-      deltaTime: deltaTime,
+      deltaTime: 0.016, // Standard frame time
       launched: this.launched,
       exploded: this.exploded,
       targetSet: this.targetSet,
       maxAltitude: this.maxAltitude
     };
-
-    // Only include bomber velocity data until target is set
-    if (!this.targetSet) {
-      physicsData.bomberVelocity = { x: this.bomberVelocity.x, y: this.bomberVelocity.y, z: this.bomberVelocity.z };
-    }
     
-    // Send to worker and handle response
-    this.workerManager.updateDefenseMissile(physicsData)
+    // Calculate trajectory using worker
+    this.workerManager.calculateDefenseTrajectory(trajectoryData)
       .then((result) => {
-        this.pendingPhysicsUpdate = false;
-        this.applyPhysicsResult(result);
+        this.applyTrajectoryResult(result);
       })
       .catch(() => {
-        this.pendingPhysicsUpdate = false;
-        // Fallback: update position slightly to prevent missile from being stuck
-        this.position.addInPlace(this.velocity.scale(deltaTime));
-        this.missileGroup.position = this.position;
+        // If worker fails, reset flag to retry on next loop
+        this.pendingTrajectoryCalculation = false;
       });
   }
   
-  private applyPhysicsResult(result: any): void {
+  private applyTrajectoryResult(result: any): void {
     if (!result || this.exploded) return;
     
-    // Apply new position and velocity from worker
-    this.position.set(result.position.x, result.position.y, result.position.z);
+    // Apply calculated velocity and rotation
     this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);
+    this.missileGroup.rotation.set(result.rotation.x, result.rotation.y, result.rotation.z);
     
-    // Update target set flag
-    if (result.targetSet !== undefined) {
-      this.targetSet = result.targetSet;
-    }
-    
-    // Apply rotation if provided (only during initial target setting)
-    if (result.rotation && !this.targetSet) {
-      this.missileGroup.rotation.set(result.rotation.x, result.rotation.y, result.rotation.z);
-    }
-    
-    // Apply transforms
+    // Mark trajectory as calculated
+    this.trajectoryCalculated = true;
+    this.targetSet = true;
+    this.pendingTrajectoryCalculation = false;
+  }
+  
+  
+  private updateStraightLineMovement(deltaTime: number): void {
+    // Simple position update - no complex calculations needed
+    this.position.addInPlace(this.velocity.scale(deltaTime));
     this.missileGroup.position = this.position.clone();
     
-    // Check for explosion from worker
-    if (result.shouldExplode) {
+    // Check for altitude-based explosion
+    if (this.position.y >= this.maxAltitude) {
       this.explode();
     }
   }

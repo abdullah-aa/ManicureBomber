@@ -315,9 +315,10 @@ function updateIskanderInitialGuidance(
   return { velocity: finalVelocity, rotation };
 }
 
-// Defense missile physics handler
-function updateDefenseMissilePhysics(data: DefenseMissileData): DefenseMissileResult {
-  if (!data.launched || data.exploded) {
+// Defense missile initial trajectory calculation
+function calculateDefenseMissileTrajectory(data: DefenseMissileData): DefenseMissileResult {
+  if (!data.launched || data.exploded || data.targetSet) {
+    // Return current state if already calculated or not ready
     return {
       position: data.position,
       velocity: data.velocity,
@@ -325,79 +326,57 @@ function updateDefenseMissilePhysics(data: DefenseMissileData): DefenseMissileRe
       reachedTarget: false,
       shouldExplode: false,
       distanceToTarget: vector3Distance(data.position, data.targetPosition),
-      targetSet: false,
+      targetSet: data.targetSet,
     };
   }
 
-  let newPosition = { ...data.position };
-  let newVelocity = { ...data.velocity };
-  let newRotation = { ...data.rotation };
-  let reachedTarget = false;
-  let shouldExplode = false;
-
-  if (!data.targetSet) {
-    // Initial target setting with lead calculation
-    let calculatedTargetPosition = data.targetPosition;
+  // Initial target setting with lead calculation
+  let calculatedTargetPosition = data.targetPosition;
+  
+  // Calculate lead if bomber velocity is available
+  if (data.bomberVelocity) {
+    // Calculate distance to bomber
+    const distanceToBomber = vector3Distance(data.position, data.targetPosition);
     
-    // Calculate lead if bomber velocity is available
-    if (data.bomberVelocity) {
-      // Calculate distance to bomber
-      const distanceToBomber = vector3Distance(newPosition, data.targetPosition);
-      
-      // Calculate time for missile to reach bomber
-      const timeToReachBomber = distanceToBomber / data.speed;
-      
-      // Predict bomber's future position based on missile travel time
-      const bomberFuturePosition = {
-        x: data.targetPosition.x + data.bomberVelocity.x * timeToReachBomber,
-        y: data.targetPosition.y + data.bomberVelocity.y * timeToReachBomber,
-        z: data.targetPosition.z + data.bomberVelocity.z * timeToReachBomber
-      };
-      
-      // Add inaccuracy to make the missile aim off target
-      const inaccuracy = 50 + Math.random() * 50; // Variable inaccuracy between 50-100 units
-      calculatedTargetPosition = {
-        x: bomberFuturePosition.x + (Math.random() - 0.5) * inaccuracy,
-        y: bomberFuturePosition.y + (Math.random() - 0.5) * inaccuracy,
-        z: bomberFuturePosition.z + (Math.random() - 0.5) * inaccuracy
-      };
-    }
+    // Calculate time for missile to reach bomber
+    const timeToReachBomber = distanceToBomber / data.speed;
     
-    // Calculate direction to calculated target
-    newVelocity = vector3Scale(vector3Normalize(vector3Subtract(calculatedTargetPosition, newPosition)), data.speed);
-
-    // Calculate yaw (horizontal rotation around Y axis)
-    newRotation.y = Math.atan2(newVelocity.x, newVelocity.z) + Math.PI; // Add 180° to flip missile
-
-    // Calculate pitch (vertical rotation around X axis)
-    const horizontalSpeed = Math.sqrt(newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z);
-    newRotation.x = Math.atan2(newVelocity.y, horizontalSpeed) + Math.PI;
-
-    // Mark target as set to avoid future recalculations
-    data.targetSet = true;
-  } else {
-    // Target already set - maintain current velocity and rotation
-    newVelocity = data.velocity;
-    newRotation = data.rotation;
+    // Predict bomber's future position based on missile travel time
+    const bomberFuturePosition = {
+      x: data.targetPosition.x + data.bomberVelocity.x * timeToReachBomber,
+      y: data.targetPosition.y + data.bomberVelocity.y * timeToReachBomber,
+      z: data.targetPosition.z + data.bomberVelocity.z * timeToReachBomber
+    };
+    
+    // Add inaccuracy to make the missile aim off target
+    const inaccuracy = 50 + Math.random() * 50; // Variable inaccuracy between 50-100 units
+    calculatedTargetPosition = {
+      x: bomberFuturePosition.x + (Math.random() - 0.5) * inaccuracy,
+      y: bomberFuturePosition.y + (Math.random() - 0.5) * inaccuracy,
+      z: bomberFuturePosition.z + (Math.random() - 0.5) * inaccuracy
+    };
   }
+  
+  // Calculate direction to calculated target
+  const newVelocity = vector3Scale(vector3Normalize(vector3Subtract(calculatedTargetPosition, data.position)), data.speed);
 
-  // Update position
-  newPosition.x += newVelocity.x * data.deltaTime;
-  newPosition.y += newVelocity.y * data.deltaTime;
-  newPosition.z += newVelocity.z * data.deltaTime;
+  // Calculate rotation based on velocity
+  const newRotation = { x: 0, y: 0, z: 0 };
+  // Calculate yaw (horizontal rotation around Y axis)
+  newRotation.y = Math.atan2(newVelocity.x, newVelocity.z) + Math.PI; // Add 180° to flip missile
 
-  // Check collision conditions
-  reachedTarget = newPosition.y >= data.maxAltitude;
-  shouldExplode = reachedTarget;
+  // Calculate pitch (vertical rotation around X axis)
+  const horizontalSpeed = Math.sqrt(newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z);
+  newRotation.x = Math.atan2(newVelocity.y, horizontalSpeed) + Math.PI;
 
   return {
-    position: newPosition,
+    position: data.position, // Keep original position
     velocity: newVelocity,
     rotation: newRotation,
-    reachedTarget,
-    shouldExplode,
-    distanceToTarget: vector3Distance(newPosition, data.targetPosition),
-    targetSet: data.targetSet,
+    reachedTarget: false,
+    shouldExplode: false,
+    distanceToTarget: vector3Distance(data.position, calculatedTargetPosition),
+    targetSet: true, // Mark as calculated
   };
 }
 
@@ -751,10 +730,10 @@ self.onmessage = (event) => {
   const { type, data, messageId } = event.data;
 
   switch (type) {
-    case 'UPDATE_DEFENSE_MISSILE':
-      const defenseResult = updateDefenseMissilePhysics(data);
+    case 'CALCULATE_DEFENSE_TRAJECTORY':
+      const defenseResult = calculateDefenseMissileTrajectory(data);
       (self as any).postMessage({
-        type: 'DEFENSE_MISSILE_RESULT',
+        type: 'DEFENSE_TRAJECTORY_RESULT',
         data: defenseResult,
         messageId,
       });
