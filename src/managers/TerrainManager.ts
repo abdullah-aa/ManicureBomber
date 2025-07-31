@@ -10,6 +10,7 @@ import {
 } from '@babylonjs/core';
 import { Building, BuildingConfig } from '../entities/Building';
 import { WorkerManager } from './WorkerManager';
+import { Game } from './Game';
 
 interface TerrainChunk {
   mesh: GroundMesh;
@@ -20,6 +21,7 @@ interface TerrainChunk {
 
 export class TerrainManager {
   private scene: Scene;
+  private game: Game | null = null;
   private chunks: Map<string, TerrainChunk | null> = new Map();
   private chunkSize: number = 500;
   private generationThreshold: number = 300;
@@ -136,6 +138,12 @@ export class TerrainManager {
       const buildingConfig = { ...config, position };
 
       const building = new Building(this.scene, buildingConfig, this.workerManager);
+      
+      // Set Game reference for defense missile management
+      if (this.game) {
+        building.setGame(this.game);
+      }
+      
       if (buildingConfig.isDefenseLauncher && this.bomber) {
         building.setOnDestroyedCallback(() => {
           if (this.bomber && this.bomber.invalidateTargetCache) {
@@ -417,6 +425,19 @@ export class TerrainManager {
 
   public setBomber(bomber: any): void {
     this.bomber = bomber;
+  }
+
+  public setGame(game: Game): void {
+    this.game = game;
+    
+    // Set Game reference on all existing buildings
+    this.chunks.forEach((chunk) => {
+      if (chunk) {
+        chunk.buildings.forEach((building) => {
+          building.setGame(game);
+        });
+      }
+    });
   }
 
   private isSafeForWorkerCalls(): boolean {

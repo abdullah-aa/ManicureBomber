@@ -113,6 +113,7 @@ export class RadarManager {
     terrainManager: TerrainManager,
     destroyedTargets: number,
     iskanderMissiles: IskanderMissile[] = [],
+    defenseMissiles: DefenseMissile[] = [],
   ): void {
     const currentTime = performance.now();
 
@@ -157,17 +158,17 @@ export class RadarManager {
         .then((buildings) => {
           this.cachedBuildings = buildings;
           this.positionCacheValid = true;
-          this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles);
+          this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles, defenseMissiles);
         })
         .catch(() => {
           // Silent error handling - use empty array if worker fails
           this.cachedBuildings = [];
           this.positionCacheValid = true;
-          this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles);
+          this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles, defenseMissiles);
         });
     } else {
       // Use cached data
-      this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles);
+      this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles, defenseMissiles);
     }
   }
 
@@ -176,6 +177,7 @@ export class RadarManager {
     bomberRotationY: number,
     destroyedTargets: number,
     iskanderMissiles: IskanderMissile[],
+    defenseMissiles: DefenseMissile[],
   ): void {
     // Pre-calculate sin and cos for rotation
     const cosY = Math.cos(bomberRotationY);
@@ -235,7 +237,7 @@ export class RadarManager {
 
     // Update active missiles list and add missile markers
     this.activeIskanderMissiles = iskanderMissiles.filter((missile) => missile.isLaunched() && !missile.hasExploded());
-    this.updateMissileMarkers(bomberPosition, bomberRotationY, cosY, sinY, markerCount);
+    this.updateMissileMarkers(bomberPosition, bomberRotationY, cosY, sinY, markerCount, defenseMissiles);
 
     // Update score display - only targets
     this.targetCountElement.textContent = destroyedTargets.toString();
@@ -247,17 +249,10 @@ export class RadarManager {
     cosY: number,
     sinY: number,
     currentMarkerCount: number,
+    defenseMissiles: DefenseMissile[],
   ): void {
-    // Use cached buildings for missile markers
-    this.activeMissiles = [];
-
-    this.cachedBuildings.forEach((building) => {
-      if (building.isDefenseLauncher()) {
-        // Get missiles from the building
-        const buildingMissiles = building.getActiveMissiles();
-        this.activeMissiles.push(...buildingMissiles);
-      }
-    });
+    // Use defense missiles from Game class
+    this.activeMissiles = defenseMissiles.filter((missile) => missile.isLaunched() && !missile.hasExploded());
 
     // Add defense missile markers to radar (limited by remaining pool space)
     let markerCount = currentMarkerCount;

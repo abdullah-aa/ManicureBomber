@@ -16,6 +16,7 @@ import { InputManager } from './InputManager';
 import { CameraController, CameraLockMode } from './CameraController';
 import { Bomb } from '../entities/Bomb';
 import { IskanderMissile } from '../entities/IskanderMissile';
+import { DefenseMissile } from '../entities/DefenseMissile';
 import { UIManager } from '../ui/UIManager';
 import { RadarManager } from '../ui/RadarManager';
 import { WorkerManager } from './WorkerManager';
@@ -47,6 +48,9 @@ export class Game {
   private nextIskanderLaunchTime: number = -Infinity;
   private iskanderLaunchInterval: number = 30;
   private iskanderRandomInterval: number = 45;
+
+  // Defense missile system - centralized management
+  private defenseMissiles: DefenseMissile[] = [];
 
   // Camera toggle properties
   private lastCameraToggleTime: number = 0;
@@ -86,6 +90,7 @@ export class Game {
     this.workerManager = new WorkerManager();
 
     this.terrainManager = new TerrainManager(this.scene, this.workerManager);
+    this.terrainManager.setGame(this);
 
     this.bomber = new Bomber(this.scene, this.workerManager);
     this.bomber.setBombingRunActiveCallback(() => this.isBombingRunInProgress());
@@ -212,6 +217,7 @@ export class Game {
         this.cameraController.update(safeDeltaTime, this.inputManager);
         this.updateBombs(safeDeltaTime); // Now uses promise-based callbacks internally
         this.updateIskanderMissiles(safeDeltaTime);
+        this.updateDefenseMissiles(safeDeltaTime);
         this.updateGroundCrosshair();
 
         // Check for defense missile collisions (high frequency for responsive damage)
@@ -241,7 +247,7 @@ export class Game {
 
         // Update radar less frequently
         if (currentTime - this.lastRadarUpdateTime > this.radarUpdateInterval) {
-          this.radarManager.update(this.bomber, this.terrainManager, this.destroyedTargets, this.iskanderMissiles);
+          this.radarManager.update(this.bomber, this.terrainManager, this.destroyedTargets, this.iskanderMissiles, this.defenseMissiles);
           this.lastRadarUpdateTime = currentTime;
         }
 
@@ -478,6 +484,29 @@ export class Game {
     return this.bomber.getHealthPercentage();
   }
 
+  // Defense missile management methods
+  public addDefenseMissile(missile: DefenseMissile): void {
+    this.defenseMissiles.push(missile);
+  }
+
+  public getDefenseMissiles(): DefenseMissile[] {
+    return this.defenseMissiles;
+  }
+
+  private updateDefenseMissiles(deltaTime: number): void {
+    // Update all defense missiles and remove exploded ones
+    for (let i = this.defenseMissiles.length - 1; i >= 0; i--) {
+      const missile = this.defenseMissiles[i];
+      missile.update(deltaTime);
+
+      // Remove exploded missiles
+      if (missile.hasExploded()) {
+        missile.dispose();
+        this.defenseMissiles.splice(i, 1);
+      }
+    }
+  }
+
   public hasIskanderMissilesForAlert(): boolean {
     const bomberPosition = this.bomber.getPosition();
     const alertDetectionRange = 500; // Much larger range for alerts - 500 units
@@ -586,38 +615,20 @@ export class Game {
   private checkDefenseMissileCollisions(): void {
     if (this.gameOver || this.bomber.isBomberDestroyed()) return;
 
-    const bomberPosition = this.bomber.getPosition();
-    
-    // Use promise-based callbacks instead of async/await
-    this.terrainManager.getBuildingsInRadius(bomberPosition, 500)
-      .then((buildings) => {
-        // Collect all defense missiles from all buildings
-        const allDefenseMissiles: any[] = [];
-        for (const building of buildings) {
-          if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
-            const defenseMissiles = building.getDefenseMissiles();
-            allDefenseMissiles.push(...defenseMissiles);
-          }
-        }
+    if (this.defenseMissiles.length === 0) return;
 
-        if (allDefenseMissiles.length === 0) return;
+    // Use worker for collision detection
+    const bomberData = {
+      position: this.bomber.getPosition(),
+      isDestroyed: this.bomber.isBomberDestroyed(),
+    };
 
-        // Use worker for collision detection
-        const bomberData = {
-          position: this.bomber.getPosition(),
-          isDestroyed: this.bomber.isBomberDestroyed(),
-        };
-
-        this.workerManager.checkDefenseCollisions(allDefenseMissiles, bomberData)
-          .then((result) => {
-            this.handleDefenseCollisionResults(result.collisions, allDefenseMissiles);
-          })
-          .catch(() => {
-            // Worker failed - rely on next update cycle
-          });
+    this.workerManager.checkDefenseCollisions(this.defenseMissiles, bomberData)
+      .then((result) => {
+        this.handleDefenseCollisionResults(result.collisions, this.defenseMissiles);
       })
       .catch(() => {
-        // Silent error handling - fallback to synchronous method if needed
+        // Worker failed - rely on next update cycle
       });
   }
 

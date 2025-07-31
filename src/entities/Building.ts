@@ -14,8 +14,9 @@ import {
   AnimationGroup,
   DynamicTexture,
 } from '@babylonjs/core';
-import { DefenseMissile } from './DefenseMissile';
 import { WorkerManager } from '../managers/WorkerManager';
+import { Game } from '../managers/Game';
+import { DefenseMissile } from './DefenseMissile';
 
 export enum BuildingType {
   RESIDENTIAL = 'residential',
@@ -38,6 +39,7 @@ export interface BuildingConfig {
 export class Building {
   private scene: Scene;
   private workerManager: WorkerManager;
+  private game: Game | null = null;
   private mesh: Mesh;
   private parent: TransformNode;
   private config: BuildingConfig;
@@ -51,7 +53,6 @@ export class Building {
 
   // Defense launcher properties
   private launcherMesh: Mesh | null = null;
-  private defenseMissiles: DefenseMissile[] = [];
   private lastMissileLaunchTime: number = 0;
   private missileLaunchInterval: number = 4 + Math.random() * 6; // Random interval between 4-10 seconds
   private radarScanRange: number = 300; // Detection range
@@ -505,9 +506,6 @@ export class Building {
   private destroyBuilding(): void {
     this.isDestroyed = true;
 
-    // Explode all active defense missiles when building is destroyed
-    this.explodeAllDefenseMissiles();
-
     // Trigger destruction callback if set
     if (this.onDestroyedCallback) {
       this.onDestroyedCallback();
@@ -565,9 +563,6 @@ export class Building {
 
   private destroyBuildingByBomb(): void {
     this.isDestroyed = true;
-
-    // Explode all active defense missiles when building is destroyed
-    this.explodeAllDefenseMissiles();
 
     // Trigger destruction callback if set
     if (this.onDestroyedCallback) {
@@ -671,24 +666,16 @@ export class Building {
     this.onDestroyedCallback = callback;
   }
 
+  public setGame(game: Game): void {
+    this.game = game;
+  }
+
   public getMaxHeight(): number {
     return this.config.height;
   }
 
   public updateDefenseLauncher(bomberPosition: Vector3, bomberVelocity: Vector3, currentTime: number, deltaTime: number): void {
-    if (!this.config.isDefenseLauncher || this.isDestroyed) return;
-
-    // Update existing missiles
-    for (let i = this.defenseMissiles.length - 1; i >= 0; i--) {
-      const missile = this.defenseMissiles[i];
-      missile.update(deltaTime);
-
-      // Remove exploded missiles
-      if (missile.hasExploded()) {
-        missile.dispose();
-        this.defenseMissiles.splice(i, 1);
-      }
-    }
+    if (!this.config.isDefenseLauncher || this.isDestroyed || !this.game) return;
 
     // Check if we should launch a new missile
     const distanceToBomber = Vector3.Distance(this.getPosition(), bomberPosition);
@@ -705,7 +692,7 @@ export class Building {
   }
 
   private launchDefenseMissile(bomberPosition: Vector3, bomberVelocity: Vector3): void {
-    if (!this.config.isDefenseLauncher || this.isDestroyed) return;
+    if (!this.config.isDefenseLauncher || this.isDestroyed || !this.game) return;
 
     const launchPosition = this.getPosition().clone();
     launchPosition.y += this.config.height + 3; // Launch from top of launcher
@@ -723,8 +710,8 @@ export class Building {
     const bomberFuturePosition = bomberPosition.clone();
     bomberFuturePosition.addInPlace(bomberVelocity.scale(timeToReachBomber));
 
-    // Add inaccuracy to make the missile aim slightly off target
-    const inaccuracy = 30 + Math.random() * 20; // Variable inaccuracy between 30-50 units
+    // Add inaccuracy to make the missile aim off target
+    const inaccuracy = 50 + Math.random() * 50; // Variable inaccuracy between 50-100 units
     const targetPosition = bomberFuturePosition.clone();
     targetPosition.x += (Math.random() - 0.5) * inaccuracy;
     targetPosition.y += (Math.random() - 0.5) * inaccuracy;
@@ -732,35 +719,14 @@ export class Building {
 
     const missile = new DefenseMissile(this.scene, launchPosition, targetPosition, this.workerManager);
     missile.launch();
-    this.defenseMissiles.push(missile);
+    this.game.addDefenseMissile(missile);
   }
 
   public isDefenseLauncher(): boolean {
     return this.config.isDefenseLauncher || false;
   }
 
-  public getActiveMissiles(): DefenseMissile[] {
-    if (!this.config.isDefenseLauncher) return [];
 
-    // Return only missiles that haven't exploded
-    return this.defenseMissiles.filter((missile) => !missile.hasExploded());
-  }
-
-  public getDefenseMissiles(): DefenseMissile[] {
-    if (!this.config.isDefenseLauncher) return [];
-
-    // Return all missiles including exploded ones for collision detection
-    return this.defenseMissiles;
-  }
-
-  private explodeAllDefenseMissiles(): void {
-    // Explode all active defense missiles when the launcher building is destroyed
-    for (const missile of this.defenseMissiles) {
-      if (missile.isLaunched() && !missile.hasExploded()) {
-        missile.explode();
-      }
-    }
-  }
 
   public dispose(): void {
     if (this.targetRing) this.targetRing.dispose();
@@ -768,10 +734,6 @@ export class Building {
     if (this.smokeParticles) this.smokeParticles.dispose();
     if (this.damageLight) this.damageLight.dispose();
     if (this.launcherMesh) this.launcherMesh.dispose();
-
-    // Dispose all defense missiles
-    this.defenseMissiles.forEach((missile) => missile.dispose());
-    this.defenseMissiles = [];
 
     this.parent.dispose();
   }
