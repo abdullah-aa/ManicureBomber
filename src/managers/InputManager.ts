@@ -19,17 +19,17 @@ export class InputManager {
     { name: 'altitudeDown', displayName: 'Altitude Down', defaultKey: 'KeyS', currentKey: 'KeyS' },
     { name: 'turnLeft', displayName: 'Turn Left', defaultKey: 'KeyA', currentKey: 'KeyA' },
     { name: 'turnRight', displayName: 'Turn Right', defaultKey: 'KeyD', currentKey: 'KeyD' },
-    { name: 'cameraPanLeft', displayName: 'Camera Pan Left', defaultKey: 'KeyQ', currentKey: 'KeyQ' },
-    { name: 'cameraPanRight', displayName: 'Camera Pan Right', defaultKey: 'KeyE', currentKey: 'KeyE' },
-    { name: 'pitchUp', displayName: 'Pitch Up', defaultKey: 'KeyR', currentKey: 'KeyR' },
-    { name: 'pitchDown', displayName: 'Pitch Down', defaultKey: 'KeyF', currentKey: 'KeyF' },
-    { name: 'cameraReset', displayName: 'Reset Camera', defaultKey: 'Digit1', currentKey: 'Digit1' },
-    { name: 'cameraToggle', displayName: 'Toggle Camera', defaultKey: 'Digit2', currentKey: 'Digit2' },
-    { name: 'cameraZoomIn', displayName: 'Zoom In', defaultKey: 'Digit3', currentKey: 'Digit3' },
-    { name: 'cameraZoomOut', displayName: 'Zoom Out', defaultKey: 'Digit4', currentKey: 'Digit4' },
-    { name: 'countermeasure', displayName: 'Deploy Flares', defaultKey: 'KeyZ', currentKey: 'KeyZ' },
-    { name: 'missile', displayName: 'Launch Tomahawk', defaultKey: 'KeyX', currentKey: 'KeyX' },
-    { name: 'bomb', displayName: 'Drop Bomb', defaultKey: 'KeyC', currentKey: 'KeyC' }
+    { name: 'cameraPanLeft', displayName: 'Camera Pan Left', defaultKey: 'KeyZ', currentKey: 'KeyZ' },
+    { name: 'cameraPanRight', displayName: 'Camera Pan Right', defaultKey: 'KeyC', currentKey: 'KeyC' },
+    { name: 'pitchUp', displayName: 'Pitch Up', defaultKey: 'KeyQ', currentKey: 'KeyQ' },
+    { name: 'pitchDown', displayName: 'Pitch Down', defaultKey: 'KeyE', currentKey: 'KeyE' },
+    { name: 'cameraReset', displayName: 'Reset Camera', defaultKey: 'Digit2', currentKey: 'Digit2' },
+    { name: 'cameraToggle', displayName: 'Toggle Camera', defaultKey: 'Digit4', currentKey: 'Digit4' },
+    { name: 'cameraZoomIn', displayName: 'Zoom In', defaultKey: 'Digit1', currentKey: 'Digit1' },
+    { name: 'cameraZoomOut', displayName: 'Zoom Out', defaultKey: 'Digit3', currentKey: 'Digit3' },
+    { name: 'countermeasure', displayName: 'Deploy Flares', defaultKey: 'KeyF', currentKey: 'KeyF' },
+    { name: 'missile', displayName: 'Launch Tomahawk', defaultKey: 'KeyR', currentKey: 'KeyR' },
+    { name: 'bomb', displayName: 'Start Bombing Run', defaultKey: 'KeyX', currentKey: 'KeyX' }
   ];
 
 
