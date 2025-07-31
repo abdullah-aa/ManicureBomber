@@ -61,40 +61,40 @@ export class CameraController {
   public update(deltaTime: number, inputManager: InputManager): void {
     const currentTime = performance.now() / 1000;
 
-    // Handle camera reset with C key
+    // Handle camera reset with 1 key
     if (inputManager.isCameraResetPressed()) {
       this.resetCamera(currentTime);
     }
 
-    // Handle camera panning with Right Shift + Arrow keys
-    if (inputManager.isRightShiftLeftPressed()) {
-      // Pan camera right (positive X direction)
-      this.panAngleOffset += this.panSpeed * deltaTime;
-      this.trigCacheValid = false; // Invalidate cache when panning
-    }
-    if (inputManager.isRightShiftRightPressed()) {
+    // Handle camera panning with Q and E keys
+    if (inputManager.isCameraPanLeftPressed()) {
       // Pan camera left (negative X direction)
       this.panAngleOffset -= this.panSpeed * deltaTime;
       this.trigCacheValid = false; // Invalidate cache when panning
     }
-
-    // Handle camera height adjustment with Shift + Up/Down arrows (inverted)
-    if (inputManager.isShiftUpPressed()) {
-      this.followHeight -= this.zoomSpeed * deltaTime * 60; // Shift+Up lowers camera
-      this.followHeight = Math.max(this.minFollowHeight, this.followHeight);
+    if (inputManager.isCameraPanRightPressed()) {
+      // Pan camera right (positive X direction)
+      this.panAngleOffset += this.panSpeed * deltaTime;
+      this.trigCacheValid = false; // Invalidate cache when panning
     }
-    if (inputManager.isShiftDownPressed()) {
-      this.followHeight += this.zoomSpeed * deltaTime * 60; // Shift+Down raises camera
+
+    // Handle camera pitch adjustment with R and F keys
+    if (inputManager.isPitchUpPressed()) {
+      this.followHeight += this.zoomSpeed * deltaTime * 60; // R raises camera
       this.followHeight = Math.min(this.maxFollowHeight, this.followHeight);
     }
+    if (inputManager.isPitchDownPressed()) {
+      this.followHeight -= this.zoomSpeed * deltaTime * 60; // F lowers camera
+      this.followHeight = Math.max(this.minFollowHeight, this.followHeight);
+    }
 
-    // Handle camera distance adjustment with Shift + [ and ]
-    if (inputManager.isShiftLeftBracketPressed()) {
-      this.followDistance -= this.distanceSpeed * deltaTime; // Shift+[ decreases distance
+    // Handle camera zoom with 3 and 4 keys
+    if (inputManager.isCameraZoomInPressed()) {
+      this.followDistance -= this.distanceSpeed * deltaTime; // 3 decreases distance (zoom in)
       this.followDistance = Math.max(this.minFollowDistance, this.followDistance);
     }
-    if (inputManager.isShiftRightBracketPressed()) {
-      this.followDistance += this.distanceSpeed * deltaTime; // Shift+] increases distance
+    if (inputManager.isCameraZoomOutPressed()) {
+      this.followDistance += this.distanceSpeed * deltaTime; // 4 increases distance (zoom out)
       this.followDistance = Math.min(this.maxFollowDistance, this.followDistance);
     }
 

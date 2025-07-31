@@ -504,40 +504,34 @@ export class Bomber {
     let isClimbing = false;
     let isDiving = false;
 
-    if (inputManager.isKeyPressed('ArrowLeft') && !inputManager.isKeyPressed('ShiftRight')) {
-      this.rotation.y += this.turnSpeed * deltaTime; // Left arrow turns right
-      this.targetBankAngle = this.maxBankAngle; // Bank right
-      isTurning = true;
-      this.trigCacheValid = false; // Invalidate cache when turning
-    }
-    if (inputManager.isKeyPressed('ArrowRight') && !inputManager.isKeyPressed('ShiftRight')) {
-      this.rotation.y -= this.turnSpeed * deltaTime; // Right arrow turns left
+    if (inputManager.getTurnLeftPressed()) {
+      this.rotation.y -= this.turnSpeed * deltaTime; // A key turns left
       this.targetBankAngle = -this.maxBankAngle; // Bank left
       isTurning = true;
       this.trigCacheValid = false; // Invalidate cache when turning
     }
-
-    // Handle altitude changes (up/down arrows) with banking (inverted)
-    // Only change altitude and bank when Shift is NOT pressed (Shift+Up/Down is for camera)
-    // AND when Ctrl+Up/Down is NOT pressed (Ctrl+Up/Down is for camera distance)
-    if (inputManager.isKeyPressed('ArrowUp') && !inputManager.isShiftUpPressed() && !inputManager.isCtrlUpPressed()) {
-      this.altitude -= this.climbRate * deltaTime; // Up arrow decreases altitude
-      isDiving = true;
-      // If not already turning, add slight banking for dive
-      if (!isTurning) {
-        this.targetBankAngle = -this.maxClimbBankAngle; // Slight left bank during dive
-      }
+    if (inputManager.getTurnRightPressed()) {
+      this.rotation.y += this.turnSpeed * deltaTime; // D key turns right
+      this.targetBankAngle = this.maxBankAngle; // Bank right
+      isTurning = true;
+      this.trigCacheValid = false; // Invalidate cache when turning
     }
-    if (
-      inputManager.isKeyPressed('ArrowDown') &&
-      !inputManager.isShiftDownPressed() &&
-      !inputManager.isCtrlDownPressed()
-    ) {
-      this.altitude += this.climbRate * deltaTime; // Down arrow increases altitude
+
+    // Handle altitude changes with W/S keys with banking
+    if (inputManager.isAltitudeUpPressed()) {
+      this.altitude += this.climbRate * deltaTime; // W key increases altitude
       isClimbing = true;
       // If not already turning, add slight banking for climb
       if (!isTurning) {
         this.targetBankAngle = this.maxClimbBankAngle; // Slight right bank during climb
+      }
+    }
+    if (inputManager.isAltitudeDownPressed()) {
+      this.altitude -= this.climbRate * deltaTime; // S key decreases altitude
+      isDiving = true;
+      // If not already turning, add slight banking for dive
+      if (!isTurning) {
+        this.targetBankAngle = -this.maxClimbBankAngle; // Slight left bank during dive
       }
     }
 
