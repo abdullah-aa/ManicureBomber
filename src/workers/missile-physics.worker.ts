@@ -14,6 +14,7 @@ interface MissilePhysicsData {
   velocity: Vector3;
   rotation: Vector3;
   targetPosition: Vector3;
+  bomberVelocity?: Vector3;
   speed: number;
   turnRate: number;
   deltaTime: number;
@@ -536,8 +537,35 @@ function updateMissilePhysics(data: MissilePhysicsData): MissilePhysicsResult {
   } else {
     // Defense missile physics - optimized for performance
     if (!data.targetSet) {
-      // Initial target setting - calculate direction once
-      newVelocity = vector3Scale(vector3Normalize(vector3Subtract(data.targetPosition, newPosition)), data.speed);
+      // Initial target setting with lead calculation
+      let calculatedTargetPosition = data.targetPosition;
+      
+      // Calculate lead if bomber velocity is available
+      if (data.bomberVelocity) {
+        // Calculate distance to bomber
+        const distanceToBomber = vector3Distance(newPosition, data.targetPosition);
+        
+        // Calculate time for missile to reach bomber
+        const timeToReachBomber = distanceToBomber / data.speed;
+        
+        // Predict bomber's future position based on missile travel time
+        const bomberFuturePosition = {
+          x: data.targetPosition.x + data.bomberVelocity.x * timeToReachBomber,
+          y: data.targetPosition.y + data.bomberVelocity.y * timeToReachBomber,
+          z: data.targetPosition.z + data.bomberVelocity.z * timeToReachBomber
+        };
+        
+        // Add inaccuracy to make the missile aim off target
+        const inaccuracy = 50 + Math.random() * 50; // Variable inaccuracy between 50-100 units
+        calculatedTargetPosition = {
+          x: bomberFuturePosition.x + (Math.random() - 0.5) * inaccuracy,
+          y: bomberFuturePosition.y + (Math.random() - 0.5) * inaccuracy,
+          z: bomberFuturePosition.z + (Math.random() - 0.5) * inaccuracy
+        };
+      }
+      
+      // Calculate direction to calculated target
+      newVelocity = vector3Scale(vector3Normalize(vector3Subtract(calculatedTargetPosition, newPosition)), data.speed);
 
       // Calculate yaw (horizontal rotation around Y axis)
       newRotation.y = Math.atan2(newVelocity.x, newVelocity.z) + Math.PI; // Add 180° to flip missile

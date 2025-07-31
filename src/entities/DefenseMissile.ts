@@ -22,7 +22,8 @@ export class DefenseMissile {
   private position: Vector3;
   private velocity: Vector3;
   private targetPosition: Vector3;
-  private speed: number = 120 + Math.random() * 60; // Variable speed between 120-180 units/sec
+  private bomberVelocity: Vector3;
+  private speed: number = 120 + Math.random() * 30; // Variable speed between 120-180 units/sec
   private launched: boolean = false;
   private exploded: boolean = false;
   private exhaustParticles!: ParticleSystem;
@@ -35,20 +36,21 @@ export class DefenseMissile {
   private lastWorkerUpdateTime: number = 0;
   private workerUpdateInterval: number = 1 / 60; // 60 FPS max updates
 
-  constructor(scene: Scene, launchPosition: Vector3, targetPosition: Vector3, workerManager: WorkerManager) {
+  constructor(scene: Scene, launchPosition: Vector3, targetPosition: Vector3, bomberVelocity: Vector3, workerManager: WorkerManager) {
     this.scene = scene;
     this.workerManager = workerManager;
     this.position = launchPosition.clone();
-    this.targetPosition = targetPosition.clone();
+    this.bomberVelocity = bomberVelocity.clone();
 
-    // Calculate direction to target
-    const direction = this.targetPosition.subtract(this.position).normalize();
-    this.velocity = direction.scale(this.speed);
+    // Initialize with basic values - worker will calculate proper target and velocity
+    this.velocity = new Vector3(0, 0, 0);
+    this.targetPosition = targetPosition.clone();
 
     this.missileGroup = new TransformNode('defenseMissileGroup', this.scene);
     this.missileGroup.position = this.position.clone();
 
-    // Orient missile toward target with both yaw and pitch
+    // Set initial orientation toward target
+    const direction = this.targetPosition.subtract(this.position).normalize();
     const yaw = Math.atan2(direction.x, direction.z) + Math.PI; // Add 180° to flip missile
     const horizontalSpeed = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
     const pitch = Math.atan2(direction.y, horizontalSpeed) + Math.PI;
@@ -207,7 +209,7 @@ export class DefenseMissile {
     this.pendingPhysicsUpdate = true;
     
     // Prepare physics data for worker
-    const physicsData = {
+    const physicsData: any = {
       missileType: 'defense',
       position: { x: this.position.x, y: this.position.y, z: this.position.z },
       velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
@@ -219,6 +221,11 @@ export class DefenseMissile {
       targetSet: this.targetSet,
       maxAltitude: this.maxAltitude
     };
+
+    // Only include bomber velocity data until target is set
+    if (!this.targetSet) {
+      physicsData.bomberVelocity = { x: this.bomberVelocity.x, y: this.bomberVelocity.y, z: this.bomberVelocity.z };
+    }
     
     // Send to worker and handle response
     this.workerManager.updateMissilePhysics(physicsData)
@@ -246,7 +253,7 @@ export class DefenseMissile {
       this.targetSet = result.targetSet;
     }
     
-    // Apply rotation if provided
+    // Apply rotation if provided (only during initial target setting)
     if (result.rotation && !this.targetSet) {
       this.missileGroup.rotation.set(result.rotation.x, result.rotation.y, result.rotation.z);
     }

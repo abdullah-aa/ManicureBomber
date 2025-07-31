@@ -697,27 +697,14 @@ export class Building {
     const launchPosition = this.getPosition().clone();
     launchPosition.y += this.config.height + 3; // Launch from top of launcher
 
-    // Calculate missile speed (average of the variable speed range)
-    const missileSpeed = 150; // Average of 120-180 units/sec range
-    
-    // Calculate distance to bomber
-    const distanceToBomber = Vector3.Distance(launchPosition, bomberPosition);
-    
-    // Calculate time for missile to reach bomber
-    const timeToReachBomber = distanceToBomber / missileSpeed;
-    
-    // Predict bomber's future position based on missile travel time
-    const bomberFuturePosition = bomberPosition.clone();
-    bomberFuturePosition.addInPlace(bomberVelocity.scale(timeToReachBomber));
-
-    // Add inaccuracy to make the missile aim off target
-    const inaccuracy = 50 + Math.random() * 50; // Variable inaccuracy between 50-100 units
-    const targetPosition = bomberFuturePosition.clone();
-    targetPosition.x += (Math.random() - 0.5) * inaccuracy;
-    targetPosition.y += (Math.random() - 0.5) * inaccuracy;
-    targetPosition.z += (Math.random() - 0.5) * inaccuracy;
-
-    const missile = new DefenseMissile(this.scene, launchPosition, targetPosition, this.workerManager);
+    // Pass bomber data to missile for worker-based target calculation
+    const missile = new DefenseMissile(
+      this.scene, 
+      launchPosition, 
+      bomberPosition, 
+      bomberVelocity, 
+      this.workerManager
+    );
     missile.launch();
     this.game.addDefenseMissile(missile);
   }
