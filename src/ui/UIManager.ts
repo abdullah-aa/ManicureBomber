@@ -39,7 +39,6 @@ export class UIManager {
   // Alert system
   private alertContainer!: HTMLElement;
   private activeAlerts: Map<string, HTMLElement> = new Map();
-  private alertTimeout: number = 5000; // 5 seconds
 
   // Persistent alert tracking for Iskander missiles
   private persistentAlerts: Set<string> = new Set();
@@ -708,7 +707,6 @@ export class UIManager {
   }
 
   public showAlert(message: string, type: string = 'default', duration: number = 5000): void {
-    const alertId = `${type}-${Date.now()}`;
 
     // Remove existing alert of the same type
     const existingAlert = this.activeAlerts.get(type);

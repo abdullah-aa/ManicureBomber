@@ -10,61 +10,6 @@
         height: 100vh;
         touch-action: none;
       }
-      #instructionsOverlay {
-        position: fixed;
-        bottom: 20px;
-        left: 20px;
-        color: white;
-        font-size: 14px;
-        background: rgba(0, 0, 0, 0.8);
-        border-radius: 8px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-        z-index: 1000;
-        max-width: 300px;
-      }
-      #instructionsHeader {
-        padding: 12px 16px;
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 8px 8px 0 0;
-        cursor: pointer;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        user-select: none;
-      }
-      #instructionsHeader:hover {
-        background: rgba(255, 255, 255, 0.15);
-      }
-      #instructionsTitle {
-        font-weight: bold;
-        font-size: 16px;
-      }
-      #toggleButton {
-        color: #fff;
-        font-size: 18px;
-        transform: rotate(0deg);
-        transition: transform 0.3s ease;
-      }
-      #toggleButton.collapsed {
-        transform: rotate(180deg);
-      }
-      #instructionsContent {
-        padding: 16px;
-        max-height: 380px;
-        overflow: hidden;
-        transition:
-          max-height 0.3s ease,
-          padding 0.3s ease;
-      }
-      #instructionsContent.collapsed {
-        max-height: 0;
-        padding: 0 16px;
-      }
-      #instructionsContent div {
-        margin-bottom: 8px;
-        line-height: 1.4;
-      }
 
       /* Radar Overlay Styles */
       #radarOverlay {
@@ -92,6 +37,32 @@
         align-items: center;
         user-select: none;
         font-weight: bold;
+      }
+
+      #keybindsButton {
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        width: 60px;
+        height: 60px;
+        background: rgba(0, 50, 0, 0.9);
+        border: 2px solid rgba(0, 255, 0, 0.5);
+        border-radius: 50%;
+        color: #00ff00;
+        font-size: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        z-index: 1000;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      }
+
+      #keybindsButton:hover {
+        background: rgba(0, 100, 0, 0.9);
+        border-color: rgba(0, 255, 0, 0.8);
+        transform: scale(1.1);
       }
 
       #radarHeader:hover {
@@ -279,9 +250,191 @@
       .game-over-content p {
         font-size: 1.2em;
         margin: 10px 0;
-      }</style><script defer="defer" src="bundle.js"></script></head><body><canvas id="renderCanvas"></canvas><div id="instructionsOverlay"><div id="instructionsHeader"><div id="instructionsTitle">Controls</div><div id="toggleButton">▼</div></div><div id="instructionsContent"><div>Arrow Keys: Turn, Climb/Descend</div><div>, (Comma): Countermeasures</div><div>. (Period):Tomahawk</div><div>/ (Slash): Bomb Run</div><div>; (Semicolon): Reset Camera</div><div>' (Quote): Toggle Camera</div><div>Shift + [ / ] : Zoom Camera</div><div>Shift + Left/Right: Pan Camera</div><div>Shift + Up/Down: Pitch Camera</div><div id="radarLegend"><div>Radar Legend:</div><div style="font-size: 10px; margin-top: 8px"><div style="color: #00ff00">● Bomber</div><div style="color: #ff0000">● Target</div><div style="color: #ff6600">● Defense</div><div style="color: #ff00ff">● Missile</div><div style="color: #0066ff">● Iskander</div></div></div></div></div><div id="radarOverlay"><div id="radarHeader"><div>RADAR</div><div id="radarToggle">▼</div></div><div id="radarContent"><div id="radarDisplay"><div class="radar-sweep"></div><div class="radar-bomber"></div></div><div id="scoreDisplay"><div>Targets: <span id="targetCount">0</span></div></div></div></div><script>document.getElementById('instructionsHeader').addEventListener('click', function () {
-        const content = document.getElementById('instructionsContent');
-        const toggleButton = document.getElementById('toggleButton');
+      }
+
+      #restart-button {
+        background: linear-gradient(135deg, #ff4444, #cc0000);
+        color: white;
+        border: none;
+        padding: 15px 30px;
+        font-size: 1.2em;
+        font-weight: bold;
+        border-radius: 8px;
+        cursor: pointer;
+        margin-top: 20px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        transition: all 0.3s ease;
+      }
+
+      #restart-button:hover {
+        background: linear-gradient(135deg, #ff6666, #dd2222);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+      }
+
+      #restart-button:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      /* Keybindings Modal */
+      #keybindsModal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+      }
+
+      #keybindsContent {
+        background: rgba(0, 50, 0, 0.95);
+        border: 2px solid rgba(0, 255, 0, 0.5);
+        border-radius: 12px;
+        padding: 24px;
+        color: #00ff00;
+        font-family: 'Courier New', monospace;
+        max-width: 500px;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+
+      #keybindsContent h2 {
+        margin-top: 0;
+        text-align: center;
+        color: #00ff00;
+        text-shadow: 0 0 8px rgba(0, 255, 0, 0.8);
+      }
+
+      .keybind-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        padding: 8px;
+        border-radius: 4px;
+        transition: background 0.2s ease;
+      }
+
+      .keybind-row:hover {
+        background: rgba(0, 100, 0, 0.2);
+      }
+
+      .keybind-label {
+        flex: 1;
+        font-size: 14px;
+      }
+
+      .keybind-key {
+        background: rgba(0, 255, 0, 0.2);
+        border: 1px solid rgba(0, 255, 0, 0.5);
+        color: #00ff00;
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        min-width: 60px;
+        text-align: center;
+      }
+
+      .keybind-key:hover {
+        background: rgba(0, 255, 0, 0.3);
+        border-color: rgba(0, 255, 0, 0.8);
+      }
+
+      .keybind-key.editing {
+        background: rgba(255, 255, 0, 0.3);
+        border-color: rgba(255, 255, 0, 0.8);
+        color: #ffff00;
+        animation: pulse 1s infinite;
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+      }
+
+      .keybinds-buttons {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 24px;
+        gap: 12px;
+      }
+
+      .keybinds-button {
+        background: rgba(0, 255, 0, 0.2);
+        border: 1px solid rgba(0, 255, 0, 0.5);
+        color: #00ff00;
+        padding: 10px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+        transition: all 0.2s ease;
+        flex: 1;
+      }
+
+      .keybinds-button:hover {
+        background: rgba(0, 255, 0, 0.3);
+        border-color: rgba(0, 255, 0, 0.8);
+      }
+
+      .keybinds-button.reset {
+        background: rgba(255, 100, 0, 0.2);
+        border-color: rgba(255, 100, 0, 0.5);
+        color: #ff6400;
+      }
+
+      .keybinds-button.reset:hover {
+        background: rgba(255, 100, 0, 0.3);
+        border-color: rgba(255, 100, 0, 0.8);
+      }
+
+
+      /* Radar Index Tooltip */
+      #radarDisplay {
+        position: relative;
+      }
+
+      #radarDisplay::after {
+        content: "🟢 Bomber  🔴 Target  🟠 Defense  🟣 Missile  🔵 Iskander";
+        position: absolute;
+        top: -40px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.95);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-family: 'Courier New', monospace;
+        white-space: nowrap;
+        z-index: 9999;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+        border: 1px solid rgba(0, 255, 0, 0.3);
+      }
+
+      #radarDisplay:hover::after {
+        opacity: 1;
+      }
+
+      @media (max-width: 768px) {
+        #keybindsButton {
+          display: none;
+        }
+      }</style><script defer="defer" src="bundle.js"></script></head><body><canvas id="renderCanvas"></canvas><div id="keybindsButton">⚙</div><div id="radarOverlay"><div id="radarHeader"><div>RADAR</div><div id="radarToggle">▼</div></div><div id="radarContent"><div id="radarDisplay"><div class="radar-sweep"></div><div class="radar-bomber"></div></div><div id="scoreDisplay"><div>Targets: <span id="targetCount">0</span></div></div></div></div><div id="keybindsModal"><div id="keybindsContent"><h2>⚙ Key Bindings</h2><div id="keybindsList"></div><div class="keybinds-buttons"><button class="keybinds-button reset" id="resetKeybinds">Reset to Defaults</button> <button class="keybinds-button" id="saveKeybinds">Save & Close</button></div></div></div><script>// Radar toggle functionality
+      document.getElementById('radarToggle').addEventListener('click', function (e) {
+        e.stopPropagation();
+        const content = document.getElementById('radarContent');
+        const toggleButton = document.getElementById('radarToggle');
 
         if (content.classList.contains('collapsed')) {
           content.classList.remove('collapsed');
@@ -294,18 +447,11 @@
         }
       });
 
-      // Radar toggle functionality
-      document.getElementById('radarHeader').addEventListener('click', function () {
-        const content = document.getElementById('radarContent');
-        const toggleButton = document.getElementById('radarToggle');
-
-        if (content.classList.contains('collapsed')) {
-          content.classList.remove('collapsed');
-          toggleButton.classList.remove('collapsed');
-          toggleButton.textContent = '▼';
-        } else {
-          content.classList.add('collapsed');
-          toggleButton.classList.add('collapsed');
-          toggleButton.textContent = '▲';
+      // Keybinds button functionality
+      document.getElementById('keybindsButton').addEventListener('click', function (e) {
+        e.stopPropagation();
+        // This will be handled by the UIManager
+        if (window.uiManager) {
+          window.uiManager.showKeybindsModal();
         }
       });</script></body></html>
