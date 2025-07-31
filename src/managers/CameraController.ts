@@ -158,13 +158,6 @@ export class CameraController {
     this.lockMode = mode;
   }
 
-  public setFollowDistance(distance: number): void {
-    this.followDistance = distance;
-  }
-
-  public setFollowHeight(height: number): void {
-    this.followHeight = height;
-  }
 
   public getCamera(): FreeCamera {
     return this.camera;

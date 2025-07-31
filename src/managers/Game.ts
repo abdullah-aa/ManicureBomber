@@ -22,8 +22,8 @@ import { WorkerManager } from './WorkerManager';
 import { Building } from '../entities/Building';
 
 export class Game {
-  private scene: Scene;
-  private canvas: HTMLCanvasElement;
+  private readonly scene: Scene;
+  private readonly canvas: HTMLCanvasElement;
   private bomber!: Bomber;
   private terrainManager!: TerrainManager;
   private inputManager!: InputManager;
@@ -44,7 +44,6 @@ export class Game {
 
   // Iskander missile system
   private iskanderMissiles: IskanderMissile[] = [];
-  private lastIskanderLaunchTime: number = -Infinity;
   private nextIskanderLaunchTime: number = -Infinity;
   private iskanderLaunchInterval: number = 30;
   private iskanderRandomInterval: number = 45;
@@ -59,7 +58,6 @@ export class Game {
 
   // Game state
   private gameOver: boolean = false;
-  private gameOverTime: number = 0;
 
   // Performance optimization: frame rate control
   private targetFrameRate: number = 60;
@@ -108,7 +106,7 @@ export class Game {
 
     this.bomber.setTerrainManager(this.terrainManager);
     this.terrainManager.setBomber(this.bomber);
-    
+
     return this.terrainManager.generateInitialTerrain(this.bomber.getPosition())
       .then(() => {
         // Initialize first Iskander launch time
@@ -307,7 +305,6 @@ export class Game {
     // Check if it's time to launch an Iskander missile
     if (currentTime >= this.nextIskanderLaunchTime) {
       this.launchIskanderMissile();
-      this.lastIskanderLaunchTime = currentTime;
       
       // Calculate next launch time
       const totalInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
@@ -559,7 +556,6 @@ export class Game {
 
   private handleGameOver(): void {
     this.gameOver = true;
-    this.gameOverTime = performance.now() / 1000;
 
     if (this.bomber) {
       this.bomber.dispose();

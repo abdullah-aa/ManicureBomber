@@ -44,33 +44,3 @@ export function vector3Lerp(a: Vector3, b: Vector3, t: number): Vector3 {
   };
 }
 
-// Math utility functions
-export function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
-export function randomRange(min: number, max: number): number {
-  return min + Math.random() * (max - min);
-}
-
-export function randomVector3(min: Vector3, max: Vector3): Vector3 {
-  return {
-    x: randomRange(min.x, max.x),
-    y: randomRange(min.y, max.y),
-    z: randomRange(min.z, max.z),
-  };
-}
-
-// Color utility functions
-export function colorLerp(
-  a: { r: number; g: number; b: number; a: number },
-  b: { r: number; g: number; b: number; a: number },
-  t: number,
-) {
-  return {
-    r: lerp(a.r, b.r, t),
-    g: lerp(a.g, b.g, t),
-    b: lerp(a.b, b.b, t),
-    a: lerp(a.a, b.a, t),
-  };
-}

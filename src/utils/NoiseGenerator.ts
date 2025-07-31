@@ -36,10 +36,6 @@ export class NoiseGenerator {
     return this.interpolate(i1, i2, fracY);
   }
 
-  // Generate noise value in range [-1, 1] for terrain features
-  public signedNoise(x: number, y: number): number {
-    return this.noise(x, y) * 2 - 1;
-  }
 
   // Generate fractal noise with multiple octaves
   public fractalNoise(x: number, y: number, octaves: number = 4): number {

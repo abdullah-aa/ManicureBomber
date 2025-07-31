@@ -1,14 +1,5 @@
 import { Vector3 } from '@babylonjs/core';
 
-interface WorkerMessage {
-  type: string;
-  data: any;
-}
-
-interface WorkerResult {
-  type: string;
-  data: any;
-}
 
 export class WorkerManager {
   private terrainWorker!: Worker;
@@ -18,7 +9,7 @@ export class WorkerManager {
   private messageCallbacks: Map<string, (result: any) => void> = new Map();
   private messageIdCounter: number = 0;
 
-  private WORKER_TIMEOUT = 5000; // 5 second timeout
+  private WORKER_TIMEOUT = 10000; // 5 second timeout
 
   constructor() {
     this.initializeWorkers();
@@ -27,25 +18,25 @@ export class WorkerManager {
   private initializeWorkers(): void {
     // Initialize terrain worker
     this.terrainWorker = new Worker(new URL('../workers/terrain.worker.ts', import.meta.url), { type: 'module' });
-    this.setupWorkerListener(this.terrainWorker, 'terrainWorker');
+    this.setupWorkerListener(this.terrainWorker);
 
     // Initialize missile physics worker
     this.missilePhysicsWorker = new Worker(new URL('../workers/missile-physics.worker.ts', import.meta.url), {
       type: 'module',
     });
-    this.setupWorkerListener(this.missilePhysicsWorker, 'missilePhysicsWorker');
+    this.setupWorkerListener(this.missilePhysicsWorker);
 
     // Initialize collision detection worker
     this.collisionDetectionWorker = new Worker(new URL('../workers/collision-detection.worker.ts', import.meta.url), {
       type: 'module',
     });
-    this.setupWorkerListener(this.collisionDetectionWorker, 'collisionDetectionWorker');
+    this.setupWorkerListener(this.collisionDetectionWorker);
 
   }
 
-  private setupWorkerListener(worker: Worker, workerName: string): void {
+  private setupWorkerListener(worker: Worker): void {
     worker.onmessage = (event) => {
-      const { type, data, messageId } = event.data;
+      const { data, messageId } = event.data;
 
       // Handle callback if messageId exists
       if (messageId && this.messageCallbacks.has(messageId)) {
@@ -55,7 +46,7 @@ export class WorkerManager {
       }
     };
 
-    worker.onerror = (error) => {
+    worker.onerror = () => {
       // Silent error handling - no console logging
     };
   }
@@ -69,17 +60,6 @@ export class WorkerManager {
         chunkZ,
         chunkSize,
         subdivisions,
-      },
-    });
-  }
-
-  public getBuildingsInRadius(bomberPosition: Vector3, chunks: any[], radius: number): Promise<any> {
-    return this.sendMessageToWorker(this.terrainWorker, {
-      type: 'GET_BUILDINGS_IN_RADIUS',
-      data: {
-        bomberPosition: { x: bomberPosition.x, y: bomberPosition.y, z: bomberPosition.z },
-        chunks,
-        radius,
       },
     });
   }
@@ -146,32 +126,6 @@ export class WorkerManager {
     });
   }
 
-  public batchUpdateMissiles(missilesData: any[]): Promise<any> {
-    return this.sendMessageToWorker(this.missilePhysicsWorker, {
-      type: 'BATCH_UPDATE_MISSILES',
-      data: { missiles: missilesData },
-    });
-  }
-
-  // Collision detection worker methods
-  public detectCollisions(collisionData: any): Promise<any> {
-    return this.sendMessageToWorker(this.collisionDetectionWorker, {
-      type: 'DETECT_COLLISIONS',
-      data: collisionData,
-    });
-  }
-
-  public getBuildingsInRadiusForCollision(bomberPosition: Vector3, buildings: any[], radius: number): Promise<any> {
-    return this.sendMessageToWorker(this.collisionDetectionWorker, {
-      type: 'GET_BUILDINGS_IN_RADIUS',
-      data: {
-        bomberPosition: { x: bomberPosition.x, y: bomberPosition.y, z: bomberPosition.z },
-        buildings,
-        radius,
-      },
-    });
-  }
-
   public checkIskanderCollisions(iskanderMissiles: any[], bomberData: any): Promise<any> {
     return this.sendMessageToWorker(this.collisionDetectionWorker, {
       type: 'CHECK_ISKANDER_COLLISIONS',
@@ -229,7 +183,7 @@ export class WorkerManager {
     const messageWithId = { ...message, messageId };
 
     // Create a promise that resolves when we get a response
-    const responsePromise = new Promise<any>((resolve, reject) => {
+    const responsePromise = new Promise<any>((resolve) => {
       // Store callback for response
       this.messageCallbacks.set(messageId, resolve);
 
@@ -238,26 +192,16 @@ export class WorkerManager {
     });
 
     // Create timeout promise
-    // const timeoutPromise = new Promise<never>((_, reject) => {
-    //   setTimeout(() => {
-    //     if (this.messageCallbacks.has(messageId)) {
-    //       this.messageCallbacks.delete(messageId);
-    //       reject(new Error('Worker response timeout'));
-    //     }
-    //   }, this.WORKER_TIMEOUT);
-    // });
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        if (this.messageCallbacks.has(messageId)) {
+          this.messageCallbacks.delete(messageId);
+          reject(new Error('Worker response timeout'));
+        }
+      }, this.WORKER_TIMEOUT);
+    });
 
     // Race between response and timeout
-    // return Promise.race([responsePromise, timeoutPromise]);
-    return responsePromise;
-  }
-
-  // Cleanup method
-  public dispose(): void {
-    this.terrainWorker.terminate();
-    this.missilePhysicsWorker.terminate();
-    this.collisionDetectionWorker.terminate();
-
-    this.messageCallbacks.clear();
+    return Promise.race([responsePromise, timeoutPromise]);
   }
 }
