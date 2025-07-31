@@ -100,6 +100,9 @@ export class Game {
 
     this.inputManager = new InputManager(this.scene, this.canvas);
     this.uiManager = new UIManager(this, this.inputManager);
+    
+    // Expose UIManager to global scope for HTML event handlers
+    (window as any).uiManager = this.uiManager;
 
     this.radarManager = new RadarManager();
     this.createGroundCrosshair();

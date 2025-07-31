@@ -32,7 +32,6 @@ export class InputManager {
     { name: 'bomb', displayName: 'Drop Bomb', defaultKey: 'KeyC', currentKey: 'KeyC' }
   ];
 
-  private invertControls: boolean = false;
 
   // Cache frequently accessed keys to reduce lookup overhead
   private cachedKeys: { [key: string]: boolean } = {};
@@ -153,51 +152,43 @@ export class InputManager {
   // Bomber movement controls
   public isAltitudeUpPressed(): boolean {
     const keybind = this.keybinds.find(k => k.name === 'altitudeUp');
-    const pressed = keybind ? this.isKeyPressed(keybind.currentKey) : false;
-    return this.invertControls ? !pressed && this.isAltitudeDownPressed() : pressed;
+    return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isAltitudeDownPressed(): boolean {
     const keybind = this.keybinds.find(k => k.name === 'altitudeDown');
-    const pressed = keybind ? this.isKeyPressed(keybind.currentKey) : false;
-    return this.invertControls ? !pressed && this.isAltitudeUpPressed() : pressed;
+    return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public getTurnLeftPressed(): boolean {
     const keybind = this.keybinds.find(k => k.name === 'turnLeft');
-    const pressed = keybind ? this.isKeyPressed(keybind.currentKey) : false;
-    return this.invertControls ? !pressed && this.getTurnRightPressed() : pressed;
+    return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public getTurnRightPressed(): boolean {
     const keybind = this.keybinds.find(k => k.name === 'turnRight');
-    const pressed = keybind ? this.isKeyPressed(keybind.currentKey) : false;
-    return this.invertControls ? !pressed && this.getTurnLeftPressed() : pressed;
+    return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   // Camera controls
   public isCameraPanLeftPressed(): boolean {
     const keybind = this.keybinds.find(k => k.name === 'cameraPanLeft');
-    const pressed = keybind ? this.isKeyPressed(keybind.currentKey) : false;
-    return this.invertControls ? !pressed && this.isCameraPanRightPressed() : pressed;
+    return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isCameraPanRightPressed(): boolean {
     const keybind = this.keybinds.find(k => k.name === 'cameraPanRight');
-    const pressed = keybind ? this.isKeyPressed(keybind.currentKey) : false;
-    return this.invertControls ? !pressed && this.isCameraPanLeftPressed() : pressed;
+    return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isPitchUpPressed(): boolean {
     const keybind = this.keybinds.find(k => k.name === 'pitchUp');
-    const pressed = keybind ? this.isKeyPressed(keybind.currentKey) : false;
-    return this.invertControls ? !pressed && this.isPitchDownPressed() : pressed;
+    return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isPitchDownPressed(): boolean {
     const keybind = this.keybinds.find(k => k.name === 'pitchDown');
-    const pressed = keybind ? this.isKeyPressed(keybind.currentKey) : false;
-    return this.invertControls ? !pressed && this.isPitchUpPressed() : pressed;
+    return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isCameraResetPressed(): boolean {
@@ -242,19 +233,9 @@ export class InputManager {
     this.saveKeybindsToStorage();
   }
 
-  public getInvertControls(): boolean {
-    return this.invertControls;
-  }
-
-  public setInvertControls(invert: boolean): void {
-    this.invertControls = invert;
-    this.saveKeybindsToStorage();
-  }
-
   private saveKeybindsToStorage(): void {
     const keybindData = {
-      keybinds: this.keybinds,
-      invertControls: this.invertControls
+      keybinds: this.keybinds
     };
     localStorage.setItem('manicureBomberKeybinds', JSON.stringify(keybindData));
   }
@@ -272,9 +253,6 @@ export class InputManager {
               keybind.currentKey = savedKeybind.currentKey;
             }
           });
-        }
-        if (keybindData.invertControls !== undefined) {
-          this.invertControls = keybindData.invertControls;
         }
       } catch (e) {
         console.warn('Failed to load keybinds from storage:', e);

@@ -782,4 +782,135 @@ export class UIManager {
       }, 500);
     }
   }
+
+  private isMobile(): boolean {
+    const userAgent = navigator.userAgent.toLowerCase();
+    return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/.test(userAgent);
+  }
+
+  public showKeybindsModal(): void {
+    if (this.isMobile()) return; // Don't show on mobile
+    
+    const modal = document.getElementById('keybindsModal');
+    const keybindsList = document.getElementById('keybindsList');
+    
+    if (!modal || !keybindsList) return;
+
+    // Populate keybinds list
+    const keybinds = this.inputManager.getKeybinds();
+    keybindsList.innerHTML = '';
+
+    keybinds.forEach(keybind => {
+      const row = document.createElement('div');
+      row.className = 'keybind-row';
+      
+      const label = document.createElement('div');
+      label.className = 'keybind-label';
+      label.textContent = keybind.displayName;
+      
+      const keyButton = document.createElement('div');
+      keyButton.className = 'keybind-key';
+      keyButton.textContent = this.getKeyDisplayName(keybind.currentKey);
+      keyButton.dataset.keybindName = keybind.name;
+      
+      keyButton.addEventListener('click', () => {
+        this.startKeybindEdit(keyButton, keybind.name);
+      });
+      
+      row.appendChild(label);
+      row.appendChild(keyButton);
+      keybindsList.appendChild(row);
+    });
+
+    // Set up event listeners
+    this.setupKeybindsModalEvents();
+
+    // Show modal
+    modal.style.display = 'flex';
+  }
+
+  private setupKeybindsModalEvents(): void {
+    const modal = document.getElementById('keybindsModal');
+    const saveButton = document.getElementById('saveKeybinds');
+    const resetButton = document.getElementById('resetKeybinds');
+
+    if (!modal || !saveButton || !resetButton) return;
+
+    // Remove existing listeners to prevent duplicates
+    const newSaveButton = saveButton.cloneNode(true);
+    const newResetButton = resetButton.cloneNode(true);
+    
+    saveButton.parentNode?.replaceChild(newSaveButton, saveButton);
+    resetButton.parentNode?.replaceChild(newResetButton, resetButton);
+
+    // Add event listeners
+    newSaveButton.addEventListener('click', () => {
+      this.hideKeybindsModal();
+    });
+
+    newResetButton.addEventListener('click', () => {
+      this.inputManager.resetKeybinds();
+      this.showKeybindsModal(); // Refresh the modal
+    });
+
+    // Close modal when clicking outside
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        this.hideKeybindsModal();
+      }
+    });
+
+    // Close modal with Escape key
+    const escapeHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        this.hideKeybindsModal();
+        document.removeEventListener('keydown', escapeHandler);
+      }
+    };
+    document.addEventListener('keydown', escapeHandler);
+  }
+
+  private hideKeybindsModal(): void {
+    const modal = document.getElementById('keybindsModal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+  }
+
+  private startKeybindEdit(keyButton: HTMLElement, keybindName: string): void {
+    keyButton.classList.add('editing');
+    keyButton.textContent = 'Press key...';
+
+    const keyHandler = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Update the keybind
+      this.inputManager.updateKeybind(keybindName, e.code);
+      
+      // Update the button
+      keyButton.classList.remove('editing');
+      keyButton.textContent = this.getKeyDisplayName(e.code);
+      
+      // Remove event listener
+      document.removeEventListener('keydown', keyHandler);
+    };
+
+    document.addEventListener('keydown', keyHandler);
+  }
+
+  private getKeyDisplayName(keyCode: string): string {
+    const keyMap: { [key: string]: string } = {
+      'KeyW': 'W', 'KeyA': 'A', 'KeyS': 'S', 'KeyD': 'D',
+      'KeyQ': 'Q', 'KeyE': 'E', 'KeyR': 'R', 'KeyF': 'F',
+      'KeyZ': 'Z', 'KeyX': 'X', 'KeyC': 'C',
+      'Digit1': '1', 'Digit2': '2', 'Digit3': '3', 'Digit4': '4',
+      'Space': 'Space', 'Escape': 'Esc',
+      'ArrowUp': '↑', 'ArrowDown': '↓', 'ArrowLeft': '←', 'ArrowRight': '→',
+      'ShiftLeft': 'L-Shift', 'ShiftRight': 'R-Shift',
+      'ControlLeft': 'L-Ctrl', 'ControlRight': 'R-Ctrl'
+    };
+    
+    return keyMap[keyCode] || keyCode.replace('Key', '').replace('Digit', '');
+  }
 }
