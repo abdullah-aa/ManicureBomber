@@ -13,7 +13,7 @@ import {
 import { Bomber } from '../entities/Bomber';
 import { TerrainManager } from './TerrainManager';
 import { InputManager } from './InputManager';
-import { CameraController, CameraLockMode } from './CameraController';
+import { CameraController } from './CameraController';
 import { Bomb } from '../entities/Bomb';
 import { IskanderMissile } from '../entities/IskanderMissile';
 import { DefenseMissile } from '../entities/DefenseMissile';
@@ -135,8 +135,8 @@ export class Game {
   }
 
   private setupCamera(): void {
-    this.camera = new FreeCamera('camera', new Vector3(0, 100, -200), this.scene);
-    this.camera.setTarget(Vector3.Zero());
+    this.camera = new FreeCamera('camera', new Vector3(0, 280, -200), this.scene);
+    this.camera.setTarget(new Vector3(0, 200, 0));
     this.camera.attachControl(this.canvas, true);
   }
 
@@ -428,7 +428,7 @@ export class Game {
       this.inputManager.isCameraTogglePressed() &&
       currentTime - this.lastCameraToggleTime > this.cameraToggleCooldown
     ) {
-      this.cameraController.toggleLockMode();
+      this.cameraController.toggleGroundCrosshairs();
       this.uiManager.updateCameraToggleIcon();
       this.lastCameraToggleTime = currentTime;
     }
@@ -569,8 +569,8 @@ export class Game {
   }
 
   private updateGroundCrosshair(): void {
-    const cameraMode = this.cameraController.getLockMode();
-    if (cameraMode === CameraLockMode.GROUND) {
+    const showCrosshairs = this.cameraController.getShowGroundCrosshairs();
+    if (showCrosshairs) {
       this.groundCrosshair.setEnabled(true);
       const bomberPosition = this.bomber.getPosition();
       const bomberRotation = this.bomber.getRotation();

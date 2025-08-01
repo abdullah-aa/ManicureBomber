@@ -2,22 +2,17 @@ import { Bomber } from '../entities/Bomber';
 import { FreeCamera, Vector3 } from '@babylonjs/core';
 import { InputManager } from './InputManager';
 
-export enum CameraLockMode {
-  BOMBER = 'bomber',
-  GROUND = 'ground',
-}
 
 export class CameraController {
   private camera: FreeCamera;
   private bomber: Bomber;
   private followDistance: number = 200;
-  private followHeight: number = 80;
-  private lookAheadDistance: number = 20;
+  private followHeight: number = 280;
   private smoothing: number = 2.0;
   private minFollowHeight: number = 20;
-  private maxFollowHeight: number = 250;
+  private maxFollowHeight: number = 500;
   private zoomSpeed: number = 5;
-  private lockMode: CameraLockMode = CameraLockMode.BOMBER;
+  private showGroundCrosshairs: boolean = false;
 
   // Camera distance adjustment properties
   private minFollowDistance: number = 50;
@@ -26,8 +21,7 @@ export class CameraController {
 
   // Initial camera state for reset functionality
   private initialFollowDistance: number = 200;
-  private initialFollowHeight: number = 80;
-  private initialLockMode: CameraLockMode = CameraLockMode.BOMBER;
+  private initialFollowHeight: number = 320;
 
   // Camera panning properties
   private panSpeed: number = 1.5; // Radians per second for angular panning
@@ -39,8 +33,6 @@ export class CameraController {
 
   // Performance optimization: reuse Vector3 objects to reduce GC pressure
   private tempVector1: Vector3 = new Vector3();
-  private tempVector2: Vector3 = new Vector3();
-  private tempVector3: Vector3 = new Vector3();
 
   // Cache trigonometric calculations to avoid repeated computations
   private lastEffectiveRotation: number = 0;
@@ -55,7 +47,6 @@ export class CameraController {
     // Store initial values for reset functionality
     this.initialFollowDistance = this.followDistance;
     this.initialFollowHeight = this.followHeight;
-    this.initialLockMode = this.lockMode;
   }
 
   public update(deltaTime: number, inputManager: InputManager): void {
@@ -129,33 +120,20 @@ export class CameraController {
     this.camera.position.y = this.camera.position.y * invLerpFactor + this.tempVector1.y * lerpFactor;
     this.camera.position.z = this.camera.position.z * invLerpFactor + this.tempVector1.z * lerpFactor;
 
-    // Set camera target based on lock mode
-    if (this.lockMode === CameraLockMode.BOMBER) {
-      // Look at the bomber directly
-      this.camera.setTarget(bomberPos);
-    } else {
-      // Look at ground below bomber with look-ahead
-      this.tempVector2.set(bomberPos.x, 0, bomberPos.z);
-
-      // Add look-ahead using cached trig values
-      this.tempVector3.set(this.cachedSin * this.lookAheadDistance, 0, this.cachedCos * this.lookAheadDistance);
-
-      // Combine ground target with look-ahead
-      this.tempVector2.addInPlace(this.tempVector3);
-      this.camera.setTarget(this.tempVector2);
-    }
+    // Always look at the bomber directly
+    this.camera.setTarget(bomberPos);
   }
 
-  public toggleLockMode(): void {
-    this.lockMode = this.lockMode === CameraLockMode.BOMBER ? CameraLockMode.GROUND : CameraLockMode.BOMBER;
+  public toggleGroundCrosshairs(): void {
+    this.showGroundCrosshairs = !this.showGroundCrosshairs;
   }
 
-  public getLockMode(): CameraLockMode {
-    return this.lockMode;
+  public getShowGroundCrosshairs(): boolean {
+    return this.showGroundCrosshairs;
   }
 
-  public setLockMode(mode: CameraLockMode): void {
-    this.lockMode = mode;
+  public setShowGroundCrosshairs(show: boolean): void {
+    this.showGroundCrosshairs = show;
   }
 
 
@@ -169,31 +147,14 @@ export class CameraController {
       return; // Cooldown not yet complete
     }
 
-    // Get bomber position and set camera height to just below bomber height
-    const bomberPos = this.bomber.getPosition();
-    this.followHeight = bomberPos.y - 10; // 10 units below bomber height
-
-    // Keep height within reasonable bounds
-    this.followHeight = Math.max(this.minFollowHeight, Math.min(this.maxFollowHeight, this.followHeight));
-
     // Reset other camera properties to initial state
     this.followDistance = this.initialFollowDistance;
-    this.lockMode = this.initialLockMode;
+    this.followHeight = this.initialFollowHeight;
 
     // Reset pan offset to center the camera
     this.panAngleOffset = 0;
 
     // Update last reset time
     this.lastResetTime = currentTime;
-  }
-
-  public reset(): void {
-    // Reset camera to initial state immediately (for external calls)
-    this.followDistance = this.initialFollowDistance;
-    this.followHeight = this.initialFollowHeight;
-    this.lockMode = this.initialLockMode;
-
-    // Reset pan offset to center the camera
-    this.panAngleOffset = 0;
   }
 }

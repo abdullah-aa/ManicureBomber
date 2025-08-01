@@ -27,7 +27,7 @@ export class Bomber {
   private rotation: Vector3;
   private velocity: Vector3;
   private speed: number = 25; // Units per second
-  private altitude: number = 100; // Restored original altitude
+  private altitude: number = 200; // Doubled spawn altitude
   private turnSpeed: number = 0.5; // Radians per second
   private climbRate: number = 20; // Units per second
   private particleSystems: ParticleSystem[] = []; // Engine exhaust particle systems

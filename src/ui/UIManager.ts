@@ -1,6 +1,5 @@
 import { Game } from '../managers/Game';
 import { InputManager } from '../managers/InputManager';
-import { CameraLockMode } from '../managers/CameraController';
 
 export class UIManager {
   private game: Game;
@@ -31,7 +30,7 @@ export class UIManager {
   private lastMissileCooldown: number = -1;
   private lastCountermeasureCooldown: number = -1;
   private lastHasTarget: boolean = false;
-  private lastLockMode: CameraLockMode = CameraLockMode.BOMBER;
+  private lastShowCrosshairs: boolean = false;
   private lastHealth: number = -1;
   private updateBatchTimeout: ReturnType<typeof setTimeout> | null = null;
   private pendingUpdates: Set<string> = new Set();
@@ -84,7 +83,7 @@ export class UIManager {
 
     // Listen for camera toggle button clicks
     this.cameraToggleButton.addEventListener('click', () => {
-      this.game.getCameraController().toggleLockMode();
+      this.game.getCameraController().toggleGroundCrosshairs();
       this.updateCameraToggleIcon();
     });
   }
@@ -245,14 +244,9 @@ export class UIManager {
   }
 
   public updateCameraToggleIcon(): void {
-    const lockMode = this.game.getCameraController().getLockMode();
-    if (lockMode === CameraLockMode.BOMBER) {
-      // Plane icon for bomber lock
-      this.cameraToggleIcon.style.backgroundImage = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2300ffff" d="M233.5 7.8c-26.2 4.4-51.7 19.2-67.6 39.2-13.4 16.8-21.1 36.8-24.1 62.6-1.3 11.4-1.3 40.8 0 52.2 3.1 26.9 11.3 48.1 25.5 66.1 7.9 10 20.8 22.2 31.2 29.6 16.1 11.5 35.4 19.4 55.5 22.8 11.4 1.9 40.8 1.9 52.2 0 20.1-3.4 39.4-11.3 55.5-22.8 10.4-7.4 23.3-19.6 31.2-29.6 14.2-18 22.4-39.2 25.5-66.1 1.3-11.4 1.3-40.8 0-52.2-3-25.8-10.7-45.8-24.1-62.6-15.9-20-41.4-34.8-67.6-39.2-9.4-1.6-43.8-1.6-53.2 0zM304 80c17.7 0 32 14.3 32 32s-14.3 32-32 32-32-14.3-32-32 14.3-32 32-32z"/></svg>')`;
-    } else {
-      // Ground/terrain icon for ground lock
-      this.cameraToggleIcon.style.backgroundImage = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2300ff00" d="M456 352h-16l-22.63-22.63c6.65-9.43 10.63-20.84 10.63-33.37 0-30.93-25.07-56-56-56s-56 25.07-56 56c0 12.53 3.98 23.94 10.63 33.37L304 352H56c-13.25 0-24 10.75-24 24s10.75 24 24 24h400c13.25 0 24-10.75 24-24s-10.75-24-24-24zM372 320c-8.84 0-16-7.16-16-16s7.16-16 16-16 16 7.16 16 16-7.16 16-16 16z"/></svg>')`;
-    }
+    const showCrosshairs = this.game.getCameraController().getShowGroundCrosshairs();
+    // Downward arrow target icon for crosshairs toggle
+    this.cameraToggleIcon.style.backgroundImage = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="${showCrosshairs ? '%2300ff00' : '%23ffffff'}" d="M256 0L176 80h48v176H48l80-80v48L0 256l128 32v48l-80-80h176v176l-80-80h48l32 128 32-128h48l-80 80V256h176l-80 80v-48l128-32-128-32v-48l80 80H256V80l80 80v-48L256 0z"/></svg>')`;
   }
 
   private addStyles(): void {
@@ -437,10 +431,10 @@ export class UIManager {
             }
             #camera-toggle-button {
                 position: fixed;
-                top: 20px;
+                bottom: 120px;
                 right: 20px;
-                width: 80px;
-                height: 80px;
+                width: 45px;
+                height: 45px;
                 background-color: rgba(0, 0, 0, 0.5);
                 border-radius: 50%;
                 cursor: pointer;
@@ -448,19 +442,16 @@ export class UIManager {
                 align-items: center;
                 justify-content: center;
                 overflow: hidden;
-                border: 2px solid #00ffff;
+                border: 2px solid #ffffff;
                 transition: border-color 0.3s ease;
             }
             #camera-toggle-icon {
-                width: 50px;
-                height: 50px;
+                width: 28px;
+                height: 28px;
                 background-size: contain;
                 background-repeat: no-repeat;
                 background-position: center;
                 z-index: 2;
-            }
-            #camera-toggle-button[data-mode="ground"] {
-                border-color: #00ff00;
             }
         `;
     document.head.appendChild(style);
@@ -472,7 +463,7 @@ export class UIManager {
             #health-bar {
                 position: fixed;
                 top: 20px;
-                right: 120px; /* Position to the left of camera toggle button (20px + 80px + 20px gap) */
+                right: 20px;
                 width: 200px;
                 height: 20px;
                 background-color: rgba(0, 0, 0, 0.5);
@@ -675,12 +666,12 @@ export class UIManager {
   }
 
   private updateCameraButton(): void {
-    const lockMode = this.game.getCameraController().getLockMode();
+    const showCrosshairs = this.game.getCameraController().getShowGroundCrosshairs();
 
     // Only update if changed
-    if (lockMode !== this.lastLockMode) {
-      this.cameraToggleButton.setAttribute('data-mode', lockMode);
-      this.lastLockMode = lockMode;
+    if (showCrosshairs !== this.lastShowCrosshairs) {
+      this.updateCameraToggleIcon();
+      this.lastShowCrosshairs = showCrosshairs;
     }
   }
 
