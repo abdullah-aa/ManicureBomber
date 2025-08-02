@@ -364,8 +364,13 @@
       }
 
       @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.7; }
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.7;
+        }
       }
 
       .keybinds-buttons {
@@ -404,14 +409,13 @@
         border-color: rgba(255, 100, 0, 0.8);
       }
 
-
       /* Radar Index Tooltip */
       #radarDisplay {
         position: relative;
       }
 
       #radarDisplay::after {
-        content: "🟢 Bomber  🔴 Target  🟠 Defense  🟣 Missile  🔵 Iskander";
+        content: '🟢 Bomber  🔴 Target  🟠 Defense  🟣 Missile  🔵 Iskander';
         position: fixed;
         top: 20px;
         left: 120px;
@@ -443,7 +447,6 @@
   </head>
   <body>
     <canvas id="renderCanvas"></canvas>
-
 
     <div id="keybindsButton">⚙</div>
 

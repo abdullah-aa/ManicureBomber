@@ -348,7 +348,7 @@ function performCollisionDetection(objects: CollisionObject[]): GenericCollision
 function checkIskanderCollisions(
   iskanderMissiles: IskanderMissileData[],
   bomberData: BomberData,
-  messageId: string
+  messageId: string,
 ): void {
   const collisions: IskanderCollisionResult[] = [];
 
@@ -400,7 +400,7 @@ function checkIskanderCollisions(
 function checkDefenseCollisions(
   defenseMissiles: DefenseMissileData[],
   bomberData: BomberData,
-  messageId: string
+  messageId: string,
 ): void {
   const collisions: DefenseCollisionResult[] = [];
 

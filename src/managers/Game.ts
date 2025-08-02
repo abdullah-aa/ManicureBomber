@@ -105,7 +105,7 @@ export class Game {
 
     this.inputManager = new InputManager(this.scene, this.canvas);
     this.uiManager = new UIManager(this, this.inputManager);
-    
+
     // Expose UIManager to global scope for HTML event handlers
     (window as any).uiManager = this.uiManager;
 
@@ -115,14 +115,13 @@ export class Game {
     this.bomber.setTerrainManager(this.terrainManager);
     this.terrainManager.setBomber(this.bomber);
 
-    return this.terrainManager.generateInitialTerrain(this.bomber.getPosition())
-      .then(() => {
-        // Initialize first Iskander launch time
-        const initialInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
-        this.nextIskanderLaunchTime = performance.now() / 1000 + initialInterval;
+    return this.terrainManager.generateInitialTerrain(this.bomber.getPosition()).then(() => {
+      // Initialize first Iskander launch time
+      const initialInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
+      this.nextIskanderLaunchTime = performance.now() / 1000 + initialInterval;
 
-        this.startGameLoop();
-      });
+      this.startGameLoop();
+    });
   }
 
   private setupLighting(): void {
@@ -213,7 +212,7 @@ export class Game {
         this.handleIskanderLaunch(safeCurrentTime);
         this.handleCountermeasures();
         this.handleCameraToggle(safeCurrentTime);
-        
+
         this.bomber.update(safeDeltaTime, this.inputManager);
         this.cameraController.update(safeDeltaTime, this.inputManager);
         this.updateBombs(safeDeltaTime); // Now uses promise-based callbacks internally
@@ -236,7 +235,12 @@ export class Game {
 
         // Update defense launchers less frequently
         if (currentTime - this.lastDefenseUpdateTime > this.defenseUpdateInterval) {
-          this.terrainManager.updateDefenseLaunchers(this.bomber.getPosition(), this.bomber.getVelocity(), safeCurrentTime, safeDeltaTime);
+          this.terrainManager.updateDefenseLaunchers(
+            this.bomber.getPosition(),
+            this.bomber.getVelocity(),
+            safeCurrentTime,
+            safeDeltaTime,
+          );
           this.lastDefenseUpdateTime = currentTime;
         }
 
@@ -248,7 +252,13 @@ export class Game {
 
         // Update radar less frequently
         if (currentTime - this.lastRadarUpdateTime > this.radarUpdateInterval) {
-          this.radarManager.update(this.bomber, this.terrainManager, this.destroyedTargets, this.iskanderMissiles, this.defenseMissiles);
+          this.radarManager.update(
+            this.bomber,
+            this.terrainManager,
+            this.destroyedTargets,
+            this.iskanderMissiles,
+            this.defenseMissiles,
+          );
           this.lastRadarUpdateTime = currentTime;
         }
 
@@ -299,15 +309,18 @@ export class Game {
 
     if (this.inputManager.isMissileKeyPressed() && this.bomber.canLaunchMissile()) {
       // Use promise-based callbacks instead of async/await
-      this.bomber.hasValidTarget().then((hasValidTarget) => {
-        if (hasValidTarget) {
-          this.bomber.launchMissile().catch(() => {
-            // Silent error handling for missile launch
-          });
-        }
-      }).catch(() => {
-        // Silent error handling for target validation
-      });
+      this.bomber
+        .hasValidTarget()
+        .then((hasValidTarget) => {
+          if (hasValidTarget) {
+            this.bomber.launchMissile().catch(() => {
+              // Silent error handling for missile launch
+            });
+          }
+        })
+        .catch(() => {
+          // Silent error handling for target validation
+        });
     }
   }
 
@@ -315,7 +328,7 @@ export class Game {
     // Check if it's time to launch an Iskander missile
     if (currentTime >= this.nextIskanderLaunchTime) {
       this.launchIskanderMissile();
-      
+
       // Calculate next launch time
       const totalInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
       this.nextIskanderLaunchTime = currentTime + totalInterval;
@@ -325,9 +338,10 @@ export class Game {
   private launchIskanderMissile(): void {
     // Find the defense launcher farthest from the bomber
     const bomberPosition = this.bomber.getPosition();
-    
+
     // Use promise-based callbacks instead of async/await
-    this.terrainManager.getBuildingsInRadius(bomberPosition, 1000)
+    this.terrainManager
+      .getBuildingsInRadius(bomberPosition, 1000)
       .then((buildings) => {
         let farthestLauncher = null;
         let maxDistance = 0;
@@ -401,7 +415,8 @@ export class Game {
       isDestroyed: this.bomber.isBomberDestroyed(),
     };
 
-    this.workerManager.checkIskanderCollisions(this.iskanderMissiles, bomberData)
+    this.workerManager
+      .checkIskanderCollisions(this.iskanderMissiles, bomberData)
       .then((result) => {
         this.handleIskanderCollisionResults(result.collisions);
       })
@@ -416,7 +431,7 @@ export class Game {
     for (const collision of collisions) {
       const missileIndex = parseInt(collision.missileId.split('_')[1]);
       const missile = this.iskanderMissiles[missileIndex];
-      
+
       if (missile && missile.isLaunched() && !missile.hasExploded()) {
         this.bomber.takeDamage(collision.damage);
         missile.explode();
@@ -542,9 +557,10 @@ export class Game {
         const explosionPoint = new Vector3(bombPosition.x, 0, bombPosition.z);
 
         const blastRadius = 75;
-        
+
         // Use promise-based callbacks instead of async/await
-        this.terrainManager.getBuildingsInRadius(explosionPoint, blastRadius)
+        this.terrainManager
+          .getBuildingsInRadius(explosionPoint, blastRadius)
           .then((nearbyBuildings) => {
             nearbyBuildings.forEach((building) => {
               const distance = Vector3.Distance(explosionPoint, building.getPosition());
@@ -624,7 +640,8 @@ export class Game {
       isDestroyed: this.bomber.isBomberDestroyed(),
     };
 
-    this.workerManager.checkDefenseCollisions(this.defenseMissiles, bomberData)
+    this.workerManager
+      .checkDefenseCollisions(this.defenseMissiles, bomberData)
       .then((result) => {
         this.handleDefenseCollisionResults(result.collisions, this.defenseMissiles);
       })
@@ -639,7 +656,7 @@ export class Game {
     for (const collision of collisions) {
       const missileIndex = parseInt(collision.missileId.split('_')[1]);
       const missile = defenseMissiles[missileIndex];
-      
+
       if (missile && missile.isLaunched() && !missile.hasExploded()) {
         this.bomber.takeDamage(collision.damage);
         missile.explode();

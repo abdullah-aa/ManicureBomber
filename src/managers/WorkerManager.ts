@@ -1,6 +1,5 @@
 import { Vector3 } from '@babylonjs/core';
 
-
 export class WorkerManager {
   private terrainWorker!: Worker;
   private missilePhysicsWorker!: Worker;
@@ -31,7 +30,6 @@ export class WorkerManager {
       type: 'module',
     });
     this.setupWorkerListener(this.collisionDetectionWorker);
-
   }
 
   private setupWorkerListener(worker: Worker): void {
@@ -80,7 +78,7 @@ export class WorkerManager {
     bomberPosition: Vector3,
     existingChunks: string[],
     maxTotalChunks: number,
-    maxChunksPerUpdate: number
+    maxChunksPerUpdate: number,
   ): Promise<any> {
     return this.sendMessageToWorker(this.terrainWorker, {
       type: 'GENERATE_CHUNKS_NEAR_PLAYER',
@@ -95,7 +93,12 @@ export class WorkerManager {
     });
   }
 
-  public getChunksToRemove(currentChunkX: number, currentChunkZ: number, existingChunks: string[], maxDistance: number): Promise<any> {
+  public getChunksToRemove(
+    currentChunkX: number,
+    currentChunkZ: number,
+    existingChunks: string[],
+    maxDistance: number,
+  ): Promise<any> {
     return this.sendMessageToWorker(this.terrainWorker, {
       type: 'GET_CHUNKS_TO_REMOVE',
       data: {
@@ -139,7 +142,6 @@ export class WorkerManager {
       data: missileData,
     });
   }
-
 
   public checkIskanderCollisions(iskanderMissiles: any[], bomberData: any): Promise<any> {
     return this.sendMessageToWorker(this.collisionDetectionWorker, {
@@ -190,7 +192,6 @@ export class WorkerManager {
       data: pathData,
     });
   }
-
 
   // Generic message sending with promise-based approach
   private sendMessageToWorker(worker: Worker, message: any): Promise<any> {

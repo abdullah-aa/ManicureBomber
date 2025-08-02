@@ -36,7 +36,6 @@ export class NoiseGenerator {
     return this.interpolate(i1, i2, fracY);
   }
 
-
   // Generate fractal noise with multiple octaves
   public fractalNoise(x: number, y: number, octaves: number = 4): number {
     let value = 0;

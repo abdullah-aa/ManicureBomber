@@ -2,7 +2,6 @@ import { Bomber } from '../entities/Bomber';
 import { FreeCamera, Vector3 } from '@babylonjs/core';
 import { InputManager } from './InputManager';
 
-
 export class CameraController {
   private camera: FreeCamera;
   private bomber: Bomber;
@@ -102,13 +101,13 @@ export class CameraController {
       const mouseDeltaX = inputManager.getMouseDeltaX();
       const mouseDeltaY = inputManager.getMouseDeltaY();
       const mouseSensitivity = 0.005; // Adjust sensitivity
-      
+
       // Mouse X controls panning (like Z/C keys)
       if (Math.abs(mouseDeltaX) > 0) {
         this.panAngleOffset += mouseDeltaX * mouseSensitivity;
         this.trigCacheValid = false;
       }
-      
+
       // Mouse Y controls height (like Q/E keys) - not inverted, much higher sensitivity to match panning
       if (Math.abs(mouseDeltaY) > 0) {
         this.followHeight += mouseDeltaY * mouseSensitivity * 300; // Tripled sensitivity to match pan amount
@@ -121,20 +120,19 @@ export class CameraController {
       const touchDeltaX = inputManager.getTouchDeltaX();
       const touchDeltaY = inputManager.getTouchDeltaY();
       const touchSensitivity = 0.005; // Same as mouse sensitivity
-      
+
       // Touch X controls panning (like Z/C keys)
       if (Math.abs(touchDeltaX) > 0) {
         this.panAngleOffset += touchDeltaX * touchSensitivity;
         this.trigCacheValid = false;
       }
-      
+
       // Touch Y controls height (like Q/E keys) - not inverted, much higher sensitivity to match panning
       if (Math.abs(touchDeltaY) > 0) {
         this.followHeight += touchDeltaY * touchSensitivity * 300; // Tripled sensitivity to match pan amount
         this.followHeight = Math.max(this.minFollowHeight, Math.min(this.maxFollowHeight, this.followHeight));
       }
     }
-
 
     const bomberPos = this.bomber.getPosition();
     const bomberRotation = this.bomber.getRotation();
@@ -182,7 +180,6 @@ export class CameraController {
   public setShowGroundCrosshairs(show: boolean): void {
     this.showGroundCrosshairs = show;
   }
-
 
   public getCamera(): FreeCamera {
     return this.camera;

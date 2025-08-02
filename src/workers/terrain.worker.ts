@@ -222,7 +222,10 @@ function getHeightAtPosition(
 
 // New functions for offloaded calculations
 
-function calculateDistance(pos1: { x: number; y: number; z: number }, pos2: { x: number; y: number; z: number }): number {
+function calculateDistance(
+  pos1: { x: number; y: number; z: number },
+  pos2: { x: number; y: number; z: number },
+): number {
   const dx = pos1.x - pos2.x;
   const dy = pos1.y - pos2.y;
   const dz = pos1.z - pos2.z;
@@ -250,7 +253,7 @@ function getBuildingsInRadius(request: BuildingsInRadiusRequest): BuildingData[]
 
 function getDistanceToNearestChunkEdge(request: ChunkDistanceRequest): number {
   const { position, chunkSize } = request;
-  
+
   const chunkX = Math.floor(position.x / chunkSize);
   const chunkZ = Math.floor(position.z / chunkSize);
 
@@ -265,16 +268,16 @@ function getDistanceToNearestChunkEdge(request: ChunkDistanceRequest): number {
 
 function getTerrainHeight(request: TerrainHeightRequest): number {
   const { position, heightmap, chunkSize, subdivisions } = request;
-  
+
   const localX = position.x;
   const localZ = position.z;
-  
+
   return getHeightAtPosition(localX, localZ, heightmap, chunkSize, subdivisions);
 }
 
 function generateChunksNearPlayer(request: ChunkGenerationRequest): { chunkX: number; chunkZ: number }[] {
   const { currentChunkX, currentChunkZ, bomberPosition, existingChunks, maxTotalChunks, maxChunksPerUpdate } = request;
-  
+
   const chunksToGenerate: { chunkX: number; chunkZ: number }[] = [];
   let chunksGenerated = 0;
 
@@ -294,14 +297,14 @@ function generateChunksNearPlayer(request: ChunkGenerationRequest): { chunkX: nu
     // Calculate direction based on bomber position relative to current chunk center
     const chunkCenterX = (currentChunkX + 0.5) * 500; // Assuming chunkSize = 500
     const chunkCenterZ = (currentChunkZ + 0.5) * 500;
-    
+
     const directionX = bomberPosition.x > chunkCenterX ? 1 : -1;
     const directionZ = bomberPosition.z > chunkCenterZ ? 1 : -1;
-    
+
     // Prioritize direction with larger offset
     const offsetX = Math.abs(bomberPosition.x - chunkCenterX);
     const offsetZ = Math.abs(bomberPosition.z - chunkCenterZ);
-    
+
     if (offsetX > offsetZ) {
       // Generate chunks in X direction
       for (let z = currentChunkZ - 1; z <= currentChunkZ + 1 && chunksGenerated < maxChunksPerUpdate; z++) {
@@ -326,7 +329,12 @@ function generateChunksNearPlayer(request: ChunkGenerationRequest): { chunkX: nu
   return chunksToGenerate;
 }
 
-function getChunksToRemove(request: { currentChunkX: number; currentChunkZ: number; existingChunks: string[]; maxDistance: number }): string[] {
+function getChunksToRemove(request: {
+  currentChunkX: number;
+  currentChunkZ: number;
+  existingChunks: string[];
+  maxDistance: number;
+}): string[] {
   const { currentChunkX, currentChunkZ, existingChunks, maxDistance } = request;
   const chunksToRemove: string[] = [];
 
@@ -341,19 +349,22 @@ function getChunksToRemove(request: { currentChunkX: number; currentChunkZ: numb
   return chunksToRemove;
 }
 
-function prepareBuildingDataForRadius(request: { position: { x: number; y: number; z: number }; radius: number; chunkSize: number; chunks: [string, any][] }): string[] {
+function prepareBuildingDataForRadius(request: {
+  position: { x: number; y: number; z: number };
+  radius: number;
+  chunkSize: number;
+  chunks: [string, any][];
+}): string[] {
   const { position, radius, chunkSize, chunks } = request;
   const relevantChunkKeys: string[] = [];
-  
+
   for (const [chunkKey, chunk] of chunks) {
     const [chunkX, chunkZ] = chunkKey.split('_').map(Number);
-    
+
     // Check if chunk is within radius
     const chunkCenterX = chunkX * chunkSize;
     const chunkCenterZ = chunkZ * chunkSize;
-    const chunkDistance = Math.sqrt(
-      Math.pow(position.x - chunkCenterX, 2) + Math.pow(position.z - chunkCenterZ, 2)
-    );
+    const chunkDistance = Math.sqrt(Math.pow(position.x - chunkCenterX, 2) + Math.pow(position.z - chunkCenterZ, 2));
 
     if (chunkDistance <= radius + chunkSize * 0.7) {
       relevantChunkKeys.push(chunkKey);
@@ -363,10 +374,14 @@ function prepareBuildingDataForRadius(request: { position: { x: number; y: numbe
   return relevantChunkKeys;
 }
 
-function getBuildingsInRadiusMinimal(request: { position: { x: number; y: number; z: number }, buildings: any[], radius: number }): string[] {
+function getBuildingsInRadiusMinimal(request: {
+  position: { x: number; y: number; z: number };
+  buildings: any[];
+  radius: number;
+}): string[] {
   const { position, buildings, radius } = request;
   const ids: string[] = [];
-  
+
   for (const building of buildings) {
     if (!building.isDestroyed) {
       const dx = position.x - building.position.x;
@@ -378,7 +393,7 @@ function getBuildingsInRadiusMinimal(request: { position: { x: number; y: number
       }
     }
   }
-  
+
   return ids;
 }
 

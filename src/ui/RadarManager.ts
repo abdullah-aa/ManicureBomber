@@ -152,9 +152,10 @@ export class RadarManager {
     if (!this.positionCacheValid || distanceMoved > this.positionCacheThreshold || rotationChanged) {
       this.cachedBomberPosition.copyFrom(bomberPosition);
       this.cachedBomberRotation = bomberRotationY;
-      
+
       // Use promise-based callbacks instead of async/await
-      terrainManager.getBuildingsInRadius(bomberPosition, this.radarRadius)
+      terrainManager
+        .getBuildingsInRadius(bomberPosition, this.radarRadius)
         .then((buildings) => {
           this.cachedBuildings = buildings;
           this.positionCacheValid = true;

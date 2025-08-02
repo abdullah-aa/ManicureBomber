@@ -138,12 +138,12 @@ export class TerrainManager {
       const buildingConfig = { ...config, position };
 
       const building = new Building(this.scene, buildingConfig, this.workerManager);
-      
+
       // Set Game reference for defense missile management
       if (this.game) {
         building.setGame(this.game);
       }
-      
+
       if (buildingConfig.isDefenseLauncher && this.bomber) {
         building.setOnDestroyedCallback(() => {
           if (this.bomber && this.bomber.invalidateTargetCache) {
@@ -201,14 +201,14 @@ export class TerrainManager {
 
     const chunkX = Math.floor(center.x / this.chunkSize);
     const chunkZ = Math.floor(center.z / this.chunkSize);
-    
+
     const chunkPromises: Promise<void>[] = [];
     for (let x = chunkX - 1; x <= chunkX + 1; x++) {
       for (let z = chunkZ - 1; z <= chunkZ + 1; z++) {
         chunkPromises.push(this.generateChunk(x, z));
       }
     }
-    
+
     return Promise.all(chunkPromises).then(() => {});
   }
 
@@ -289,14 +289,15 @@ export class TerrainManager {
     const maxChunksPerUpdate = 4;
 
     // Use promise-based callbacks instead of async/await
-    this.workerManager.generateChunksNearPlayer(
-      currentChunkX,
-      currentChunkZ,
-      bomberPosition,
-      existingChunks,
-      maxTotalChunks,
-      maxChunksPerUpdate
-    )
+    this.workerManager
+      .generateChunksNearPlayer(
+        currentChunkX,
+        currentChunkZ,
+        bomberPosition,
+        existingChunks,
+        maxTotalChunks,
+        maxChunksPerUpdate,
+      )
       .then((result) => {
         const chunksToGenerate = result.chunks as { chunkX: number; chunkZ: number }[];
         chunksToGenerate.forEach(({ chunkX, chunkZ }) => {
@@ -329,10 +330,12 @@ export class TerrainManager {
     const currentTime = performance.now();
 
     if (this.buildingCache.has(cacheKey) && currentTime - this.lastCacheTime < this.cacheTimeout) {
-      return Promise.resolve(this.buildingCache.get(cacheKey)!.filter((building) => {
-        const distance = Vector3.Distance(position, building.getPosition());
-        return distance <= radius;
-      }));
+      return Promise.resolve(
+        this.buildingCache.get(cacheKey)!.filter((building) => {
+          const distance = Vector3.Distance(position, building.getPosition());
+          return distance <= radius;
+        }),
+      );
     }
 
     // Gather all buildings in all loaded chunks (or optimize to only nearby chunks)
@@ -359,7 +362,8 @@ export class TerrainManager {
       }
     });
 
-    return this.workerManager.getBuildingsInRadiusMinimal(position, buildingData, radius)
+    return this.workerManager
+      .getBuildingsInRadiusMinimal(position, buildingData, radius)
       .then((result) => {
         const buildingIds = result.buildingIds as string[];
 
@@ -383,7 +387,7 @@ export class TerrainManager {
   // Simple synchronous fallback for when worker fails
   private getBuildingsInRadiusSync(position: Vector3, radius: number): Building[] {
     const buildings: Building[] = [];
-    
+
     this.chunks.forEach((chunk) => {
       if (chunk) {
         chunk.buildings.forEach((building) => {
@@ -405,9 +409,14 @@ export class TerrainManager {
     return this.chunks.get(chunkKey) ?? undefined;
   }
 
-  public updateDefenseLaunchers(bomberPosition: Vector3, bomberVelocity: Vector3, currentTime: number, deltaTime: number): void {
+  public updateDefenseLaunchers(
+    bomberPosition: Vector3,
+    bomberVelocity: Vector3,
+    currentTime: number,
+    deltaTime: number,
+  ): void {
     const maxRange = 400;
-    
+
     // Use promise-based callbacks instead of async/await
     this.getBuildingsInRadius(bomberPosition, maxRange)
       .then((buildings) => {
@@ -429,7 +438,7 @@ export class TerrainManager {
 
   public setGame(game: Game): void {
     this.game = game;
-    
+
     // Set Game reference on all existing buildings
     this.chunks.forEach((chunk) => {
       if (chunk) {

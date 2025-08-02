@@ -29,9 +29,8 @@ export class InputManager {
     { name: 'countermeasure', displayName: 'Deploy Flares', defaultKey: 'KeyF', currentKey: 'KeyF' },
     { name: 'missile', displayName: 'Launch Tomahawk', defaultKey: 'KeyR', currentKey: 'KeyR' },
     { name: 'cameraToggle', displayName: 'Toggle Crosshairs', defaultKey: 'Digit4', currentKey: 'Digit4' },
-    { name: 'bomb', displayName: 'Start Bombing Run', defaultKey: 'KeyX', currentKey: 'KeyX' }
+    { name: 'bomb', displayName: 'Start Bombing Run', defaultKey: 'KeyX', currentKey: 'KeyX' },
   ];
-
 
   // Mouse controls
   private isMouseDragging: boolean = false;
@@ -41,14 +40,13 @@ export class InputManager {
   private lastMouseY: number = 0;
 
   // Touch controls
-  private touchPointers: Map<number, { x: number, y: number }> = new Map();
-  private lastTouchCenter: { x: number, y: number } | null = null;
+  private touchPointers: Map<number, { x: number; y: number }> = new Map();
+  private lastTouchCenter: { x: number; y: number } | null = null;
   private touchDeltaX: number = 0;
   private touchDeltaY: number = 0;
   private isTouchCamera: boolean = false; // true for 2+ finger camera, false for 1 finger bomber
   private bomberTouchDeltaX: number = 0;
   private bomberTouchDeltaY: number = 0;
-
 
   // Cache frequently accessed keys to reduce lookup overhead
   private cachedKeys: { [key: string]: boolean } = {};
@@ -73,16 +71,17 @@ export class InputManager {
     // Use Babylon.js pointer events for mouse controls
     this.scene.onPointerObservable.add((pointerInfo) => {
       const event = pointerInfo.event;
-      
+
       switch (pointerInfo.type) {
         case PointerEventTypes.POINTERDOWN:
-          if (event.button === 0) { // Left mouse button
+          if (event.button === 0) {
+            // Left mouse button
             this.isMouseDragging = true;
             this.lastMouseX = event.clientX;
             this.lastMouseY = event.clientY;
           }
           break;
-          
+
         case PointerEventTypes.POINTERMOVE:
           if (this.isMouseDragging) {
             this.mouseDeltaX = event.clientX - this.lastMouseX;
@@ -91,9 +90,10 @@ export class InputManager {
             this.lastMouseY = event.clientY;
           }
           break;
-          
+
         case PointerEventTypes.POINTERUP:
-          if (event.button === 0) { // Left mouse button
+          if (event.button === 0) {
+            // Left mouse button
             this.isMouseDragging = false;
           }
           break;
@@ -103,7 +103,7 @@ export class InputManager {
     // Add separate touch event listeners for touch controls
     this.canvas.addEventListener('touchstart', (event) => {
       event.preventDefault();
-      
+
       this.touchPointers.clear();
       for (let i = 0; i < event.touches.length; i++) {
         const touch = event.touches[i];
@@ -114,7 +114,7 @@ export class InputManager {
 
     this.canvas.addEventListener('touchmove', (event) => {
       event.preventDefault();
-      
+
       for (let i = 0; i < event.touches.length; i++) {
         const touch = event.touches[i];
         this.touchPointers.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
@@ -124,7 +124,7 @@ export class InputManager {
 
     this.canvas.addEventListener('touchend', (event) => {
       event.preventDefault();
-      
+
       // Remove ended touches
       for (let i = 0; i < event.changedTouches.length; i++) {
         const touch = event.changedTouches[i];
@@ -214,13 +214,12 @@ export class InputManager {
     return this.touchPointers.size > 0;
   }
 
-
   public isKeyPressed(key: string): boolean {
     // Cache frequently accessed keys to reduce lookup overhead
     const currentTime = performance.now();
     if (!this.keyCacheValid || currentTime - this.lastKeyCacheUpdate > this.keyCacheInterval) {
       // Cache all current keybind keys
-      this.keybinds.forEach(keybind => {
+      this.keybinds.forEach((keybind) => {
         this.cachedKeys[keybind.currentKey] = this.keys[keybind.currentKey] || false;
       });
       this.keyCacheValid = true;
@@ -231,27 +230,27 @@ export class InputManager {
     if (this.cachedKeys.hasOwnProperty(key)) {
       return this.cachedKeys[key];
     }
-    
+
     return this.keys[key] || false;
   }
 
   public isBombKeyPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'bomb');
+    const keybind = this.keybinds.find((k) => k.name === 'bomb');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isMissileKeyPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'missile');
+    const keybind = this.keybinds.find((k) => k.name === 'missile');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isCountermeasureKeyPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'countermeasure');
+    const keybind = this.keybinds.find((k) => k.name === 'countermeasure');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public triggerBombKeyPress(): void {
-    const keybind = this.keybinds.find(k => k.name === 'bomb');
+    const keybind = this.keybinds.find((k) => k.name === 'bomb');
     if (keybind) {
       this.keys[keybind.currentKey] = true;
       setTimeout(() => {
@@ -261,7 +260,7 @@ export class InputManager {
   }
 
   public triggerMissileKeyPress(): void {
-    const keybind = this.keybinds.find(k => k.name === 'missile');
+    const keybind = this.keybinds.find((k) => k.name === 'missile');
     if (keybind) {
       this.keys[keybind.currentKey] = true;
       setTimeout(() => {
@@ -271,7 +270,7 @@ export class InputManager {
   }
 
   public triggerCountermeasureKeyPress(): void {
-    const keybind = this.keybinds.find(k => k.name === 'countermeasure');
+    const keybind = this.keybinds.find((k) => k.name === 'countermeasure');
     if (keybind) {
       this.keys[keybind.currentKey] = true;
       setTimeout(() => {
@@ -282,63 +281,63 @@ export class InputManager {
 
   // Bomber movement controls
   public isAltitudeUpPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'altitudeUp');
+    const keybind = this.keybinds.find((k) => k.name === 'altitudeUp');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isAltitudeDownPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'altitudeDown');
+    const keybind = this.keybinds.find((k) => k.name === 'altitudeDown');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public getTurnLeftPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'turnLeft');
+    const keybind = this.keybinds.find((k) => k.name === 'turnLeft');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public getTurnRightPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'turnRight');
+    const keybind = this.keybinds.find((k) => k.name === 'turnRight');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   // Camera controls
   public isCameraPanLeftPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'cameraPanLeft');
+    const keybind = this.keybinds.find((k) => k.name === 'cameraPanLeft');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isCameraPanRightPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'cameraPanRight');
+    const keybind = this.keybinds.find((k) => k.name === 'cameraPanRight');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isPitchUpPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'pitchUp');
+    const keybind = this.keybinds.find((k) => k.name === 'pitchUp');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isPitchDownPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'pitchDown');
+    const keybind = this.keybinds.find((k) => k.name === 'pitchDown');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isCameraResetPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'cameraReset');
+    const keybind = this.keybinds.find((k) => k.name === 'cameraReset');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isCameraTogglePressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'cameraToggle');
+    const keybind = this.keybinds.find((k) => k.name === 'cameraToggle');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isCameraZoomInPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'cameraZoomIn');
+    const keybind = this.keybinds.find((k) => k.name === 'cameraZoomIn');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isCameraZoomOutPressed(): boolean {
-    const keybind = this.keybinds.find(k => k.name === 'cameraZoomOut');
+    const keybind = this.keybinds.find((k) => k.name === 'cameraZoomOut');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
@@ -348,7 +347,7 @@ export class InputManager {
   }
 
   public updateKeybind(name: string, newKey: string): void {
-    const keybind = this.keybinds.find(k => k.name === name);
+    const keybind = this.keybinds.find((k) => k.name === name);
     if (keybind) {
       keybind.currentKey = newKey;
       this.keyCacheValid = false; // Invalidate cache
@@ -357,7 +356,7 @@ export class InputManager {
   }
 
   public resetKeybinds(): void {
-    this.keybinds.forEach(keybind => {
+    this.keybinds.forEach((keybind) => {
       keybind.currentKey = keybind.defaultKey;
     });
     this.keyCacheValid = false; // Invalidate cache
@@ -366,7 +365,7 @@ export class InputManager {
 
   private saveKeybindsToStorage(): void {
     const keybindData = {
-      keybinds: this.keybinds
+      keybinds: this.keybinds,
     };
     localStorage.setItem('manicureBomberKeybinds', JSON.stringify(keybindData));
   }
@@ -379,7 +378,7 @@ export class InputManager {
         if (keybindData.keybinds) {
           // Update current keys from saved data
           keybindData.keybinds.forEach((savedKeybind: Keybind) => {
-            const keybind = this.keybinds.find(k => k.name === savedKeybind.name);
+            const keybind = this.keybinds.find((k) => k.name === savedKeybind.name);
             if (keybind) {
               keybind.currentKey = savedKeybind.currentKey;
             }
@@ -398,7 +397,7 @@ export class InputManager {
   private updateTouchState(): void {
     // Determine if this is camera (2+ fingers) or bomber (1 finger) control
     this.isTouchCamera = this.touchPointers.size >= 2;
-    
+
     if (this.touchPointers.size === 0) {
       this.lastTouchCenter = null;
     }
@@ -410,12 +409,12 @@ export class InputManager {
     // Calculate center point of all touches
     let centerX = 0;
     let centerY = 0;
-    
+
     for (const touch of this.touchPointers.values()) {
       centerX += touch.x;
       centerY += touch.y;
     }
-    
+
     centerX /= this.touchPointers.size;
     centerY /= this.touchPointers.size;
 

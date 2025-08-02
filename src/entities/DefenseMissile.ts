@@ -30,12 +30,18 @@ export class DefenseMissile {
   private light!: PointLight;
   private targetSet: boolean = false; // Performance optimization flag
   private maxAltitude: number = 120 + Math.random() * 80; // Maximum altitude before detonation
-  
+
   // Trajectory calculation properties
   private trajectoryCalculated: boolean = false;
   private pendingTrajectoryCalculation: boolean = false;
 
-  constructor(scene: Scene, launchPosition: Vector3, targetPosition: Vector3, bomberVelocity: Vector3, workerManager: WorkerManager) {
+  constructor(
+    scene: Scene,
+    launchPosition: Vector3,
+    targetPosition: Vector3,
+    bomberVelocity: Vector3,
+    workerManager: WorkerManager,
+  ) {
     this.scene = scene;
     this.workerManager = workerManager;
     this.position = launchPosition.clone();
@@ -192,19 +198,19 @@ export class DefenseMissile {
       this.calculateInitialTrajectory();
       return;
     }
-    
+
     // Skip update if trajectory calculation is pending
     if (this.pendingTrajectoryCalculation) {
       return;
     }
-    
+
     // Simple straight-line movement once trajectory is set
     this.updateStraightLineMovement(deltaTime);
   }
-  
+
   private calculateInitialTrajectory(): void {
     this.pendingTrajectoryCalculation = true;
-    
+
     // Prepare data for trajectory calculation
     const trajectoryData: any = {
       position: { x: this.position.x, y: this.position.y, z: this.position.z },
@@ -217,11 +223,12 @@ export class DefenseMissile {
       launched: this.launched,
       exploded: this.exploded,
       targetSet: this.targetSet,
-      maxAltitude: this.maxAltitude
+      maxAltitude: this.maxAltitude,
     };
-    
+
     // Calculate trajectory using worker
-    this.workerManager.calculateDefenseTrajectory(trajectoryData)
+    this.workerManager
+      .calculateDefenseTrajectory(trajectoryData)
       .then((result) => {
         this.applyTrajectoryResult(result);
       })
@@ -230,26 +237,25 @@ export class DefenseMissile {
         this.pendingTrajectoryCalculation = false;
       });
   }
-  
+
   private applyTrajectoryResult(result: any): void {
     if (!result || this.exploded) return;
-    
+
     // Apply calculated velocity and rotation
     this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);
     this.missileGroup.rotation.set(result.rotation.x, result.rotation.y, result.rotation.z);
-    
+
     // Mark trajectory as calculated
     this.trajectoryCalculated = true;
     this.targetSet = true;
     this.pendingTrajectoryCalculation = false;
   }
-  
-  
+
   private updateStraightLineMovement(deltaTime: number): void {
     // Simple position update - no complex calculations needed
     this.position.addInPlace(this.velocity.scale(deltaTime));
     this.missileGroup.position = this.position.clone();
-    
+
     // Check for altitude-based explosion
     if (this.position.y >= this.maxAltitude) {
       this.explode();

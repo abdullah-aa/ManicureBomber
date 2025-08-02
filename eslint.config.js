@@ -12,7 +12,7 @@ export default [
       parser: tsParser,
       parserOptions: {
         ecmaVersion: 'latest',
-        sourceType: 'module'
+        sourceType: 'module',
       },
       globals: {
         // Browser globals
@@ -37,12 +37,12 @@ export default [
         require: 'readonly',
         module: 'readonly',
         exports: 'readonly',
-        global: 'readonly'
-      }
+        global: 'readonly',
+      },
     },
     plugins: {
       '@typescript-eslint': tsPlugin,
-      prettier: prettierPlugin
+      prettier: prettierPlugin,
     },
     rules: {
       ...tsPlugin.configs.recommended.rules,
@@ -50,8 +50,8 @@ export default [
       '@typescript-eslint/no-unused-vars': 'warn',
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
-      'no-case-declarations': 'off'
-    }
+      'no-case-declarations': 'off',
+    },
   },
   {
     files: ['**/*.worker.ts'],
@@ -59,18 +59,18 @@ export default [
       parser: tsParser,
       parserOptions: {
         ecmaVersion: 'latest',
-        sourceType: 'module'
+        sourceType: 'module',
       },
       globals: {
         self: 'readonly',
         postMessage: 'readonly',
         importScripts: 'readonly',
-        performance: 'readonly'
-      }
+        performance: 'readonly',
+      },
     },
     plugins: {
       '@typescript-eslint': tsPlugin,
-      prettier: prettierPlugin
+      prettier: prettierPlugin,
     },
     rules: {
       ...tsPlugin.configs.recommended.rules,
@@ -78,8 +78,8 @@ export default [
       '@typescript-eslint/no-unused-vars': 'warn',
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
-      'no-case-declarations': 'off'
-    }
+      'no-case-declarations': 'off',
+    },
   },
   {
     files: ['**/*.js'],
@@ -94,12 +94,12 @@ export default [
         __filename: 'readonly',
         process: 'readonly',
         Buffer: 'readonly',
-        global: 'readonly'
-      }
-    }
+        global: 'readonly',
+      },
+    },
   },
   prettierConfig,
   {
-    ignores: ['node_modules/**', 'dist/**', 'bundle.js', 'eslint.config.js']
-  }
+    ignores: ['node_modules/**', 'dist/**', 'bundle.js', 'eslint.config.js'],
+  },
 ];

@@ -542,7 +542,6 @@ export class IskanderMissile {
     this.flareTargets.push(flarePosition.clone());
   }
 
-
   public update(deltaTime: number): void {
     if (!this.launched || this.exploded) return;
 
@@ -585,15 +584,19 @@ export class IskanderMissile {
       deltaTime: deltaTime,
       pathTime: this.pathTime,
       pathSpeed: this.pathSpeed,
-      waypoints: this.waypoints.map(wp => ({ x: wp.x, y: wp.y, z: wp.z })),
+      waypoints: this.waypoints.map((wp) => ({ x: wp.x, y: wp.y, z: wp.z })),
       launched: this.launched,
       exploded: this.exploded,
       currentTime: currentTime,
 
       // Iskander-specific properties
-      flareTargets: this.flareTargets.map(ft => ({ x: ft.x, y: ft.y, z: ft.z })),
+      flareTargets: this.flareTargets.map((ft) => ({ x: ft.x, y: ft.y, z: ft.z })),
       flareDetectionRange: this.flareDetectionRange,
-      originalTargetPosition: { x: this.originalTargetPosition.x, y: this.originalTargetPosition.y, z: this.originalTargetPosition.z },
+      originalTargetPosition: {
+        x: this.originalTargetPosition.x,
+        y: this.originalTargetPosition.y,
+        z: this.originalTargetPosition.z,
+      },
       isTargetingFlare: this.isTargetingFlare,
       lockOnRange: this.lockOnRange,
       isLockedOn: this.isLockedOn,
@@ -605,12 +608,15 @@ export class IskanderMissile {
 
     // Send to worker
     this.pendingPhysicsUpdate = true;
-    this.workerManager.updateIskanderMissile(physicsData).then((result) => {
-      this.pendingPhysicsUpdate = false;
-      this.applyPhysicsResult(result);
-    }).catch((error) => {
-      this.pendingPhysicsUpdate = false;
-    });
+    this.workerManager
+      .updateIskanderMissile(physicsData)
+      .then((result) => {
+        this.pendingPhysicsUpdate = false;
+        this.applyPhysicsResult(result);
+      })
+      .catch((error) => {
+        this.pendingPhysicsUpdate = false;
+      });
   }
 
   private applyPhysicsResult(result: any): void {
@@ -642,7 +648,6 @@ export class IskanderMissile {
       this.explode();
     }
   }
-
 
   public explode(): void {
     if (this.exploded) return;

@@ -674,7 +674,12 @@ export class Building {
     return this.config.height;
   }
 
-  public updateDefenseLauncher(bomberPosition: Vector3, bomberVelocity: Vector3, currentTime: number, deltaTime: number): void {
+  public updateDefenseLauncher(
+    bomberPosition: Vector3,
+    bomberVelocity: Vector3,
+    currentTime: number,
+    deltaTime: number,
+  ): void {
     if (!this.config.isDefenseLauncher || this.isDestroyed || !this.game) return;
 
     // Check if we should launch a new missile
@@ -685,7 +690,7 @@ export class Building {
     ) {
       this.launchDefenseMissile(bomberPosition, bomberVelocity);
       this.lastMissileLaunchTime = currentTime;
-      
+
       // Randomize the next launch interval for more dynamic behavior
       this.missileLaunchInterval = 3 + Math.random() * 8; // 3-11 seconds
     }
@@ -698,13 +703,7 @@ export class Building {
     launchPosition.y += this.config.height + 3; // Launch from top of launcher
 
     // Pass bomber data to missile for worker-based target calculation
-    const missile = new DefenseMissile(
-      this.scene, 
-      launchPosition, 
-      bomberPosition, 
-      bomberVelocity, 
-      this.workerManager
-    );
+    const missile = new DefenseMissile(this.scene, launchPosition, bomberPosition, bomberVelocity, this.workerManager);
     missile.launch();
     this.game.addDefenseMissile(missile);
   }
@@ -712,8 +711,6 @@ export class Building {
   public isDefenseLauncher(): boolean {
     return this.config.isDefenseLauncher || false;
   }
-
-
 
   public dispose(): void {
     if (this.targetRing) this.targetRing.dispose();

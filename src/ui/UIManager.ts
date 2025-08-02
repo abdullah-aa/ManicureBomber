@@ -66,13 +66,17 @@ export class UIManager {
     this.missileButton.addEventListener('click', () => {
       if (this.game.getBomber().canLaunchMissile()) {
         // Use promise-based callback instead of await
-        this.game.getBomber().hasValidTarget().then((hasValidTarget) => {
-          if (hasValidTarget) {
-            this.inputManager.triggerMissileKeyPress();
-          }
-        }).catch(() => {
-          // Silent error handling
-        });
+        this.game
+          .getBomber()
+          .hasValidTarget()
+          .then((hasValidTarget) => {
+            if (hasValidTarget) {
+              this.inputManager.triggerMissileKeyPress();
+            }
+          })
+          .catch(() => {
+            // Silent error handling
+          });
       }
     });
 
@@ -644,24 +648,28 @@ export class UIManager {
 
     if (shouldCheckTarget && currentTime - this.lastTargetCheckTime > this.targetCheckInterval) {
       // Use promise-based callback instead of await
-      this.game.getBomber().hasValidTarget().then((hasValidTarget) => {
-        this.cachedHasValidTarget = hasValidTarget;
-        this.lastTargetCheckTime = currentTime;
-        
-        const hasTarget = this.cachedHasValidTarget && missileCooldownStatus >= 1;
+      this.game
+        .getBomber()
+        .hasValidTarget()
+        .then((hasValidTarget) => {
+          this.cachedHasValidTarget = hasValidTarget;
+          this.lastTargetCheckTime = currentTime;
 
-        // Only update target indicator if changed
-        if (hasTarget !== this.lastHasTarget) {
-          if (hasTarget) {
-            this.missileButton.classList.add('has-target');
-          } else {
-            this.missileButton.classList.remove('has-target');
+          const hasTarget = this.cachedHasValidTarget && missileCooldownStatus >= 1;
+
+          // Only update target indicator if changed
+          if (hasTarget !== this.lastHasTarget) {
+            if (hasTarget) {
+              this.missileButton.classList.add('has-target');
+            } else {
+              this.missileButton.classList.remove('has-target');
+            }
+            this.lastHasTarget = hasTarget;
           }
-          this.lastHasTarget = hasTarget;
-        }
-      }).catch(() => {
-        // Silent error handling - keep previous cached value
-      });
+        })
+        .catch(() => {
+          // Silent error handling - keep previous cached value
+        });
     } else {
       // Use cached value if not checking
       const hasTarget = this.cachedHasValidTarget && missileCooldownStatus >= 1;
@@ -739,7 +747,6 @@ export class UIManager {
   }
 
   public showAlert(message: string, type: string = 'default', duration: number = 5000): void {
-
     // Remove existing alert of the same type
     const existingAlert = this.activeAlerts.get(type);
     if (existingAlert) {
@@ -820,33 +827,33 @@ export class UIManager {
 
   public showKeybindsModal(): void {
     if (this.isMobile()) return; // Don't show on mobile
-    
+
     const modal = document.getElementById('keybindsModal');
     const keybindsList = document.getElementById('keybindsList');
-    
+
     if (!modal || !keybindsList) return;
 
     // Populate keybinds list
     const keybinds = this.inputManager.getKeybinds();
     keybindsList.innerHTML = '';
 
-    keybinds.forEach(keybind => {
+    keybinds.forEach((keybind) => {
       const row = document.createElement('div');
       row.className = 'keybind-row';
-      
+
       const label = document.createElement('div');
       label.className = 'keybind-label';
       label.textContent = keybind.displayName;
-      
+
       const keyButton = document.createElement('div');
       keyButton.className = 'keybind-key';
       keyButton.textContent = this.getKeyDisplayName(keybind.currentKey);
       keyButton.dataset.keybindName = keybind.name;
-      
+
       keyButton.addEventListener('click', () => {
         this.startKeybindEdit(keyButton, keybind.name);
       });
-      
+
       row.appendChild(label);
       row.appendChild(keyButton);
       keybindsList.appendChild(row);
@@ -869,7 +876,7 @@ export class UIManager {
     // Remove existing listeners to prevent duplicates
     const newSaveButton = saveButton.cloneNode(true);
     const newResetButton = resetButton.cloneNode(true);
-    
+
     saveButton.parentNode?.replaceChild(newSaveButton, saveButton);
     resetButton.parentNode?.replaceChild(newResetButton, resetButton);
 
@@ -914,14 +921,14 @@ export class UIManager {
     const keyHandler = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      
+
       // Update the keybind
       this.inputManager.updateKeybind(keybindName, e.code);
-      
+
       // Update the button
       keyButton.classList.remove('editing');
       keyButton.textContent = this.getKeyDisplayName(e.code);
-      
+
       // Remove event listener
       document.removeEventListener('keydown', keyHandler);
     };
@@ -931,16 +938,33 @@ export class UIManager {
 
   private getKeyDisplayName(keyCode: string): string {
     const keyMap: { [key: string]: string } = {
-      'KeyW': 'W', 'KeyA': 'A', 'KeyS': 'S', 'KeyD': 'D',
-      'KeyQ': 'Q', 'KeyE': 'E', 'KeyR': 'R', 'KeyF': 'F',
-      'KeyZ': 'Z', 'KeyX': 'X', 'KeyC': 'C',
-      'Digit1': '1', 'Digit2': '2', 'Digit3': '3', 'Digit4': '4',
-      'Space': 'Space', 'Escape': 'Esc',
-      'ArrowUp': '↑', 'ArrowDown': '↓', 'ArrowLeft': '←', 'ArrowRight': '→',
-      'ShiftLeft': 'L-Shift', 'ShiftRight': 'R-Shift',
-      'ControlLeft': 'L-Ctrl', 'ControlRight': 'R-Ctrl'
+      KeyW: 'W',
+      KeyA: 'A',
+      KeyS: 'S',
+      KeyD: 'D',
+      KeyQ: 'Q',
+      KeyE: 'E',
+      KeyR: 'R',
+      KeyF: 'F',
+      KeyZ: 'Z',
+      KeyX: 'X',
+      KeyC: 'C',
+      Digit1: '1',
+      Digit2: '2',
+      Digit3: '3',
+      Digit4: '4',
+      Space: 'Space',
+      Escape: 'Esc',
+      ArrowUp: '↑',
+      ArrowDown: '↓',
+      ArrowLeft: '←',
+      ArrowRight: '→',
+      ShiftLeft: 'L-Shift',
+      ShiftRight: 'R-Shift',
+      ControlLeft: 'L-Ctrl',
+      ControlRight: 'R-Ctrl',
     };
-    
+
     return keyMap[keyCode] || keyCode.replace('Key', '').replace('Digit', '');
   }
 }

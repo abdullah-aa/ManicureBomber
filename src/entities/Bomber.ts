@@ -509,7 +509,7 @@ export class Bomber {
       const touchDeltaX = inputManager.getBomberTouchDeltaX();
       const touchDeltaY = inputManager.getBomberTouchDeltaY();
       const touchSensitivity = 0.001; // Adjust sensitivity for bomber
-      
+
       // Touch X controls turning (not inverted)
       if (Math.abs(touchDeltaX) > 0) {
         this.rotation.y += touchDeltaX * touchSensitivity; // Right swipe turns right
@@ -517,7 +517,7 @@ export class Bomber {
         isTurning = true;
         this.trigCacheValid = false;
       }
-      
+
       // Touch Y controls altitude (not inverted)
       if (Math.abs(touchDeltaY) > 0) {
         this.altitude += touchDeltaY * touchSensitivity * 100; // Down swipe climbs
@@ -827,7 +827,7 @@ export class Bomber {
     this.lastTargetCheckPosition.copyFrom(this.position);
 
     const defenseRange = 300; // Same range as defense buildings
-    
+
     return this.terrainManager!.getBuildingsInRadius(this.position, defenseRange)
       .then((nearbyBuildings) => {
         let closestBuilding: Building | null = null;
@@ -901,7 +901,13 @@ export class Bomber {
       const launcherPosition = this.bomberGroup.position.add(new Vector3(0, -2, -1));
 
       // Create and launch missile targeting the defense building
-      const missile = new TomahawkMissile(this.scene, launcherPosition, targetBuilding, this.rotation.clone(), this.workerManager);
+      const missile = new TomahawkMissile(
+        this.scene,
+        launcherPosition,
+        targetBuilding,
+        this.rotation.clone(),
+        this.workerManager,
+      );
 
       // Set up target destruction callback
       missile.setOnTargetDestroyedCallback((building: Building) => {

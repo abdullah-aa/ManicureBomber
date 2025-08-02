@@ -43,4 +43,3 @@ export function vector3Lerp(a: Vector3, b: Vector3, t: number): Vector3 {
     z: a.z + (b.z - a.z) * t,
   };
 }
-

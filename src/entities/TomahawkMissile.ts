@@ -31,7 +31,7 @@ export class TomahawkMissile {
   private turnRate: number = 2.0; // How fast the missile can turn
   private launched: boolean = false;
   private exploded: boolean = false;
-  
+
   // Worker-related properties
   private pendingPhysicsUpdate: boolean = false;
   private lastWorkerUpdateTime: number = 0;
@@ -62,7 +62,13 @@ export class TomahawkMissile {
   // Target destruction callback
   private onTargetDestroyedCallback: ((building: Building) => void) | null = null;
 
-  constructor(scene: Scene, launchPosition: Vector3, targetBuilding: Building, launchRotation: Vector3, workerManager: WorkerManager) {
+  constructor(
+    scene: Scene,
+    launchPosition: Vector3,
+    targetBuilding: Building,
+    launchRotation: Vector3,
+    workerManager: WorkerManager,
+  ) {
     this.scene = scene;
     this.workerManager = workerManager;
     this.position = launchPosition.clone();
@@ -86,10 +92,11 @@ export class TomahawkMissile {
     const pathData = {
       launchPosition: { x: this.position.x, y: this.position.y, z: this.position.z },
       targetPosition: { x: this.targetPosition.x, y: this.targetPosition.y, z: this.targetPosition.z },
-      animationOffset: { x: 15, y: -20, z: 15 } // From launch animation final keyframe
+      animationOffset: { x: 15, y: -20, z: 15 }, // From launch animation final keyframe
     };
-    
-    this.workerManager.generateTomahawkPath(pathData)
+
+    this.workerManager
+      .generateTomahawkPath(pathData)
       .then((result) => {
         this.waypoints = result.waypoints.map((wp: any) => new Vector3(wp.x, wp.y, wp.z));
       })
@@ -99,8 +106,6 @@ export class TomahawkMissile {
         this.waypoints = [predictedEndPosition.clone(), this.targetPosition.clone()];
       });
   }
-
-
 
   private createMissileModel(): void {
     // Main fuselage - sleek cruise missile body
@@ -563,12 +568,12 @@ export class TomahawkMissile {
   private startGuidedFlight(): void {
     // Update position to current missile group position after animation
     this.position = this.missileGroup.position.clone();
-    
+
     // Start remaining particle effects now that launch animation is complete
     this.pathStartTime = performance.now() / 1000;
     this.exhaustParticles.start();
     this.flightSmokeParticles.start();
-    
+
     // Initialize path time for curved navigation (path is already generated)
     this.pathTime = 0.01; // Small offset to start on curved path
     this.lastSegmentChangeTime = performance.now() / 1000;
@@ -578,25 +583,25 @@ export class TomahawkMissile {
     if (!this.launched || this.exploded) return;
 
     const currentTime = performance.now() / 1000;
-    
+
     // Use worker for physics calculations
     this.updatePhysicsWorker(deltaTime, currentTime);
   }
-  
+
   private updatePhysicsWorker(deltaTime: number, currentTime: number): void {
     // Performance optimization: limit worker update frequency
     if (currentTime - this.lastWorkerUpdateTime < this.workerUpdateInterval) {
       return;
     }
-    
+
     // Don't send new requests if one is already pending
     if (this.pendingPhysicsUpdate) {
       return;
     }
-    
+
     this.lastWorkerUpdateTime = currentTime;
     this.pendingPhysicsUpdate = true;
-    
+
     // Prepare physics data for worker - only required data
     const physicsData = {
       position: { x: this.position.x, y: this.position.y, z: this.position.z },
@@ -614,11 +619,12 @@ export class TomahawkMissile {
       orientationUpdateThreshold: this.orientationUpdateThreshold,
       lastSegmentChangeTime: this.lastSegmentChangeTime,
       currentTime: currentTime,
-      waypoints: this.waypoints.map(wp => ({ x: wp.x, y: wp.y, z: wp.z }))
+      waypoints: this.waypoints.map((wp) => ({ x: wp.x, y: wp.y, z: wp.z })),
     };
-    
+
     // Send to worker and handle response
-    this.workerManager.updateTomahawkMissile(physicsData)
+    this.workerManager
+      .updateTomahawkMissile(physicsData)
       .then((result) => {
         this.pendingPhysicsUpdate = false;
         this.applyPhysicsResult(result);
@@ -628,15 +634,15 @@ export class TomahawkMissile {
         // Skip update if worker fails - don't apply fallback physics
       });
   }
-  
+
   private applyPhysicsResult(result: any): void {
     if (!result || this.exploded) return;
-    
+
     // Apply new position, velocity, and rotation from worker
     this.position.set(result.position.x, result.position.y, result.position.z);
     this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);
     this.rotation.set(result.rotation.x, result.rotation.y, result.rotation.z);
-    
+
     // Update path state
     if (result.pathTime !== undefined) {
       this.pathTime = result.pathTime;
@@ -644,11 +650,11 @@ export class TomahawkMissile {
     if (result.lastSegmentChangeTime !== undefined) {
       this.lastSegmentChangeTime = result.lastSegmentChangeTime;
     }
-    
+
     // Apply transforms
     this.missileGroup.position = this.position.clone();
     this.missileGroup.rotation = this.rotation.clone();
-    
+
     // Check for explosion from worker
     if (result.shouldExplode) {
       this.explode();
@@ -701,7 +707,6 @@ export class TomahawkMissile {
       this.explosionSmokeParticles.dispose();
     }, 6000); // Reduced from 8000
   }
-
 
   public hasExploded(): boolean {
     return this.exploded;
