@@ -1,0 +1,535 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><link rel="shortcut icon" type="image/png" href="./favicon.png"/><title>✈️🚀💥 Manicure Bomber</title><style>body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        overflow: hidden;
+        font-family: Arial, sans-serif;
+      }
+      #renderCanvas {
+        width: 100%;
+        height: 100vh;
+        touch-action: none;
+      }
+
+      /* Radar Overlay Styles */
+      #radarOverlay {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        width: 200px;
+        background: rgba(0, 50, 0, 0.9);
+        border: 2px solid rgba(0, 255, 0, 0.5);
+        border-radius: 8px;
+        color: #00ff00;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        z-index: 1000;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      }
+
+      #radarHeader {
+        padding: 8px 12px;
+        background: rgba(0, 100, 0, 0.3);
+        border-radius: 6px 6px 0 0;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        user-select: none;
+        font-weight: bold;
+      }
+
+      #radarHeader:hover {
+        background: rgba(0, 150, 0, 0.3);
+      }
+
+      #radarToggle {
+        color: #00ff00;
+        font-size: 14px;
+        transform: rotate(0deg);
+        transition: transform 0.3s ease;
+      }
+
+      #radarToggle.collapsed {
+        transform: rotate(180deg);
+      }
+
+      #radarContent {
+        padding: 12px;
+        max-height: 300px;
+        overflow: hidden;
+        transition:
+          max-height 0.3s ease,
+          padding 0.3s ease;
+      }
+
+      #radarContent.collapsed {
+        max-height: 0;
+        padding: 0 12px;
+      }
+
+      #radarDisplay {
+        width: 176px;
+        height: 176px;
+        background: rgba(0, 20, 0, 0.8);
+        border: 1px solid rgba(0, 255, 0, 0.3);
+        border-radius: 50%;
+        position: relative;
+        margin-bottom: 12px;
+      }
+
+      /* Radar concentric circles */
+      #radarDisplay::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 66%;
+        height: 66%;
+        border: 1px solid rgba(0, 255, 0, 0.2);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      /* Radar spokes */
+      .radar-spokes {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      .radar-spokes::before,
+      .radar-spokes::after {
+        content: '';
+        position: absolute;
+        background: rgba(0, 255, 0, 0.15);
+        pointer-events: none;
+      }
+
+      /* Vertical spoke */
+      .radar-spokes::before {
+        top: 0;
+        left: 50%;
+        width: 1px;
+        height: 100%;
+        transform: translateX(-50%);
+      }
+
+      /* Horizontal spoke */
+      .radar-spokes::after {
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 1px;
+        transform: translateY(-50%);
+      }
+
+      /* Additional inner circle */
+      .radar-inner-circle {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 33%;
+        height: 33%;
+        border: 1px solid rgba(0, 255, 0, 0.15);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      .radar-sweep {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 2px;
+        height: 88px;
+        background: linear-gradient(to top, rgba(0, 255, 0, 0.8), rgba(0, 255, 0, 0));
+        transform-origin: bottom center;
+        animation: radarSweep 4s linear infinite;
+      }
+
+      @keyframes radarSweep {
+        from {
+          transform: translate(-50%, -100%) rotate(0deg);
+        }
+        to {
+          transform: translate(-50%, -100%) rotate(360deg);
+        }
+      }
+
+      .radar-target {
+        position: absolute;
+        width: 4px;
+        height: 4px;
+        background: #ff0000;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+      }
+
+      .radar-building {
+        position: absolute;
+        width: 2px;
+        height: 2px;
+        background: #ffff00;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+      }
+
+      .radar-defense-launcher {
+        position: absolute;
+        width: 3px;
+        height: 3px;
+        background: #ff6600;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 0 4px rgba(255, 102, 0, 0.8);
+      }
+
+      .radar-missile {
+        position: absolute;
+        width: 2px;
+        height: 2px;
+        background: #ff00ff;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 0 3px rgba(255, 0, 255, 0.9);
+        animation: missileBlink 0.5s ease-in-out infinite alternate;
+      }
+
+      .radar-iskander {
+        position: absolute;
+        width: 3px;
+        height: 3px;
+        background: #0066ff;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 0 4px rgba(0, 102, 255, 0.8);
+        animation: iskanderPulse 1s ease-in-out infinite;
+      }
+
+      @keyframes missileBlink {
+        from {
+          opacity: 1;
+        }
+        to {
+          opacity: 0.3;
+        }
+      }
+
+      @keyframes iskanderPulse {
+        0% {
+          opacity: 0.6;
+          transform: translate(-50%, -50%) scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(1.2);
+        }
+        100% {
+          opacity: 0.6;
+          transform: translate(-50%, -50%) scale(1);
+        }
+      }
+
+      .radar-bomber {
+        position: absolute;
+        width: 6px;
+        height: 6px;
+        background: #00ff00;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        top: 50%;
+        left: 50%;
+      }
+
+      #scoreDisplay {
+        text-align: center;
+      }
+
+      #scoreDisplay div {
+        margin-bottom: 4px;
+      }
+
+      #game-over-message {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        color: white;
+        font-family: Arial, sans-serif;
+      }
+
+      .game-over-content {
+        text-align: center;
+        background-color: rgba(255, 0, 0, 0.2);
+        padding: 40px;
+        border-radius: 10px;
+        border: 2px solid #ff0000;
+      }
+
+      .game-over-content h1 {
+        color: #ff0000;
+        font-size: 3em;
+        margin-bottom: 20px;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+      }
+
+      .game-over-content p {
+        font-size: 1.2em;
+        margin: 10px 0;
+      }
+
+      #restart-button {
+        background: linear-gradient(135deg, #ff4444, #cc0000);
+        color: white;
+        border: none;
+        padding: 15px 30px;
+        font-size: 1.2em;
+        font-weight: bold;
+        border-radius: 8px;
+        cursor: pointer;
+        margin-top: 20px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        transition: all 0.3s ease;
+      }
+
+      #restart-button:hover {
+        background: linear-gradient(135deg, #ff6666, #dd2222);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+      }
+
+      #restart-button:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      /* Keybindings Modal */
+      #keybindsModal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+      }
+
+      #keybindsContent {
+        background: rgba(0, 50, 0, 0.95);
+        border: 2px solid rgba(0, 255, 0, 0.5);
+        border-radius: 12px;
+        padding: 24px;
+        color: #00ff00;
+        font-family: 'Courier New', monospace;
+        max-width: 500px;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+
+      #keybindsContent h2 {
+        margin-top: 0;
+        text-align: center;
+        color: #00ff00;
+        text-shadow: 0 0 8px rgba(0, 255, 0, 0.8);
+      }
+
+      .keybind-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        padding: 8px;
+        border-radius: 4px;
+        transition: background 0.2s ease;
+      }
+
+      .keybind-row:hover {
+        background: rgba(0, 100, 0, 0.2);
+      }
+
+      .keybind-label {
+        flex: 1;
+        font-size: 14px;
+      }
+
+      .keybind-key {
+        background: rgba(0, 255, 0, 0.2);
+        border: 1px solid rgba(0, 255, 0, 0.5);
+        color: #00ff00;
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        min-width: 60px;
+        text-align: center;
+      }
+
+      .keybind-key:hover {
+        background: rgba(0, 255, 0, 0.3);
+        border-color: rgba(0, 255, 0, 0.8);
+      }
+
+      .keybind-key.editing {
+        background: rgba(255, 255, 0, 0.3);
+        border-color: rgba(255, 255, 0, 0.8);
+        color: #ffff00;
+        animation: pulse 1s infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.7;
+        }
+      }
+
+      .keybinds-buttons {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 24px;
+        gap: 12px;
+      }
+
+      .keybinds-button {
+        background: rgba(0, 255, 0, 0.2);
+        border: 1px solid rgba(0, 255, 0, 0.5);
+        color: #00ff00;
+        padding: 10px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+        transition: all 0.2s ease;
+        flex: 1;
+      }
+
+      .keybinds-button:hover {
+        background: rgba(0, 255, 0, 0.3);
+        border-color: rgba(0, 255, 0, 0.8);
+      }
+
+      .keybinds-button.reset {
+        background: rgba(255, 100, 0, 0.2);
+        border-color: rgba(255, 100, 0, 0.5);
+        color: #ff6400;
+      }
+
+      .keybinds-button.reset:hover {
+        background: rgba(255, 100, 0, 0.3);
+        border-color: rgba(255, 100, 0, 0.8);
+      }
+
+      /* Radar Index Tooltip */
+      #radarDisplay {
+        position: relative;
+      }
+
+      #radarDisplay::after {
+        content: '🟢 Bomber  🔴 Target  🟠 Defense  🟣 Missile  🔵 Iskander';
+        position: fixed;
+        top: 20px;
+        left: calc(min(200px, 25vw) + 40px);
+        background: rgba(0, 0, 0, 0.95);
+        color: white;
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: clamp(9px, 1vw, 11px);
+        font-family: 'Courier New', monospace;
+        white-space: nowrap;
+        z-index: 10000;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+        border: 1px solid rgba(0, 255, 0, 0.3);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      }
+
+      #radarDisplay:hover::after {
+        opacity: 1;
+      }</style><script defer="defer" src="bundle.js"></script></head><body><canvas id="renderCanvas"></canvas><div id="radarOverlay"><div id="radarHeader"><div>RADAR</div><div id="radarToggle">▼</div></div><div id="radarContent"><div id="radarDisplay"><div class="radar-spokes"></div><div class="radar-inner-circle"></div><div class="radar-sweep"></div><div class="radar-bomber"></div></div><div id="scoreDisplay"><div>Targets: <span id="targetCount">0</span></div></div></div></div><div id="keybindsModal"><div id="keybindsContent"><h2>⚙ Key Bindings</h2><div id="keybindsList"></div><div class="keybinds-buttons"><button class="keybinds-button reset" id="resetKeybinds">Reset to Defaults</button> <button class="keybinds-button" id="saveKeybinds">Save & Close</button></div></div></div><script>// User agent detection for mobile
+      function isMobile() {
+        const userAgent = navigator.userAgent.toLowerCase();
+        return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/.test(userAgent);
+      }
+
+      // Apply mobile styles if on mobile device
+      if (isMobile()) {
+        const style = document.createElement('style');
+        style.textContent = `
+          #radarOverlay {
+            width: 100px !important;
+            font-size: 10px;
+            top: 12px;
+            left: 12px;
+          }
+
+          #radarDisplay {
+            width: 80px !important;
+            height: 80px !important;
+            margin-bottom: 6px;
+          }
+
+          .radar-sweep {
+            height: 40px !important;
+          }
+
+          #radarDisplay::after {
+            left: calc(100px + 15px);
+            font-size: 8px;
+            padding: 3px 6px;
+          }
+
+          #radarHeader {
+            padding: 6px 8px;
+            font-size: 9px;
+          }
+
+          #radarContent {
+            padding: 8px;
+          }
+
+          #scoreDisplay {
+            font-size: 9px;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+      // Radar toggle functionality
+      document.getElementById('radarToggle').addEventListener('click', function (e) {
+        e.stopPropagation();
+        const content = document.getElementById('radarContent');
+        const toggleButton = document.getElementById('radarToggle');
+
+        if (content.classList.contains('collapsed')) {
+          content.classList.remove('collapsed');
+          toggleButton.classList.remove('collapsed');
+          toggleButton.textContent = '▼';
+        } else {
+          content.classList.add('collapsed');
+          toggleButton.classList.add('collapsed');
+          toggleButton.textContent = '▲';
+        }
+      });</script></body></html>
