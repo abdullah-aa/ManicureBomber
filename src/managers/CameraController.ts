@@ -89,6 +89,33 @@ export class CameraController {
       this.followDistance = Math.min(this.maxFollowDistance, this.followDistance);
     }
 
+    // Handle scroll wheel zoom
+    const wheelDelta = inputManager.getWheelDelta();
+    if (wheelDelta !== 0) {
+      const zoomAmount = (wheelDelta / 100) * this.distanceSpeed;
+      this.followDistance += zoomAmount;
+      this.followDistance = Math.max(this.minFollowDistance, Math.min(this.maxFollowDistance, this.followDistance));
+    }
+
+    // Handle mouse controls - similar to keyboard but with mouse delta
+    if (inputManager.getIsMouseDragging()) {
+      const mouseDeltaX = inputManager.getMouseDeltaX();
+      const mouseDeltaY = inputManager.getMouseDeltaY();
+      const mouseSensitivity = 0.005; // Adjust sensitivity
+      
+      // Mouse X controls panning (like Z/C keys)
+      if (Math.abs(mouseDeltaX) > 0) {
+        this.panAngleOffset += mouseDeltaX * mouseSensitivity;
+        this.trigCacheValid = false;
+      }
+      
+      // Mouse Y controls height (like Q/E keys) - not inverted, higher sensitivity
+      if (Math.abs(mouseDeltaY) > 0) {
+        this.followHeight += mouseDeltaY * mouseSensitivity * 100; // Increased sensitivity and not inverted
+        this.followHeight = Math.max(this.minFollowHeight, Math.min(this.maxFollowHeight, this.followHeight));
+      }
+    }
+
     const bomberPos = this.bomber.getPosition();
     const bomberRotation = this.bomber.getRotation();
 

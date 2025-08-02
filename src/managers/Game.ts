@@ -137,7 +137,8 @@ export class Game {
   private setupCamera(): void {
     this.camera = new FreeCamera('camera', new Vector3(0, 280, -200), this.scene);
     this.camera.setTarget(new Vector3(0, 200, 0));
-    this.camera.attachControl(this.canvas, true);
+    // Don't attach built-in controls - we handle camera movement manually via CameraController
+    // this.camera.attachControl(this.canvas, true);
   }
 
   private createGroundCrosshair(): void {

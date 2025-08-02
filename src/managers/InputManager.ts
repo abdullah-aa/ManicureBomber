@@ -1,4 +1,4 @@
-import { Scene } from '@babylonjs/core';
+import { Scene, PointerEventTypes } from '@babylonjs/core';
 
 interface Keybind {
   name: string;
@@ -24,14 +24,21 @@ export class InputManager {
     { name: 'pitchUp', displayName: 'Pitch Up', defaultKey: 'KeyQ', currentKey: 'KeyQ' },
     { name: 'pitchDown', displayName: 'Pitch Down', defaultKey: 'KeyE', currentKey: 'KeyE' },
     { name: 'cameraReset', displayName: 'Reset Camera', defaultKey: 'Digit2', currentKey: 'Digit2' },
-    { name: 'cameraToggle', displayName: 'Toggle Camera', defaultKey: 'Digit4', currentKey: 'Digit4' },
     { name: 'cameraZoomIn', displayName: 'Zoom In', defaultKey: 'Digit1', currentKey: 'Digit1' },
     { name: 'cameraZoomOut', displayName: 'Zoom Out', defaultKey: 'Digit3', currentKey: 'Digit3' },
     { name: 'countermeasure', displayName: 'Deploy Flares', defaultKey: 'KeyF', currentKey: 'KeyF' },
     { name: 'missile', displayName: 'Launch Tomahawk', defaultKey: 'KeyR', currentKey: 'KeyR' },
+    { name: 'cameraToggle', displayName: 'Toggle Crosshairs', defaultKey: 'Digit4', currentKey: 'Digit4' },
     { name: 'bomb', displayName: 'Start Bombing Run', defaultKey: 'KeyX', currentKey: 'KeyX' }
   ];
 
+
+  // Mouse controls
+  private isMouseDragging: boolean = false;
+  private mouseDeltaX: number = 0;
+  private mouseDeltaY: number = 0;
+  private lastMouseX: number = 0;
+  private lastMouseY: number = 0;
 
   // Cache frequently accessed keys to reduce lookup overhead
   private cachedKeys: { [key: string]: boolean } = {};
@@ -51,6 +58,34 @@ export class InputManager {
     this.canvas.addEventListener('wheel', (event) => {
       this.wheelDelta += event.deltaY;
       event.preventDefault();
+    });
+
+    // Use Babylon.js pointer events instead of DOM events
+    this.scene.onPointerObservable.add((pointerInfo) => {
+      switch (pointerInfo.type) {
+        case PointerEventTypes.POINTERDOWN:
+          if (pointerInfo.event.button === 0) { // Left mouse button
+            this.isMouseDragging = true;
+            this.lastMouseX = pointerInfo.event.clientX;
+            this.lastMouseY = pointerInfo.event.clientY;
+          }
+          break;
+          
+        case PointerEventTypes.POINTERMOVE:
+          if (this.isMouseDragging) {
+            this.mouseDeltaX = pointerInfo.event.clientX - this.lastMouseX;
+            this.mouseDeltaY = pointerInfo.event.clientY - this.lastMouseY;
+            this.lastMouseX = pointerInfo.event.clientX;
+            this.lastMouseY = pointerInfo.event.clientY;
+          }
+          break;
+          
+        case PointerEventTypes.POINTERUP:
+          if (pointerInfo.event.button === 0) { // Left mouse button
+            this.isMouseDragging = false;
+          }
+          break;
+      }
     });
   }
 
@@ -82,6 +117,21 @@ export class InputManager {
 
   public endFrame(): void {
     this.wheelDelta = 0;
+    this.mouseDeltaX = 0;
+    this.mouseDeltaY = 0;
+  }
+
+  // Mouse input methods
+  public getMouseDeltaX(): number {
+    return this.mouseDeltaX;
+  }
+
+  public getMouseDeltaY(): number {
+    return this.mouseDeltaY;
+  }
+
+  public getIsMouseDragging(): boolean {
+    return this.isMouseDragging;
   }
 
   public isKeyPressed(key: string): boolean {
