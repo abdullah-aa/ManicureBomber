@@ -315,7 +315,7 @@ export class UIManager {
 
   public updateTouchCameraToggleIcon(): void {
     if (!this.touchCameraToggleIcon) return; // Only update if button exists (mobile only)
-    
+
     const isCameraMode = this.inputManager.getTouchCameraMode();
     // Camera icon when camera mode is enabled, bomber icon when bomber mode is enabled
     if (isCameraMode) {

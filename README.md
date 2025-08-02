@@ -2,6 +2,20 @@
 
 A high-performance WebGL combat simulator featuring realistic bomber flight dynamics, dynamic terrain generation, and sophisticated missile combat systems. Built with Babylon.js and optimized for 60+ FPS gameplay.
 
+## 🆕 Recent Major Updates
+
+### Camera & Control Revolution
+- **Dual-Mode Touch System**: Revolutionary mobile controls with camera/bomber mode switching
+- **Touch-to-Key Simulation**: Mobile touch inputs now behave exactly like keyboard controls
+- **Enhanced Camera Systems**: Improved mouse controls with 3x vertical sensitivity for desktop
+- **Smart UI Scaling**: Responsive interface that adapts perfectly to mobile and desktop
+
+### Interface Overhaul  
+- **Ultra-Compact Mobile UI**: Dramatically reduced radar and button sizes for mobile gaming
+- **User Agent Detection**: Intelligent device detection for optimal control schemes
+- **Enhanced Radar**: Realistic radar display with concentric circles and targeting grid
+- **Performance Optimizations**: Dynamic UI scaling and efficient memory management
+
 ## 🎮 Game Overview
 
 ManicureBomber is a modern combat flight simulator that puts you in control of a strategic bomber. Navigate through procedurally generated terrain, engage enemy defense systems, and execute precision bombing runs while evading sophisticated missile threats.
@@ -13,8 +27,9 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 - **Realistic Physics**: Banking turns, altitude control, and smooth flight dynamics
 - **Low-Altitude Flight**: Fly as low as 15 units for tactical advantage
 - **Responsive Controls**: Smooth 60 FPS flight controls with realistic aircraft behavior
-- **Advanced Camera Systems**: Multiple camera modes with mouse, touch, and keyboard controls
-- **Multi-Platform Input**: Full support for keyboard, mouse, and touch controls
+- **Advanced Camera Systems**: Sophisticated dual-mode camera with desktop/mobile optimizations
+- **Multi-Platform Input**: Unified touch-to-key simulation with responsive mobile UI
+- **Adaptive Interface**: Smart UI scaling and user agent detection for optimal experience
 
 ### 🏗️ Dynamic World Generation
 
@@ -51,6 +66,26 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 - **Strategic Timing**: 8-second cooldown between flare launches
 - **Missile Diversion**: Iskander missiles actively seek and target flares
 
+## 🎛️ Advanced Interface Features
+
+### Smart Responsive Design
+- **User Agent Detection**: Automatically detects mobile vs desktop for optimal UI
+- **Dynamic Element Creation**: UI controls created programmatically based on device type
+- **Adaptive Scaling**: Buttons and interface elements scale appropriately for touch vs mouse
+- **Context-Aware Controls**: Settings available on desktop, hidden on mobile for cleaner experience
+
+### Enhanced Radar System
+- **Realistic Display**: Concentric range circles and crosshair spokes for authentic radar appearance
+- **Responsive Sizing**: Desktop (176px) scales down to mobile (32-40px) for space efficiency  
+- **Performance Optimized**: Dynamic pixel radius calculation with window resize handling
+- **Visual Indicators**: Color-coded markers for different target types with hover tooltips
+
+### Touch-to-Key Simulation
+- **Seamless Integration**: Touch controls simulate actual keyboard key presses
+- **Continuous Input**: Hold and drag behavior matches keyboard hold-key functionality
+- **Dead Zone Control**: 20px threshold prevents accidental inputs during mobile gaming
+- **Real-time Updates**: 60fps touch input processing for responsive control feedback
+
 ## 🎯 Game Mechanics
 
 ### Defense Missile System
@@ -79,6 +114,7 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 ### 🖥️ Keyboard Controls (Default Keybinds)
 
 #### Flight Controls
+
 - **W/S**: Altitude control (W = climb, S = dive)
 - **A/D**: Turn left/right with banking
 - **Q/E**: Camera pitch up/down
@@ -88,6 +124,7 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 - **4**: Toggle ground crosshairs
 
 #### Combat Controls
+
 - **X**: Start bombing run (9 bombs with 15-second cooldown)
 - **R**: Launch Tomahawk missile (when target available)
 - **F**: Deploy countermeasure flares (when Iskander missiles detected)
@@ -95,6 +132,7 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 ### 🖱️ Mouse Controls
 
 #### Camera Controls
+
 - **Left-Click + Drag**: Camera panning and height adjustment
   - **Horizontal drag**: Pan camera around bomber
   - **Vertical drag**: Adjust camera height (3x sensitivity)
@@ -103,26 +141,38 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 
 ### 📱 Touch Controls (Mobile/Tablet)
 
-#### Camera Controls
-- **Two-Finger Swipe**: Camera control
-  - **Horizontal swipe**: Pan camera around bomber
-  - **Vertical swipe**: Adjust camera height (high sensitivity)
+#### Dual-Mode Touch System
 
-#### Bomber Controls  
-- **Single-Finger Swipe**: Bomber movement
-  - **Horizontal swipe**: Turn left/right (right swipe = right turn)
-  - **Vertical swipe**: Altitude control (down swipe = climb up)
+**Camera Mode** (Toggle with 📹 button):
+- **Touch and drag**: Camera control with smooth panning
+- **Horizontal movement**: Pan camera around bomber
+- **Vertical movement**: Adjust camera height with enhanced sensitivity
+
+**Bomber Control Mode** (Default, toggle with ✈️ button):
+- **Touch and hold**: Continuous movement like keyboard keys
+- **Swipe left/right**: Turn bomber left/right (continuous while held)
+- **Swipe up/down**: Altitude control - up to climb, down to dive
+- **Dead zone**: 20px movement threshold for precision control
+- **Responsive**: Updates 60fps for smooth, keyboard-like experience
 
 ### 🎮 UI Controls
 
+#### Desktop Controls
 - **Bomb Button**: Bottom right - shows cooldown and bomb count
-- **Missile Button**: Bottom right - shows target availability and status
+- **Missile Button**: Bottom right - shows target availability and status  
 - **Countermeasure Button**: Bottom right - shows when Iskander missiles are detected
 - **Camera Toggle Button**: Bottom right - toggle ground crosshairs
-- **Camera Reset Button (👁)**: Top right under health bar - reset camera view
-- **Health Bar**: Top right - bomber health status with damage indicators
-- **Radar Display**: Top left - collapsible terrain and target information
+- **Camera Reset Button (👁)**: Top right - reset camera view
+- **Health Bar**: Top right - bomber health with damage indicators
+- **Radar Display**: Top left - collapsible with concentric circles and targeting grid
 - **Settings Button (⚙)**: Bottom left - customizable keybind configuration
+
+#### Mobile-Optimized Controls  
+- **Compact Weapon Buttons**: Scaled for thumb operation (24-35px depending on screen)
+- **Minimal Radar**: Ultra-compact radar overlay (40-60px) for maximum gameplay space
+- **Touch Mode Toggle**: 📹/✈️ button to switch between camera and bomber control
+- **Responsive Sizing**: All UI elements scale based on user agent detection
+- **No Settings Button**: Hidden on mobile to reduce clutter
 
 ## 🏗️ Technical Architecture
 
@@ -155,10 +205,11 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 ### Prerequisites
 
 - Modern web browser with WebGL 2.0 support
-- HTTPS environment or localhost (required for SharedArrayBuffer)  
+- HTTPS environment or localhost (required for SharedArrayBuffer)
 - JavaScript ES2020+ support
 - **Desktop**: Mouse and keyboard for optimal experience
-- **Mobile/Tablet**: Touch screen with multi-touch support for full functionality
+- **Mobile/Tablet**: Touch screen optimized for landscape gaming
+- **Responsive Design**: Auto-detects device type for optimal UI layout
 
 ### Installation
 
@@ -186,6 +237,8 @@ npm run build
 - **Bundle Size**: ~5MB compressed
 - **Network**: Single bundle file for fast loading
 - **Compatibility**: Modern browsers with WebGL 2.0 support
+- **Mobile Optimization**: Landscape-oriented with responsive UI scaling
+- **Touch Performance**: Real-time touch-to-key simulation with 16ms update cycles
 
 ## 🎯 Gameplay Tips
 
@@ -203,17 +256,23 @@ npm run build
 
 ### Camera Control
 
-- **Desktop**: Use mouse drag for intuitive camera control with enhanced vertical sensitivity
-- **Mobile**: Use two-finger swipes for camera, single-finger for bomber control
-- **Quick Reset**: Click the eye icon (👁) under the health bar to instantly reset camera view
-- **Zoom Control**: Use scroll wheel (desktop) or pinch gestures (mobile) for optimal viewing angles
+- **Desktop**: Use mouse drag for intuitive camera control with 3x vertical sensitivity
+- **Mobile Dual-Mode**: Toggle between camera mode (📹) and bomber control (✈️)
+  - **Camera Mode**: Touch and drag for smooth camera panning
+  - **Bomber Mode**: Touch and hold for continuous movement like keyboard controls
+- **Quick Reset**: Click the eye icon (👁) to instantly reset camera view
+- **Zoom Control**: Use scroll wheel (desktop) for optimal viewing angles
+- **Smart Detection**: User agent detection automatically optimizes controls for mobile/desktop
 
 ### Advanced Tactics
 
 - Time your countermeasures strategically - flares last 5 seconds with 8-second cooldown
 - Monitor your health and manage damage carefully
-- Customize controls via the settings button (⚙) for personalized gameplay experience
+- **Desktop**: Customize controls via the settings button (⚙) for personalized gameplay
+- **Mobile**: Master the dual-touch system - camera mode for reconnaissance, bomber mode for combat
 - Use different camera angles to assess threats and plan tactical approaches
+- **Radar Grid**: Use the enhanced radar with concentric circles for distance estimation
+- **Touch Precision**: Utilize the 20px dead zone for precise mobile control inputs
 
 ## 🔧 Development Notes
 

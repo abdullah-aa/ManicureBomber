@@ -38,7 +38,7 @@ export class RadarManager {
     this.createRadarPulseStyles();
     this.initializeMarkerPool();
     this.updateRadarPixelRadius();
-    
+
     // Update radar size on window resize
     window.addEventListener('resize', () => {
       this.updateRadarPixelRadius();

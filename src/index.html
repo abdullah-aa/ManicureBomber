@@ -47,7 +47,6 @@
         font-weight: bold;
       }
 
-
       #radarHeader:hover {
         background: rgba(0, 150, 0, 0.3);
       }
@@ -480,40 +479,39 @@
       }
 
       @media (max-width: 768px) {
-        
         #radarOverlay {
           width: 60px !important;
           font-size: 7px;
           top: 8px;
           left: 8px;
         }
-        
+
         #radarDisplay {
           width: 40px !important;
           height: 40px !important;
           margin-bottom: 3px;
         }
-        
+
         .radar-sweep {
           height: 20px !important;
         }
-        
+
         #radarDisplay::after {
           left: calc(60px + 10px);
           font-size: 5px;
           padding: 1px 2px;
         }
-        
+
         #radarHeader {
           padding: 2px 4px;
           font-size: 6px;
         }
-        
+
         #radarContent {
           padding: 3px;
         }
       }
-      
+
       @media (max-width: 480px) {
         #radarOverlay {
           width: 90px !important;
@@ -521,32 +519,32 @@
           top: 10px;
           left: 10px;
         }
-        
+
         #radarDisplay {
           width: 70px !important;
           height: 70px !important;
           margin-bottom: 5px;
         }
-        
+
         .radar-sweep {
           height: 35px !important;
         }
-        
+
         #radarDisplay::after {
           font-size: 6px;
           padding: 2px 4px;
           left: calc(65px + 10px);
         }
-        
+
         #radarHeader {
           padding: 4px 6px;
           font-size: 8px;
         }
-        
+
         #radarContent {
           padding: 6px;
         }
-        
+
         #scoreDisplay {
           font-size: 8px;
         }
@@ -555,7 +553,6 @@
   </head>
   <body>
     <canvas id="renderCanvas"></canvas>
-
 
     <div id="radarOverlay">
       <div id="radarHeader">
@@ -606,7 +603,6 @@
           toggleButton.textContent = '▲';
         }
       });
-
     </script>
   </body>
 </html>

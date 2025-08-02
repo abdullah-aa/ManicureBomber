@@ -39,32 +39,6 @@
         font-weight: bold;
       }
 
-      #keybindsButton {
-        position: fixed;
-        bottom: 20px;
-        left: 20px;
-        width: 60px;
-        height: 60px;
-        background: rgba(0, 50, 0, 0.9);
-        border: 2px solid rgba(0, 255, 0, 0.5);
-        border-radius: 50%;
-        color: #00ff00;
-        font-size: 24px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        z-index: 1000;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-      }
-
-      #keybindsButton:hover {
-        background: rgba(0, 100, 0, 0.9);
-        border-color: rgba(0, 255, 0, 0.8);
-        transform: scale(1.1);
-      }
-
       #radarHeader:hover {
         background: rgba(0, 150, 0, 0.3);
       }
@@ -102,6 +76,72 @@
         border-radius: 50%;
         position: relative;
         margin-bottom: 12px;
+      }
+
+      /* Radar concentric circles */
+      #radarDisplay::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 66%;
+        height: 66%;
+        border: 1px solid rgba(0, 255, 0, 0.2);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      /* Radar spokes */
+      .radar-spokes {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      .radar-spokes::before,
+      .radar-spokes::after {
+        content: '';
+        position: absolute;
+        background: rgba(0, 255, 0, 0.15);
+        pointer-events: none;
+      }
+
+      /* Vertical spoke */
+      .radar-spokes::before {
+        top: 0;
+        left: 50%;
+        width: 1px;
+        height: 100%;
+        transform: translateX(-50%);
+      }
+
+      /* Horizontal spoke */
+      .radar-spokes::after {
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 1px;
+        transform: translateY(-50%);
+      }
+
+      /* Additional inner circle */
+      .radar-inner-circle {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 33%;
+        height: 33%;
+        border: 1px solid rgba(0, 255, 0, 0.15);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        z-index: 1;
       }
 
       .radar-sweep {
@@ -410,12 +450,12 @@
         content: '🟢 Bomber  🔴 Target  🟠 Defense  🟣 Missile  🔵 Iskander';
         position: fixed;
         top: 20px;
-        left: 120px;
+        left: calc(min(200px, 25vw) + 40px);
         background: rgba(0, 0, 0, 0.95);
         color: white;
-        padding: 8px 12px;
+        padding: 6px 10px;
         border-radius: 6px;
-        font-size: 11px;
+        font-size: clamp(9px, 1vw, 11px);
         font-family: 'Courier New', monospace;
         white-space: nowrap;
         z-index: 10000;
@@ -431,10 +471,76 @@
       }
 
       @media (max-width: 768px) {
-        #keybindsButton {
-          display: none;
+        #radarOverlay {
+          width: 60px !important;
+          font-size: 7px;
+          top: 8px;
+          left: 8px;
         }
-      }</style><script defer="defer" src="bundle.js"></script></head><body><canvas id="renderCanvas"></canvas><div id="keybindsButton">⚙</div><div id="radarOverlay"><div id="radarHeader"><div>RADAR</div><div id="radarToggle">▼</div></div><div id="radarContent"><div id="radarDisplay"><div class="radar-sweep"></div><div class="radar-bomber"></div></div><div id="scoreDisplay"><div>Targets: <span id="targetCount">0</span></div></div></div></div><div id="keybindsModal"><div id="keybindsContent"><h2>⚙ Key Bindings</h2><div id="keybindsList"></div><div class="keybinds-buttons"><button class="keybinds-button reset" id="resetKeybinds">Reset to Defaults</button> <button class="keybinds-button" id="saveKeybinds">Save & Close</button></div></div></div><script>// Radar toggle functionality
+
+        #radarDisplay {
+          width: 40px !important;
+          height: 40px !important;
+          margin-bottom: 3px;
+        }
+
+        .radar-sweep {
+          height: 20px !important;
+        }
+
+        #radarDisplay::after {
+          left: calc(60px + 10px);
+          font-size: 5px;
+          padding: 1px 2px;
+        }
+
+        #radarHeader {
+          padding: 2px 4px;
+          font-size: 6px;
+        }
+
+        #radarContent {
+          padding: 3px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        #radarOverlay {
+          width: 90px !important;
+          font-size: 8px;
+          top: 10px;
+          left: 10px;
+        }
+
+        #radarDisplay {
+          width: 70px !important;
+          height: 70px !important;
+          margin-bottom: 5px;
+        }
+
+        .radar-sweep {
+          height: 35px !important;
+        }
+
+        #radarDisplay::after {
+          font-size: 6px;
+          padding: 2px 4px;
+          left: calc(65px + 10px);
+        }
+
+        #radarHeader {
+          padding: 4px 6px;
+          font-size: 8px;
+        }
+
+        #radarContent {
+          padding: 6px;
+        }
+
+        #scoreDisplay {
+          font-size: 8px;
+        }
+      }</style><script defer="defer" src="bundle.js"></script></head><body><canvas id="renderCanvas"></canvas><div id="radarOverlay"><div id="radarHeader"><div>RADAR</div><div id="radarToggle">▼</div></div><div id="radarContent"><div id="radarDisplay"><div class="radar-spokes"></div><div class="radar-inner-circle"></div><div class="radar-sweep"></div><div class="radar-bomber"></div></div><div id="scoreDisplay"><div>Targets: <span id="targetCount">0</span></div></div></div></div><div id="keybindsModal"><div id="keybindsContent"><h2>⚙ Key Bindings</h2><div id="keybindsList"></div><div class="keybinds-buttons"><button class="keybinds-button reset" id="resetKeybinds">Reset to Defaults</button> <button class="keybinds-button" id="saveKeybinds">Save & Close</button></div></div></div><script>// Radar toggle functionality
       document.getElementById('radarToggle').addEventListener('click', function (e) {
         e.stopPropagation();
         const content = document.getElementById('radarContent');
@@ -448,14 +554,5 @@
           content.classList.add('collapsed');
           toggleButton.classList.add('collapsed');
           toggleButton.textContent = '▲';
-        }
-      });
-
-      // Keybinds button functionality
-      document.getElementById('keybindsButton').addEventListener('click', function (e) {
-        e.stopPropagation();
-        // This will be handled by the UIManager
-        if (window.uiManager) {
-          window.uiManager.showKeybindsModal();
         }
       });</script></body></html>

@@ -48,6 +48,11 @@ export class InputManager {
   private bomberTouchDeltaX: number = 0;
   private bomberTouchDeltaY: number = 0;
 
+  // Touch-to-key simulation
+  private touchStartPosition: { x: number; y: number } | null = null;
+  private touchSimulatedKeys: { [key: string]: boolean } = {};
+  private touchDeadZone: number = 20; // pixels before movement is registered
+
   // Cache frequently accessed keys to reduce lookup overhead
   private cachedKeys: { [key: string]: boolean } = {};
   private keyCacheValid: boolean = false;
@@ -109,6 +114,13 @@ export class InputManager {
         const touch = event.touches[i];
         this.touchPointers.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
       }
+
+      // Set initial touch position for movement simulation
+      if (event.touches.length === 1 && !this.isTouchCameraMode) {
+        const touch = event.touches[0];
+        this.touchStartPosition = { x: touch.clientX, y: touch.clientY };
+      }
+
       this.updateTouchState();
     });
 
@@ -119,6 +131,12 @@ export class InputManager {
         const touch = event.touches[i];
         this.touchPointers.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
       }
+
+      // Update touch-to-key simulation for bomber movement
+      if (!this.isTouchCameraMode && this.touchStartPosition && event.touches.length === 1) {
+        this.updateTouchToKeySimulation(event.touches[0]);
+      }
+
       this.updateTouchMovement();
     });
 
@@ -130,12 +148,19 @@ export class InputManager {
         const touch = event.changedTouches[i];
         this.touchPointers.delete(touch.identifier);
       }
+
+      // Clear touch simulation when touch ends
+      if (this.touchPointers.size === 0) {
+        this.clearTouchSimulation();
+      }
+
       this.updateTouchState();
     });
 
     this.canvas.addEventListener('touchcancel', (event) => {
       event.preventDefault();
       this.touchPointers.clear();
+      this.clearTouchSimulation();
       this.updateTouchState();
     });
   }
@@ -223,6 +248,11 @@ export class InputManager {
   }
 
   public isKeyPressed(key: string): boolean {
+    // Check touch-simulated keys first
+    if (this.touchSimulatedKeys[key]) {
+      return true;
+    }
+
     // Cache frequently accessed keys to reduce lookup overhead
     const currentTime = performance.now();
     if (!this.keyCacheValid || currentTime - this.lastKeyCacheUpdate > this.keyCacheInterval) {
@@ -443,5 +473,52 @@ export class InputManager {
     }
 
     this.lastTouchCenter = { x: centerX, y: centerY };
+  }
+
+  private updateTouchToKeySimulation(touch: Touch): void {
+    if (!this.touchStartPosition) return;
+
+    const deltaX = touch.clientX - this.touchStartPosition.x;
+    const deltaY = touch.clientY - this.touchStartPosition.y;
+
+    // Clear all touch-simulated keys but preserve touch start position
+    this.touchSimulatedKeys = {};
+
+    // Check if movement is beyond dead zone
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    if (distance < this.touchDeadZone) {
+      return;
+    }
+
+    // Simulate key presses based on touch direction
+    const altitudeKeybind = this.keybinds.find((k) => k.name === 'altitudeUp');
+    const altitudeDownKeybind = this.keybinds.find((k) => k.name === 'altitudeDown');
+    const turnLeftKeybind = this.keybinds.find((k) => k.name === 'turnLeft');
+    const turnRightKeybind = this.keybinds.find((k) => k.name === 'turnRight');
+
+    // Vertical movement (altitude)
+    if (Math.abs(deltaY) > Math.abs(deltaX)) {
+      if (deltaY < -this.touchDeadZone && altitudeKeybind) {
+        // Touch moved up - increase altitude
+        this.touchSimulatedKeys[altitudeKeybind.currentKey] = true;
+      } else if (deltaY > this.touchDeadZone && altitudeDownKeybind) {
+        // Touch moved down - decrease altitude
+        this.touchSimulatedKeys[altitudeDownKeybind.currentKey] = true;
+      }
+    } else {
+      // Horizontal movement (turning)
+      if (deltaX < -this.touchDeadZone && turnLeftKeybind) {
+        // Touch moved left - turn left
+        this.touchSimulatedKeys[turnLeftKeybind.currentKey] = true;
+      } else if (deltaX > this.touchDeadZone && turnRightKeybind) {
+        // Touch moved right - turn right
+        this.touchSimulatedKeys[turnRightKeybind.currentKey] = true;
+      }
+    }
+  }
+
+  private clearTouchSimulation(): void {
+    this.touchSimulatedKeys = {};
+    this.touchStartPosition = null;
   }
 }
