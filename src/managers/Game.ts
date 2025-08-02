@@ -67,7 +67,7 @@ export class Game {
   private targetFrameRate: number = 60;
   private frameInterval: number = 1000 / this.targetFrameRate; // 16.67ms for 60 FPS
   private lastTerrainUpdateTime: number = 0;
-  private terrainUpdateInterval: number = 100; // Update terrain every 100ms
+  private terrainUpdateInterval: number = 200; // Increased from 100ms to 200ms to reduce frequency
   private lastDefenseUpdateTime: number = 0;
   private defenseUpdateInterval: number = 50; // Update defense every 50ms
   private lastUIUpdateTime: number = 0;

@@ -24,7 +24,7 @@ export class TerrainManager {
   private game: Game | null = null;
   private chunks: Map<string, TerrainChunk | null> = new Map();
   private chunkSize: number = 500;
-  private generationThreshold: number = 300;
+  private generationThreshold: number = 400; // Increased for modern machines - can be reduced later if needed
   private terrainMaterial!: StandardMaterial;
   private lastTerrainUpdateTime: number = 0;
   private heightmapCache: Map<string, Float32Array> = new Map();
@@ -42,6 +42,18 @@ export class TerrainManager {
 
   // Track active worker calls to prevent overlapping requests
   private activeWorkerCalls: Set<string> = new Set();
+
+  // Frame-spread mesh processing to prevent freezes
+  private pendingChunkProcessing: Array<{
+    result: any;
+    chunkX: number;
+    chunkZ: number;
+    priority: number; // Higher priority = process first
+  }> = [];
+  private isProcessingChunk: boolean = false;
+  private maxVerticesPerFrame: number = 1500; // Reduced from 2000 for smoother processing
+  private lastChunkProcessTime: number = 0;
+  private chunkProcessInterval: number = 16; // Minimum 16ms between chunk processing
 
   constructor(scene: Scene, workerManager: WorkerManager) {
     this.scene = scene;
@@ -88,12 +100,70 @@ export class TerrainManager {
   }
 
   private processTerrainChunkResult(result: any, chunkX: number, chunkZ: number): void {
+    // Calculate priority based on distance from bomber
+    const bomberPos = this.bomber ? this.bomber.getPosition() : new Vector3(0, 0, 0);
+    const chunkCenterX = chunkX * this.chunkSize;
+    const chunkCenterZ = chunkZ * this.chunkSize;
+    const distance = Math.sqrt((bomberPos.x - chunkCenterX) ** 2 + (bomberPos.z - chunkCenterZ) ** 2);
+    const priority = Math.max(0, 1000 - distance); // Closer chunks get higher priority
+
+    // Add to pending queue for frame-spread processing with priority
+    this.pendingChunkProcessing.push({ result, chunkX, chunkZ, priority });
+
+    // Sort by priority (higher priority first)
+    this.pendingChunkProcessing.sort((a, b) => b.priority - a.priority);
+
+    // Start processing if not already processing
+    if (!this.isProcessingChunk) {
+      this.processNextChunkFromQueue();
+    }
+  }
+
+  private processNextChunkFromQueue(): void {
+    if (this.pendingChunkProcessing.length === 0 || this.isDisposing) {
+      this.isProcessingChunk = false;
+      return;
+    }
+
+    // Respect minimum processing interval
+    const currentTime = performance.now();
+    if (currentTime - this.lastChunkProcessTime < this.chunkProcessInterval) {
+      setTimeout(
+        () => {
+          this.processNextChunkFromQueue();
+        },
+        this.chunkProcessInterval - (currentTime - this.lastChunkProcessTime),
+      );
+      return;
+    }
+
+    this.isProcessingChunk = true;
+    this.lastChunkProcessTime = currentTime;
+    const { result, chunkX, chunkZ } = this.pendingChunkProcessing.shift()!;
+
+    // Use requestAnimationFrame to spread work across frames
+    requestAnimationFrame(() => {
+      try {
+        this.createTerrainChunkMesh(result, chunkX, chunkZ);
+      } catch (error) {
+        // Silent error handling
+      }
+
+      // Continue processing next chunk with proper timing
+      requestAnimationFrame(() => {
+        this.processNextChunkFromQueue();
+      });
+    });
+  }
+
+  private createTerrainChunkMesh(result: any, chunkX: number, chunkZ: number): void {
     const chunkKey = `${chunkX}_${chunkZ}`;
     const { heightmap, buildingConfigs } = result;
 
     const worldX = chunkX * this.chunkSize;
     const worldZ = chunkZ * this.chunkSize;
 
+    // Split mesh creation into smaller operations
     const ground = MeshBuilder.CreateGround(
       `ground_${chunkKey}`,
       {
@@ -109,50 +179,103 @@ export class TerrainManager {
     ground.position.z = worldZ;
     ground.material = this.terrainMaterial;
 
+    // Process vertex data in batches to prevent frame drops
+    this.updateVertexDataInBatches(ground, heightmap, chunkKey, chunkX, chunkZ, buildingConfigs);
+  }
+
+  private updateVertexDataInBatches(
+    ground: GroundMesh,
+    heightmap: Float32Array,
+    chunkKey: string,
+    chunkX: number,
+    chunkZ: number,
+    buildingConfigs: any[],
+  ): void {
     const positions = ground.getVerticesData('position');
-    if (positions) {
-      for (let i = 0; i < heightmap.length; i++) {
+    if (!positions) return;
+
+    // Process vertices in smaller batches
+    const batchSize = Math.min(this.maxVerticesPerFrame, heightmap.length);
+    let processedVertices = 0;
+
+    const processBatch = () => {
+      const endIndex = Math.min(processedVertices + batchSize, heightmap.length);
+
+      // Update vertex heights for this batch
+      for (let i = processedVertices; i < endIndex; i++) {
         positions[i * 3 + 1] = heightmap[i];
       }
-      ground.updateVerticesData('position', positions);
-      ground.createNormals(false);
-    }
 
-    this.heightmapCache.set(chunkKey, heightmap);
+      processedVertices = endIndex;
 
-    const chunk: TerrainChunk = {
-      mesh: ground,
-      buildings: [],
-      x: chunkX,
-      z: chunkZ,
+      if (processedVertices >= heightmap.length) {
+        // Finished processing all vertices
+        ground.updateVerticesData('position', positions);
+        ground.createNormals(false);
+
+        this.heightmapCache.set(chunkKey, heightmap);
+
+        const chunk: TerrainChunk = {
+          mesh: ground,
+          buildings: [],
+          x: chunkX,
+          z: chunkZ,
+        };
+
+        this.chunks.set(chunkKey, chunk);
+
+        // Process buildings in the next frame to further spread the work
+        requestAnimationFrame(() => {
+          this.createBuildingsFromConfigs(chunk, buildingConfigs);
+        });
+      } else {
+        // Continue processing in next frame
+        requestAnimationFrame(processBatch);
+      }
     };
 
-    this.chunks.set(chunkKey, chunk);
-
-    this.createBuildingsFromConfigs(chunk, buildingConfigs);
+    processBatch();
   }
 
   private createBuildingsFromConfigs(chunk: TerrainChunk, configs: BuildingConfig[]): void {
-    configs.forEach((config) => {
-      const position = new Vector3(config.position.x, config.position.y, config.position.z);
-      const buildingConfig = { ...config, position };
+    // Process buildings in batches to prevent frame drops
+    const maxBuildingsPerFrame = 3; // Limit buildings per frame
+    let processedBuildings = 0;
 
-      const building = new Building(this.scene, buildingConfig, this.workerManager);
+    const processBuildingBatch = () => {
+      const endIndex = Math.min(processedBuildings + maxBuildingsPerFrame, configs.length);
 
-      // Set Game reference for defense missile management
-      if (this.game) {
-        building.setGame(this.game);
+      for (let i = processedBuildings; i < endIndex; i++) {
+        const config = configs[i];
+        const position = new Vector3(config.position.x, config.position.y, config.position.z);
+        const buildingConfig = { ...config, position };
+
+        const building = new Building(this.scene, buildingConfig, this.workerManager);
+
+        // Set Game reference for defense missile management
+        if (this.game) {
+          building.setGame(this.game);
+        }
+
+        if (buildingConfig.isDefenseLauncher && this.bomber) {
+          building.setOnDestroyedCallback(() => {
+            if (this.bomber && this.bomber.invalidateTargetCache) {
+              this.bomber.invalidateTargetCache();
+            }
+          });
+        }
+        chunk.buildings.push(building);
       }
 
-      if (buildingConfig.isDefenseLauncher && this.bomber) {
-        building.setOnDestroyedCallback(() => {
-          if (this.bomber && this.bomber.invalidateTargetCache) {
-            this.bomber.invalidateTargetCache();
-          }
-        });
+      processedBuildings = endIndex;
+
+      if (processedBuildings < configs.length) {
+        // Continue processing in next frame
+        requestAnimationFrame(processBuildingBatch);
       }
-      chunk.buildings.push(building);
-    });
+    };
+
+    processBuildingBatch();
   }
 
   private createTerrainMaterial(): void {
@@ -280,13 +403,13 @@ export class TerrainManager {
       return;
     }
 
-    const maxTotalChunks = 25;
+    const maxTotalChunks = 20; // Reduced from 25 to prevent too many concurrent chunks
     if (this.chunks.size >= maxTotalChunks) {
       return;
     }
 
     const existingChunks = Array.from(this.chunks.keys());
-    const maxChunksPerUpdate = 4;
+    const maxChunksPerUpdate = 2; // Reduced from 4 to spread generation over more frames
 
     // Use promise-based callbacks instead of async/await
     this.workerManager
@@ -457,6 +580,10 @@ export class TerrainManager {
     try {
       // Set disposing flag to prevent worker calls
       this.isDisposing = true;
+
+      // Clear processing queues
+      this.pendingChunkProcessing.length = 0;
+      this.isProcessingChunk = false;
 
       // Clear active worker calls
       this.activeWorkerCalls.clear();
