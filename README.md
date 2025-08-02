@@ -13,7 +13,8 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 - **Realistic Physics**: Banking turns, altitude control, and smooth flight dynamics
 - **Low-Altitude Flight**: Fly as low as 15 units for tactical advantage
 - **Responsive Controls**: Smooth 60 FPS flight controls with realistic aircraft behavior
-- **Camera Systems**: Multiple camera modes with smooth transitions
+- **Advanced Camera Systems**: Multiple camera modes with mouse, touch, and keyboard controls
+- **Multi-Platform Input**: Full support for keyboard, mouse, and touch controls
 
 ### 🏗️ Dynamic World Generation
 
@@ -75,28 +76,53 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 
 ## 🕹️ Controls
 
-### Flight Controls
+### 🖥️ Keyboard Controls (Default Keybinds)
 
-- **Arrow Keys**: Primary flight controls
-  - `←/→`: Turn and bank aircraft
-  - `↑/↓`: Change altitude (inverted for realistic flight)
-- **Shift + Arrows**: Camera panning
-- **Quote Key (`'`)**: Toggle camera lock (bomber/ground)
-- **Semicolon (`;`)**: Reset camera position
+#### Flight Controls
+- **W/S**: Altitude control (W = climb, S = dive)
+- **A/D**: Turn left/right with banking
+- **Q/E**: Camera pitch up/down
+- **Z/C**: Camera pan left/right
+- **1/3**: Camera zoom in/out
+- **2**: Reset camera position
+- **4**: Toggle ground crosshairs
 
-### Combat Controls
+#### Combat Controls
+- **X**: Start bombing run (9 bombs with 15-second cooldown)
+- **R**: Launch Tomahawk missile (when target available)
+- **F**: Deploy countermeasure flares (when Iskander missiles detected)
 
-- **Comma (`,`)**: Start bombing run
-- **Period (`.`)**: Launch Tomahawk missile
-- **Slash (`/`)**: Launch countermeasure flares
+### 🖱️ Mouse Controls
 
-### UI Controls
+#### Camera Controls
+- **Left-Click + Drag**: Camera panning and height adjustment
+  - **Horizontal drag**: Pan camera around bomber
+  - **Vertical drag**: Adjust camera height (3x sensitivity)
+- **Scroll Wheel**: Zoom in/out
+- **Eye Icon (👁)**: Reset camera position (located under health bar)
+
+### 📱 Touch Controls (Mobile/Tablet)
+
+#### Camera Controls
+- **Two-Finger Swipe**: Camera control
+  - **Horizontal swipe**: Pan camera around bomber
+  - **Vertical swipe**: Adjust camera height (high sensitivity)
+
+#### Bomber Controls  
+- **Single-Finger Swipe**: Bomber movement
+  - **Horizontal swipe**: Turn left/right (right swipe = right turn)
+  - **Vertical swipe**: Altitude control (down swipe = climb up)
+
+### 🎮 UI Controls
 
 - **Bomb Button**: Bottom right - shows cooldown and bomb count
-- **Missile Button**: Bottom right - shows target availability
+- **Missile Button**: Bottom right - shows target availability and status
 - **Countermeasure Button**: Bottom right - shows when Iskander missiles are detected
-- **Health Bar**: Top left - bomber health status
-- **Radar Display**: Top left - terrain and target information
+- **Camera Toggle Button**: Bottom right - toggle ground crosshairs
+- **Camera Reset Button (👁)**: Top right under health bar - reset camera view
+- **Health Bar**: Top right - bomber health status with damage indicators
+- **Radar Display**: Top left - collapsible terrain and target information
+- **Settings Button (⚙)**: Bottom left - customizable keybind configuration
 
 ## 🏗️ Technical Architecture
 
@@ -129,8 +155,10 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 ### Prerequisites
 
 - Modern web browser with WebGL 2.0 support
-- HTTPS environment or localhost (required for SharedArrayBuffer)
+- HTTPS environment or localhost (required for SharedArrayBuffer)  
 - JavaScript ES2020+ support
+- **Desktop**: Mouse and keyboard for optimal experience
+- **Mobile/Tablet**: Touch screen with multi-touch support for full functionality
 
 ### Installation
 
@@ -165,17 +193,27 @@ npm run build
 
 - Plan bombing runs carefully - you only get 9 bombs per run
 - Target strategic buildings marked with special indicators
+- Use the ground crosshair (toggle with **4** key) for precision bombing
 
 ### Missile Defense
 
-- Launch flares when Iskander missiles are detected
+- Launch flares when Iskander missiles are detected (countermeasure button lights up)
 - Use evasive maneuvers to avoid defense missiles
 - Remember that regular defense missiles explode at high altitude
 
+### Camera Control
+
+- **Desktop**: Use mouse drag for intuitive camera control with enhanced vertical sensitivity
+- **Mobile**: Use two-finger swipes for camera, single-finger for bomber control
+- **Quick Reset**: Click the eye icon (👁) under the health bar to instantly reset camera view
+- **Zoom Control**: Use scroll wheel (desktop) or pinch gestures (mobile) for optimal viewing angles
+
 ### Advanced Tactics
 
-- Time your countermeasures strategically
+- Time your countermeasures strategically - flares last 5 seconds with 8-second cooldown
 - Monitor your health and manage damage carefully
+- Customize controls via the settings button (⚙) for personalized gameplay experience
+- Use different camera angles to assess threats and plan tactical approaches
 
 ## 🔧 Development Notes
 
