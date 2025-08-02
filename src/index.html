@@ -47,31 +47,6 @@
         font-weight: bold;
       }
 
-      #keybindsButton {
-        position: fixed;
-        bottom: 20px;
-        left: 20px;
-        width: 60px;
-        height: 60px;
-        background: rgba(0, 50, 0, 0.9);
-        border: 2px solid rgba(0, 255, 0, 0.5);
-        border-radius: 50%;
-        color: #00ff00;
-        font-size: 24px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        z-index: 1000;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-      }
-
-      #keybindsButton:hover {
-        background: rgba(0, 100, 0, 0.9);
-        border-color: rgba(0, 255, 0, 0.8);
-        transform: scale(1.1);
-      }
 
       #radarHeader:hover {
         background: rgba(0, 150, 0, 0.3);
@@ -418,12 +393,12 @@
         content: '🟢 Bomber  🔴 Target  🟠 Defense  🟣 Missile  🔵 Iskander';
         position: fixed;
         top: 20px;
-        left: 120px;
+        left: calc(min(200px, 25vw) + 40px);
         background: rgba(0, 0, 0, 0.95);
         color: white;
-        padding: 8px 12px;
+        padding: 6px 10px;
         border-radius: 6px;
-        font-size: 11px;
+        font-size: clamp(9px, 1vw, 11px);
         font-family: 'Courier New', monospace;
         white-space: nowrap;
         z-index: 10000;
@@ -439,8 +414,75 @@
       }
 
       @media (max-width: 768px) {
-        #keybindsButton {
-          display: none;
+        
+        #radarOverlay {
+          width: 120px !important;
+          font-size: 9px;
+          top: 15px;
+          left: 15px;
+        }
+        
+        #radarDisplay {
+          width: 100px !important;
+          height: 100px !important;
+          margin-bottom: 8px;
+        }
+        
+        .radar-sweep {
+          height: 50px !important;
+        }
+        
+        #radarDisplay::after {
+          left: calc(min(120px, 25vw) + 25px);
+          font-size: 7px;
+          padding: 3px 5px;
+        }
+        
+        #radarHeader {
+          padding: 6px 8px;
+          font-size: 9px;
+        }
+        
+        #radarContent {
+          padding: 8px;
+        }
+      }
+      
+      @media (max-width: 480px) {
+        #radarOverlay {
+          width: 90px !important;
+          font-size: 8px;
+          top: 10px;
+          left: 10px;
+        }
+        
+        #radarDisplay {
+          width: 70px !important;
+          height: 70px !important;
+          margin-bottom: 5px;
+        }
+        
+        .radar-sweep {
+          height: 35px !important;
+        }
+        
+        #radarDisplay::after {
+          font-size: 6px;
+          padding: 2px 4px;
+          left: calc(min(90px, 22vw) + 15px);
+        }
+        
+        #radarHeader {
+          padding: 4px 6px;
+          font-size: 8px;
+        }
+        
+        #radarContent {
+          padding: 6px;
+        }
+        
+        #scoreDisplay {
+          font-size: 8px;
         }
       }
     </style>
@@ -448,7 +490,6 @@
   <body>
     <canvas id="renderCanvas"></canvas>
 
-    <div id="keybindsButton">⚙</div>
 
     <div id="radarOverlay">
       <div id="radarHeader">
@@ -498,14 +539,6 @@
         }
       });
 
-      // Keybinds button functionality
-      document.getElementById('keybindsButton').addEventListener('click', function (e) {
-        e.stopPropagation();
-        // This will be handled by the UIManager
-        if (window.uiManager) {
-          window.uiManager.showKeybindsModal();
-        }
-      });
     </script>
   </body>
 </html>

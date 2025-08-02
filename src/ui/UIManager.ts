@@ -19,6 +19,7 @@ export class UIManager {
   private cameraResetButton!: HTMLElement;
   private touchCameraToggleButton!: HTMLElement;
   private touchCameraToggleIcon!: HTMLElement;
+  private keybindsButton!: HTMLElement;
   private healthBar!: HTMLElement;
   private healthBarFill!: HTMLElement;
   private healthText!: HTMLElement;
@@ -55,6 +56,7 @@ export class UIManager {
     this.createCameraToggleButton();
     this.createCameraResetButton();
     this.createTouchCameraToggleButton();
+    this.createKeybindsButton();
     this.createHealthBar();
     this.createAlertSystem();
 
@@ -191,6 +193,21 @@ export class UIManager {
     this.updateTouchCameraToggleIcon();
   }
 
+  private createKeybindsButton(): void {
+    if (this.isMobile()) return; // Only create on non-mobile
+
+    this.keybindsButton = document.createElement('div');
+    this.keybindsButton.id = 'keybinds-button';
+    this.keybindsButton.innerHTML = '⚙';
+    document.body.appendChild(this.keybindsButton);
+
+    // Add event listener
+    this.keybindsButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.showKeybindsModal();
+    });
+  }
+
   private createHealthBar(): void {
     this.healthBar = document.createElement('div');
     this.healthBar.id = 'health-bar';
@@ -317,8 +334,8 @@ export class UIManager {
                 position: fixed;
                 bottom: 20px;
                 right: 20px;
-                width: 80px;
-                height: 80px;
+                width: min(80px, 10vw);
+                height: min(80px, 10vw);
                 background-color: rgba(0, 0, 0, 0.5);
                 border-radius: 50%;
                 cursor: pointer;
@@ -329,8 +346,8 @@ export class UIManager {
                 border: 2px solid #fff;
             }
             #bomb-icon {
-                width: 50px;
-                height: 50px;
+                width: min(50px, 6.25vw);
+                height: min(50px, 6.25vw);
                 background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%23ffffff" d="M448 32H64C46.33 32 32 46.33 32 64v384c0 17.67 14.33 32 32 32h384c17.67 0 32-14.33 32-32V64c0-17.67-14.33-32-32-32zm-48 104c0 22.09-17.91 40-40 40s-40-17.91-40-40V96c0-22.09 17.91-40 40-40s40 17.91 40 40v40z"/></svg>');
                 background-size: contain;
                 background-repeat: no-repeat;
@@ -395,9 +412,9 @@ export class UIManager {
             #missile-button {
                 position: fixed;
                 bottom: 20px;
-                right: 120px;
-                width: 80px;
-                height: 80px;
+                right: calc(20px + min(80px, 10vw) + 20px);
+                width: min(80px, 10vw);
+                height: min(80px, 10vw);
                 background-color: rgba(0, 0, 0, 0.5);
                 border-radius: 50%;
                 cursor: pointer;
@@ -413,8 +430,8 @@ export class UIManager {
                 box-shadow: 0 0 15px rgba(0, 255, 0, 0.6);
             }
             #missile-icon {
-                width: 50px;
-                height: 50px;
+                width: min(50px, 6.25vw);
+                height: min(50px, 6.25vw);
                 background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%23ff4444" d="M320 32c0-17.7-14.3-32-32-32s-32 14.3-32 32v96c0 17.7 14.3 32 32 32s32-14.3 32-32V32zM256 160c53 0 96 43 96 96s-43 96-96 96-96-43-96-96 43-96 96-96zM64 256c0-106 86-192 192-192s192 86 192 192-86 192-192 192S64 362 64 256z"/></svg>');
                 background-size: contain;
                 background-repeat: no-repeat;
@@ -444,9 +461,9 @@ export class UIManager {
             #countermeasure-button {
                 position: fixed;
                 bottom: 20px;
-                right: 220px;
-                width: 80px;
-                height: 80px;
+                right: calc(20px + min(80px, 10vw) * 2 + 40px);
+                width: min(80px, 10vw);
+                height: min(80px, 10vw);
                 background-color: rgba(0, 0, 0, 0.5);
                 border-radius: 50%;
                 cursor: pointer;
@@ -462,8 +479,8 @@ export class UIManager {
                 box-shadow: 0 0 15px rgba(255, 0, 0, 0.6);
             }
             #countermeasure-icon {
-                width: 50px;
-                height: 50px;
+                width: min(50px, 6.25vw);
+                height: min(50px, 6.25vw);
                 background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%23ffaa00" d="M256 0C114.6 0 0 114.6 0 256s114.6 256 256 256s256-114.6 256-256S397.4 0 256 0zM256 464c-114.7 0-208-93.31-208-208S141.3 48 256 48s208 93.31 208 208S370.7 464 256 464zM256 304c13.25 0 24-10.75 24-24v-128C280 138.8 269.3 128 256 128S232 138.8 232 152v128C232 293.3 242.8 304 256 304zM256 337.1c-17.36 0-31.44 14.08-31.44 31.44C224.6 385.9 238.6 400 256 400s31.44-14.08 31.44-31.44C287.4 351.2 273.4 337.1 256 337.1z"/></svg>');
                 background-size: contain;
                 background-repeat: no-repeat;
@@ -492,10 +509,10 @@ export class UIManager {
             }
             #camera-toggle-button {
                 position: fixed;
-                bottom: 120px;
+                bottom: calc(20px + min(80px, 10vw) + 20px);
                 right: 20px;
-                width: 45px;
-                height: 45px;
+                width: min(45px, 6vw);
+                height: min(45px, 6vw);
                 background-color: rgba(0, 0, 0, 0.5);
                 border-radius: 50%;
                 cursor: pointer;
@@ -507,10 +524,10 @@ export class UIManager {
                 transition: border-color 0.3s ease;
             }
             #camera-toggle-icon {
-                margin-top: 5px;
-                margin-left: 7px;
-                width: 32px;
-                height: 32px;
+                margin-top: min(5px, 0.6vw);
+                margin-left: min(7px, 0.9vw);
+                width: min(32px, 4vw);
+                height: min(32px, 4vw);
                 background-size: contain;
                 background-repeat: no-repeat;
                 background-position: center;
@@ -520,8 +537,8 @@ export class UIManager {
                 position: fixed;
                 top: 50px;
                 right: 20px;
-                width: 45px;
-                height: 45px;
+                width: min(45px, 6vw);
+                height: min(45px, 6vw);
                 border-radius: 50%;
                 cursor: pointer;
                 display: flex;
@@ -532,17 +549,17 @@ export class UIManager {
                 transition: border-color 0.3s ease;
             }
             #camera-reset-icon {
-                margin-top: 2px;
-                font-size: 24px;
+                margin-top: min(2px, 0.25vw);
+                font-size: clamp(18px, 3vw, 24px);
                 color: #ffffff;
                 z-index: 2;
             }
             #touch-camera-toggle-button {
                 position: fixed;
                 top: 50px;
-                right: 75px;
-                width: 45px;
-                height: 45px;
+                right: calc(20px + min(45px, 6vw) + 10px);
+                width: min(45px, 6vw);
+                height: min(45px, 6vw);
                 border-radius: 50%;
                 cursor: pointer;
                 display: flex;
@@ -553,9 +570,9 @@ export class UIManager {
                 transition: border-color 0.3s ease;
             }
             #touch-camera-toggle-icon {
-                margin: 9px 0 0 9px;
-                width: 28px;
-                height: 28px;
+                margin: min(9px, 1.1vw) 0 0 min(9px, 1.1vw);
+                width: min(28px, 3.5vw);
+                height: min(28px, 3.5vw);
                 background-size: contain;
                 background-repeat: no-repeat;
                 background-position: center;
@@ -572,10 +589,10 @@ export class UIManager {
                 position: fixed;
                 top: 20px;
                 right: 20px;
-                width: 200px;
-                height: 20px;
+                width: min(200px, 25vw);
+                height: min(20px, 2.5vw);
                 background-color: rgba(0, 0, 0, 0.5);
-                border-radius: 10px;
+                border-radius: min(10px, 1.25vw);
                 overflow: hidden;
                 border: 2px solid rgba(255, 255, 255, 0.3);
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -596,12 +613,137 @@ export class UIManager {
                 width: 100%;
                 height: 100%;
                 text-align: center;
-                line-height: 20px;
+                line-height: min(20px, 2.5vw);
                 color: #fff;
                 font-family: 'Courier New', monospace;
-                font-size: 12px;
+                font-size: clamp(10px, 1.5vw, 12px);
                 font-weight: bold;
                 text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+            }
+            #keybinds-button {
+                position: fixed;
+                bottom: 20px;
+                left: 20px;
+                width: 45px;
+                height: 45px;
+                background: rgba(0, 50, 0, 0.9);
+                border: 2px solid rgba(0, 255, 0, 0.5);
+                border-radius: 50%;
+                color: #00ff00;
+                font-size: 20px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                z-index: 1000;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            }
+            #keybinds-button:hover {
+                background: rgba(0, 100, 0, 0.9);
+                border-color: rgba(0, 255, 0, 0.8);
+                transform: scale(1.1);
+            }
+            
+            /* Mobile responsive adjustments - using smaller fixed sizes for landscape mobile */
+            @media (max-width: 768px) {
+                #bomb-button, #missile-button, #countermeasure-button {
+                    width: 50px;
+                    height: 50px;
+                }
+                
+                #bomb-icon, #missile-icon, #countermeasure-icon {
+                    width: 30px;
+                    height: 30px;
+                }
+                
+                #missile-button {
+                    right: 85px;
+                }
+                
+                #countermeasure-button {
+                    right: 150px;
+                }
+                
+                #camera-toggle-button {
+                    bottom: 85px;
+                    width: 40px;
+                    height: 40px;
+                }
+                
+                #camera-toggle-icon {
+                    width: 25px;
+                    height: 25px;
+                    margin: 3px 0 0 6px;
+                }
+                
+                #health-bar {
+                    width: 150px;
+                    height: 16px;
+                }
+                
+                #health-text {
+                    line-height: 16px;
+                    font-size: 10px;
+                }
+            }
+            
+            @media (max-width: 480px) {
+                #bomb-button, #missile-button, #countermeasure-button {
+                    width: 40px;
+                    height: 40px;
+                    bottom: 10px;
+                }
+                
+                #bomb-icon, #missile-icon, #countermeasure-icon {
+                    width: 24px;
+                    height: 24px;
+                }
+                
+                #missile-button {
+                    right: 65px;
+                }
+                
+                #countermeasure-button {
+                    right: 120px;
+                }
+                
+                #camera-toggle-button, #camera-reset-button, #touch-camera-toggle-button {
+                    width: 32px;
+                    height: 32px;
+                }
+                
+                #camera-toggle-button {
+                    bottom: 65px;
+                }
+                
+                #camera-toggle-icon {
+                    width: 20px;
+                    height: 20px;
+                    margin: 2px 0 0 4px;
+                }
+                
+                #camera-reset-icon {
+                    font-size: 16px;
+                }
+                
+                #touch-camera-toggle-icon {
+                    width: 20px;
+                    height: 20px;
+                    margin: 6px 0 0 6px;
+                }
+                
+                #health-bar {
+                    width: 120px;
+                    height: 14px;
+                    top: 10px;
+                    right: 10px;
+                }
+                
+                #health-text {
+                    line-height: 14px;
+                    font-size: 9px;
+                }
             }
         `;
     document.head.appendChild(style);

@@ -15,7 +15,7 @@ export class RadarManager {
   private radarDisplay: HTMLElement;
   private targetCountElement: HTMLElement;
   private radarRadius: number = 500; // Radar range in game units
-  private radarPixelRadius: number = 88; // Radar display radius in pixels
+  private radarPixelRadius: number = 88; // Radar display radius in pixels (will be updated based on screen size)
   private lastPulseTime: number = 0;
   private pulseInterval: number = 2000; // 2 seconds
   private activeMissiles: DefenseMissile[] = []; // Track active defense missiles
@@ -37,6 +37,21 @@ export class RadarManager {
     this.targetCountElement = document.getElementById('targetCount')!;
     this.createRadarPulseStyles();
     this.initializeMarkerPool();
+    this.updateRadarPixelRadius();
+    
+    // Update radar size on window resize
+    window.addEventListener('resize', () => {
+      this.updateRadarPixelRadius();
+    });
+  }
+
+  private updateRadarPixelRadius(): void {
+    // Get the actual radar display size and calculate pixel radius
+    const radarDisplayElement = this.radarDisplay;
+    if (radarDisplayElement) {
+      const displayWidth = radarDisplayElement.clientWidth;
+      this.radarPixelRadius = displayWidth / 2;
+    }
   }
 
   private initializeMarkerPool(): void {
@@ -96,8 +111,8 @@ export class RadarManager {
                 position: absolute;
                 left: 0;
                 top: 0;
-                width: 176px;
-                height: 176px;
+                width: 100%;
+                height: 100%;
                 border: 2px solid rgba(0, 255, 0, 0.7);
                 border-radius: 50%;
                 box-sizing: border-box;
