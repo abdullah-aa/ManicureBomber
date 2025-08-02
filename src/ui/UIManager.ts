@@ -16,6 +16,7 @@ export class UIManager {
   private countermeasureButtonCooldown!: HTMLElement;
   private cameraToggleButton!: HTMLElement;
   private cameraToggleIcon!: HTMLElement;
+  private cameraResetButton!: HTMLElement;
   private healthBar!: HTMLElement;
   private healthBarFill!: HTMLElement;
   private healthText!: HTMLElement;
@@ -50,6 +51,7 @@ export class UIManager {
     this.createMissileButton();
     this.createCountermeasureButton();
     this.createCameraToggleButton();
+    this.createCameraResetButton();
     this.createHealthBar();
     this.createAlertSystem();
 
@@ -85,6 +87,12 @@ export class UIManager {
     this.cameraToggleButton.addEventListener('click', () => {
       this.game.getCameraController().toggleGroundCrosshairs();
       this.updateCameraToggleIcon();
+    });
+
+    // Listen for camera reset button clicks
+    this.cameraResetButton.addEventListener('click', () => {
+      // Directly call the camera controller's reset method
+      this.game.getCameraController().resetCamera(performance.now() / 1000);
     });
   }
 
@@ -142,6 +150,15 @@ export class UIManager {
 
     this.cameraToggleIcon = document.getElementById('camera-toggle-icon')!;
     this.updateCameraToggleIcon();
+  }
+
+  private createCameraResetButton(): void {
+    this.cameraResetButton = document.createElement('div');
+    this.cameraResetButton.id = 'camera-reset-button';
+    this.cameraResetButton.innerHTML = `
+            <div id="camera-reset-icon">👁</div>
+        `;
+    document.body.appendChild(this.cameraResetButton);
   }
 
   private createHealthBar(): void {
@@ -453,6 +470,28 @@ export class UIManager {
                 background-size: contain;
                 background-repeat: no-repeat;
                 background-position: center;
+                z-index: 2;
+            }
+            #camera-reset-button {
+                position: fixed;
+                top: 50px;
+                right: 20px;
+                width: 45px;
+                height: 45px;
+                background-color: rgba(0, 0, 0, 0.5);
+                border-radius: 50%;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+                border: 2px solid #ffffff;
+                transition: border-color 0.3s ease;
+            }
+            #camera-reset-icon {
+                margin-top: 5px
+                font-size: 24px;
+                color: #ffffff;
                 z-index: 2;
             }
         `;

@@ -49,6 +49,7 @@ export class InputManager {
   private bomberTouchDeltaX: number = 0;
   private bomberTouchDeltaY: number = 0;
 
+
   // Cache frequently accessed keys to reduce lookup overhead
   private cachedKeys: { [key: string]: boolean } = {};
   private keyCacheValid: boolean = false;
@@ -102,8 +103,8 @@ export class InputManager {
     // Add separate touch event listeners for touch controls
     this.canvas.addEventListener('touchstart', (event) => {
       event.preventDefault();
-      this.touchPointers.clear();
       
+      this.touchPointers.clear();
       for (let i = 0; i < event.touches.length; i++) {
         const touch = event.touches[i];
         this.touchPointers.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
@@ -212,6 +213,7 @@ export class InputManager {
   public getIsTouchActive(): boolean {
     return this.touchPointers.size > 0;
   }
+
 
   public isKeyPressed(key: string): boolean {
     // Cache frequently accessed keys to reduce lookup overhead

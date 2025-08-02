@@ -109,9 +109,9 @@ export class CameraController {
         this.trigCacheValid = false;
       }
       
-      // Mouse Y controls height (like Q/E keys) - not inverted, higher sensitivity
+      // Mouse Y controls height (like Q/E keys) - not inverted, much higher sensitivity to match panning
       if (Math.abs(mouseDeltaY) > 0) {
-        this.followHeight += mouseDeltaY * mouseSensitivity * 100; // Increased sensitivity and not inverted
+        this.followHeight += mouseDeltaY * mouseSensitivity * 300; // Tripled sensitivity to match pan amount
         this.followHeight = Math.max(this.minFollowHeight, Math.min(this.maxFollowHeight, this.followHeight));
       }
     }
@@ -128,12 +128,13 @@ export class CameraController {
         this.trigCacheValid = false;
       }
       
-      // Touch Y controls height (like Q/E keys) - not inverted, higher sensitivity
+      // Touch Y controls height (like Q/E keys) - not inverted, much higher sensitivity to match panning
       if (Math.abs(touchDeltaY) > 0) {
-        this.followHeight += touchDeltaY * touchSensitivity * 100; // Same as mouse
+        this.followHeight += touchDeltaY * touchSensitivity * 300; // Tripled sensitivity to match pan amount
         this.followHeight = Math.max(this.minFollowHeight, Math.min(this.maxFollowHeight, this.followHeight));
       }
     }
+
 
     const bomberPos = this.bomber.getPosition();
     const bomberRotation = this.bomber.getRotation();
@@ -187,7 +188,7 @@ export class CameraController {
     return this.camera;
   }
 
-  private resetCamera(currentTime: number): void {
+  public resetCamera(currentTime: number): void {
     // Check if cooldown has passed
     if (currentTime - this.lastResetTime < this.resetCooldown) {
       return; // Cooldown not yet complete
