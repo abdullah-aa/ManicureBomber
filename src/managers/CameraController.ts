@@ -116,6 +116,25 @@ export class CameraController {
       }
     }
 
+    // Handle touch camera controls (two finger swipe)
+    if (inputManager.getIsTouchCamera()) {
+      const touchDeltaX = inputManager.getTouchDeltaX();
+      const touchDeltaY = inputManager.getTouchDeltaY();
+      const touchSensitivity = 0.005; // Same as mouse sensitivity
+      
+      // Touch X controls panning (like Z/C keys)
+      if (Math.abs(touchDeltaX) > 0) {
+        this.panAngleOffset += touchDeltaX * touchSensitivity;
+        this.trigCacheValid = false;
+      }
+      
+      // Touch Y controls height (like Q/E keys) - not inverted, higher sensitivity
+      if (Math.abs(touchDeltaY) > 0) {
+        this.followHeight += touchDeltaY * touchSensitivity * 100; // Same as mouse
+        this.followHeight = Math.max(this.minFollowHeight, Math.min(this.maxFollowHeight, this.followHeight));
+      }
+    }
+
     const bomberPos = this.bomber.getPosition();
     const bomberRotation = this.bomber.getRotation();
 

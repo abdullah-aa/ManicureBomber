@@ -40,6 +40,15 @@ export class InputManager {
   private lastMouseX: number = 0;
   private lastMouseY: number = 0;
 
+  // Touch controls
+  private touchPointers: Map<number, { x: number, y: number }> = new Map();
+  private lastTouchCenter: { x: number, y: number } | null = null;
+  private touchDeltaX: number = 0;
+  private touchDeltaY: number = 0;
+  private isTouchCamera: boolean = false; // true for 2+ finger camera, false for 1 finger bomber
+  private bomberTouchDeltaX: number = 0;
+  private bomberTouchDeltaY: number = 0;
+
   // Cache frequently accessed keys to reduce lookup overhead
   private cachedKeys: { [key: string]: boolean } = {};
   private keyCacheValid: boolean = false;
@@ -60,32 +69,73 @@ export class InputManager {
       event.preventDefault();
     });
 
-    // Use Babylon.js pointer events instead of DOM events
+    // Use Babylon.js pointer events for mouse controls
     this.scene.onPointerObservable.add((pointerInfo) => {
+      const event = pointerInfo.event;
+      
       switch (pointerInfo.type) {
         case PointerEventTypes.POINTERDOWN:
-          if (pointerInfo.event.button === 0) { // Left mouse button
+          if (event.button === 0) { // Left mouse button
             this.isMouseDragging = true;
-            this.lastMouseX = pointerInfo.event.clientX;
-            this.lastMouseY = pointerInfo.event.clientY;
+            this.lastMouseX = event.clientX;
+            this.lastMouseY = event.clientY;
           }
           break;
           
         case PointerEventTypes.POINTERMOVE:
           if (this.isMouseDragging) {
-            this.mouseDeltaX = pointerInfo.event.clientX - this.lastMouseX;
-            this.mouseDeltaY = pointerInfo.event.clientY - this.lastMouseY;
-            this.lastMouseX = pointerInfo.event.clientX;
-            this.lastMouseY = pointerInfo.event.clientY;
+            this.mouseDeltaX = event.clientX - this.lastMouseX;
+            this.mouseDeltaY = event.clientY - this.lastMouseY;
+            this.lastMouseX = event.clientX;
+            this.lastMouseY = event.clientY;
           }
           break;
           
         case PointerEventTypes.POINTERUP:
-          if (pointerInfo.event.button === 0) { // Left mouse button
+          if (event.button === 0) { // Left mouse button
             this.isMouseDragging = false;
           }
           break;
       }
+    });
+
+    // Add separate touch event listeners for touch controls
+    this.canvas.addEventListener('touchstart', (event) => {
+      event.preventDefault();
+      this.touchPointers.clear();
+      
+      for (let i = 0; i < event.touches.length; i++) {
+        const touch = event.touches[i];
+        this.touchPointers.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
+      }
+      this.updateTouchState();
+    });
+
+    this.canvas.addEventListener('touchmove', (event) => {
+      event.preventDefault();
+      
+      for (let i = 0; i < event.touches.length; i++) {
+        const touch = event.touches[i];
+        this.touchPointers.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
+      }
+      this.updateTouchMovement();
+    });
+
+    this.canvas.addEventListener('touchend', (event) => {
+      event.preventDefault();
+      
+      // Remove ended touches
+      for (let i = 0; i < event.changedTouches.length; i++) {
+        const touch = event.changedTouches[i];
+        this.touchPointers.delete(touch.identifier);
+      }
+      this.updateTouchState();
+    });
+
+    this.canvas.addEventListener('touchcancel', (event) => {
+      event.preventDefault();
+      this.touchPointers.clear();
+      this.updateTouchState();
     });
   }
 
@@ -119,6 +169,10 @@ export class InputManager {
     this.wheelDelta = 0;
     this.mouseDeltaX = 0;
     this.mouseDeltaY = 0;
+    this.touchDeltaX = 0;
+    this.touchDeltaY = 0;
+    this.bomberTouchDeltaX = 0;
+    this.bomberTouchDeltaY = 0;
   }
 
   // Mouse input methods
@@ -132,6 +186,31 @@ export class InputManager {
 
   public getIsMouseDragging(): boolean {
     return this.isMouseDragging;
+  }
+
+  // Touch input methods
+  public getTouchDeltaX(): number {
+    return this.touchDeltaX;
+  }
+
+  public getTouchDeltaY(): number {
+    return this.touchDeltaY;
+  }
+
+  public getIsTouchCamera(): boolean {
+    return this.isTouchCamera;
+  }
+
+  public getBomberTouchDeltaX(): number {
+    return this.bomberTouchDeltaX;
+  }
+
+  public getBomberTouchDeltaY(): number {
+    return this.bomberTouchDeltaY;
+  }
+
+  public getIsTouchActive(): boolean {
+    return this.touchPointers.size > 0;
   }
 
   public isKeyPressed(key: string): boolean {
@@ -312,5 +391,47 @@ export class InputManager {
 
   public getKeys(): { [key: string]: boolean } {
     return { ...this.keys };
+  }
+
+  private updateTouchState(): void {
+    // Determine if this is camera (2+ fingers) or bomber (1 finger) control
+    this.isTouchCamera = this.touchPointers.size >= 2;
+    
+    if (this.touchPointers.size === 0) {
+      this.lastTouchCenter = null;
+    }
+  }
+
+  private updateTouchMovement(): void {
+    if (this.touchPointers.size === 0) return;
+
+    // Calculate center point of all touches
+    let centerX = 0;
+    let centerY = 0;
+    
+    for (const touch of this.touchPointers.values()) {
+      centerX += touch.x;
+      centerY += touch.y;
+    }
+    
+    centerX /= this.touchPointers.size;
+    centerY /= this.touchPointers.size;
+
+    if (this.lastTouchCenter) {
+      const deltaX = centerX - this.lastTouchCenter.x;
+      const deltaY = centerY - this.lastTouchCenter.y;
+
+      if (this.isTouchCamera) {
+        // Two or more fingers - camera control (not inverted)
+        this.touchDeltaX = deltaX;
+        this.touchDeltaY = deltaY;
+      } else {
+        // Single finger - bomber control (not inverted)
+        this.bomberTouchDeltaX = deltaX;
+        this.bomberTouchDeltaY = deltaY;
+      }
+    }
+
+    this.lastTouchCenter = { x: centerX, y: centerY };
   }
 }

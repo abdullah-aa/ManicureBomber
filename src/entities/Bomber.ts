@@ -504,6 +504,37 @@ export class Bomber {
     let isClimbing = false;
     let isDiving = false;
 
+    // Handle touch controls for bomber movement (single finger swipe)
+    if (inputManager.getIsTouchActive() && !inputManager.getIsTouchCamera()) {
+      const touchDeltaX = inputManager.getBomberTouchDeltaX();
+      const touchDeltaY = inputManager.getBomberTouchDeltaY();
+      const touchSensitivity = 0.001; // Adjust sensitivity for bomber
+      
+      // Touch X controls turning (not inverted)
+      if (Math.abs(touchDeltaX) > 0) {
+        this.rotation.y += touchDeltaX * touchSensitivity; // Right swipe turns right
+        this.targetBankAngle = touchDeltaX > 0 ? this.maxBankAngle : -this.maxBankAngle;
+        isTurning = true;
+        this.trigCacheValid = false;
+      }
+      
+      // Touch Y controls altitude (not inverted)
+      if (Math.abs(touchDeltaY) > 0) {
+        this.altitude += touchDeltaY * touchSensitivity * 100; // Down swipe climbs
+        if (touchDeltaY > 0) {
+          isClimbing = true;
+          if (!isTurning) {
+            this.targetBankAngle = this.maxClimbBankAngle;
+          }
+        } else {
+          isDiving = true;
+          if (!isTurning) {
+            this.targetBankAngle = -this.maxClimbBankAngle;
+          }
+        }
+      }
+    }
+
     if (inputManager.getTurnLeftPressed()) {
       this.rotation.y -= this.turnSpeed * deltaTime; // A key turns left
       this.targetBankAngle = -this.maxBankAngle; // Bank left
