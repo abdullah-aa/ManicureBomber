@@ -468,79 +468,56 @@
 
       #radarDisplay:hover::after {
         opacity: 1;
+      }</style><script defer="defer" src="bundle.js"></script></head><body><canvas id="renderCanvas"></canvas><div id="radarOverlay"><div id="radarHeader"><div>RADAR</div><div id="radarToggle">▼</div></div><div id="radarContent"><div id="radarDisplay"><div class="radar-spokes"></div><div class="radar-inner-circle"></div><div class="radar-sweep"></div><div class="radar-bomber"></div></div><div id="scoreDisplay"><div>Targets: <span id="targetCount">0</span></div></div></div></div><div id="keybindsModal"><div id="keybindsContent"><h2>⚙ Key Bindings</h2><div id="keybindsList"></div><div class="keybinds-buttons"><button class="keybinds-button reset" id="resetKeybinds">Reset to Defaults</button> <button class="keybinds-button" id="saveKeybinds">Save & Close</button></div></div></div><script>// User agent detection for mobile
+      function isMobile() {
+        const userAgent = navigator.userAgent.toLowerCase();
+        return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/.test(userAgent);
       }
 
-      @media (max-width: 768px) {
-        #radarOverlay {
-          width: 60px !important;
-          font-size: 7px;
-          top: 8px;
-          left: 8px;
-        }
+      // Apply mobile styles if on mobile device
+      if (isMobile()) {
+        const style = document.createElement('style');
+        style.textContent = `
+          #radarOverlay {
+            width: 100px !important;
+            font-size: 10px;
+            top: 12px;
+            left: 12px;
+          }
 
-        #radarDisplay {
-          width: 40px !important;
-          height: 40px !important;
-          margin-bottom: 3px;
-        }
+          #radarDisplay {
+            width: 80px !important;
+            height: 80px !important;
+            margin-bottom: 6px;
+          }
 
-        .radar-sweep {
-          height: 20px !important;
-        }
+          .radar-sweep {
+            height: 40px !important;
+          }
 
-        #radarDisplay::after {
-          left: calc(60px + 10px);
-          font-size: 5px;
-          padding: 1px 2px;
-        }
+          #radarDisplay::after {
+            left: calc(100px + 15px);
+            font-size: 8px;
+            padding: 3px 6px;
+          }
 
-        #radarHeader {
-          padding: 2px 4px;
-          font-size: 6px;
-        }
+          #radarHeader {
+            padding: 6px 8px;
+            font-size: 9px;
+          }
 
-        #radarContent {
-          padding: 3px;
-        }
+          #radarContent {
+            padding: 8px;
+          }
+
+          #scoreDisplay {
+            font-size: 9px;
+          }
+        `;
+        document.head.appendChild(style);
       }
 
-      @media (max-width: 480px) {
-        #radarOverlay {
-          width: 90px !important;
-          font-size: 8px;
-          top: 10px;
-          left: 10px;
-        }
-
-        #radarDisplay {
-          width: 70px !important;
-          height: 70px !important;
-          margin-bottom: 5px;
-        }
-
-        .radar-sweep {
-          height: 35px !important;
-        }
-
-        #radarDisplay::after {
-          font-size: 6px;
-          padding: 2px 4px;
-          left: calc(65px + 10px);
-        }
-
-        #radarHeader {
-          padding: 4px 6px;
-          font-size: 8px;
-        }
-
-        #radarContent {
-          padding: 6px;
-        }
-
-        #scoreDisplay {
-          font-size: 8px;
-        }
-      }</style><script defer="defer" src="bundle.js"></script></head><body><canvas id="renderCanvas"></canvas><div id="radarOverlay"><div id="radarHeader"><div>RADAR</div><div id="radarToggle">▼</div></div><div id="radarContent"><div id="radarDisplay"><div class="radar-spokes"></div><div class="radar-inner-circle"></div><div class="radar-sweep"></div><div class="radar-bomber"></div></div><div id="scoreDisplay"><div>Targets: <span id="targetCount">0</span></div></div></div></div><div id="keybindsModal"><div id="keybindsContent"><h2>⚙ Key Bindings</h2><div id="keybindsList"></div><div class="keybinds-buttons"><button class="keybinds-button reset" id="resetKeybinds">Reset to Defaults</button> <button class="keybinds-button" id="saveKeybinds">Save & Close</button></div></div></div><script>// Radar toggle functionality
+      // Radar toggle functionality
       document.getElementById('radarToggle').addEventListener('click', function (e) {
         e.stopPropagation();
         const content = document.getElementById('radarContent');

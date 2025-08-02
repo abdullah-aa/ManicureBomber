@@ -570,7 +570,6 @@ export class UIManager {
                 transition: border-color 0.3s ease;
             }
             #touch-camera-toggle-icon {
-                margin: min(9px, 1.1vw) 0 0 min(9px, 1.1vw);
                 width: min(28px, 3.5vw);
                 height: min(28px, 3.5vw);
                 background-size: contain;
@@ -645,108 +644,74 @@ export class UIManager {
                 transform: scale(1.1);
             }
             
-            /* Mobile responsive adjustments - using smaller fixed sizes for landscape mobile */
-            @media (max-width: 768px) {
-                #bomb-button, #missile-button, #countermeasure-button {
-                    width: 28px;
-                    height: 28px;
-                }
-                
-                #bomb-icon, #missile-icon, #countermeasure-icon {
-                    width: 16px;
-                    height: 16px;
-                }
-                
-                #missile-button {
-                    right: 38px;
-                }
-                
-                #countermeasure-button {
-                    right: 76px;
-                }
-                
-                #camera-toggle-button {
-                    bottom: 38px;
-                    width: 25px;
-                    height: 25px;
-                }
-                
-                #camera-toggle-icon {
-                    width: 14px;
-                    height: 14px;
-                    margin: 1px 0 0 3px;
-                }
-                
-                #health-bar {
-                    width: 150px;
-                    height: 16px;
-                }
-                
-                #health-text {
-                    line-height: 16px;
-                    font-size: 10px;
-                }
-            }
-            
-            @media (max-width: 480px) {
-                #bomb-button, #missile-button, #countermeasure-button {
-                    width: 24px;
-                    height: 24px;
-                    bottom: 6px;
-                }
-                
-                #bomb-icon, #missile-icon, #countermeasure-icon {
-                    width: 14px;
-                    height: 14px;
-                }
-                
-                #missile-button {
-                    right: 32px;
-                }
-                
-                #countermeasure-button {
-                    right: 60px;
-                }
-                
-                #camera-toggle-button, #camera-reset-button, #touch-camera-toggle-button {
-                    width: 20px;
-                    height: 20px;
-                }
-                
-                #camera-toggle-button {
-                    bottom: 32px;
-                }
-                
-                #camera-toggle-icon {
-                    width: 12px;
-                    height: 12px;
-                    margin: 1px 0 0 2px;
-                }
-                
-                #camera-reset-icon {
-                    font-size: 12px;
-                }
-                
-                #touch-camera-toggle-icon {
-                    width: 12px;
-                    height: 12px;
-                    margin: 3px 0 0 3px;
-                }
-                
-                #health-bar {
-                    width: 120px;
-                    height: 14px;
-                    top: 10px;
-                    right: 10px;
-                }
-                
-                #health-text {
-                    line-height: 14px;
-                    font-size: 9px;
-                }
-            }
         `;
     document.head.appendChild(style);
+
+    // Apply mobile-specific styles if on mobile device
+    if (this.isMobile()) {
+      const mobileStyle = document.createElement('style');
+      mobileStyle.textContent = `
+        /* Mobile responsive adjustments - using user agent detection for landscape mobile */
+        #bomb-button, #missile-button, #countermeasure-button {
+          width: 50px !important;
+          height: 50px !important;
+        }
+        
+        #bomb-icon, #missile-icon, #countermeasure-icon {
+          width: 30px !important;
+          height: 30px !important;
+        }
+        
+        #missile-button {
+          right: calc(20px + 50px + 10px) !important;
+        }
+        
+        #countermeasure-button {
+          right: calc(20px + 50px * 2 + 20px) !important;
+        }
+        
+        #camera-toggle-button {
+          bottom: calc(20px + 50px + 10px) !important;
+          width: 35px !important;
+          height: 35px !important;
+        }
+        
+        #camera-toggle-icon {
+          width: 20px !important;
+          height: 20px !important;
+          margin: 2px 0 0 4px !important;
+        }
+        
+        #camera-reset-button, #touch-camera-toggle-button {
+          width: 35px !important;
+          height: 35px !important;
+        }
+        
+        #camera-reset-icon {
+          font-size: 16px !important;
+        }
+        
+        #touch-camera-toggle-icon {
+          width: 20px !important;
+          height: 20px !important;
+        }
+        
+        #touch-camera-toggle-button {
+          right: calc(20px + 35px + 12px) !important;
+        }
+        
+        #health-bar {
+          width: 160px !important;
+          height: 18px !important;
+        }
+        
+        #health-text {
+          line-height: 18px !important;
+          font-size: 11px !important;
+        }
+      `;
+      document.head.appendChild(mobileStyle);
+    }
   }
 
   public update(): void {
