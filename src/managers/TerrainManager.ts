@@ -29,7 +29,6 @@ export class TerrainManager {
   private lastTerrainUpdateTime: number = 0;
   private heightmapCache: Map<string, Float32Array> = new Map();
   private subdivisions = 64;
-  private lastBomberPosition: Vector3 = new Vector3(0, 0, 0);
   private bomber: any = null;
 
   private buildingCache: Map<string, Building[]> = new Map();
@@ -433,21 +432,6 @@ export class TerrainManager {
       });
   }
 
-  public getMaxBuildingHeight(): number {
-    let maxHeight = 0;
-    this.chunks.forEach((chunk) => {
-      if (chunk) {
-        chunk.buildings.forEach((building) => {
-          const height = building.getMaxHeight();
-          if (height > maxHeight) {
-            maxHeight = height;
-          }
-        });
-      }
-    });
-    return maxHeight;
-  }
-
   public getBuildingsInRadius(position: Vector3, radius: number): Promise<Building[]> {
     const cacheKey = `${Math.floor(position.x / 50)}_${Math.floor(position.z / 50)}_${radius}`;
     const currentTime = performance.now();
@@ -505,31 +489,6 @@ export class TerrainManager {
         // Skip on failed updates - no fallback
         return [];
       });
-  }
-
-  // Simple synchronous fallback for when worker fails
-  private getBuildingsInRadiusSync(position: Vector3, radius: number): Building[] {
-    const buildings: Building[] = [];
-
-    this.chunks.forEach((chunk) => {
-      if (chunk) {
-        chunk.buildings.forEach((building) => {
-          const distance = Vector3.Distance(position, building.getPosition());
-          if (distance <= radius) {
-            buildings.push(building);
-          }
-        });
-      }
-    });
-
-    return buildings;
-  }
-
-  public getTerrainChunkAtPosition(position: Vector3): TerrainChunk | undefined {
-    const chunkX = Math.floor(position.x / this.chunkSize);
-    const chunkZ = Math.floor(position.z / this.chunkSize);
-    const chunkKey = `${chunkX}_${chunkZ}`;
-    return this.chunks.get(chunkKey) ?? undefined;
   }
 
   public updateDefenseLaunchers(

@@ -20,6 +20,9 @@ export class UIManager {
   private touchCameraToggleButton!: HTMLElement;
   private touchCameraToggleIcon!: HTMLElement;
   private keybindsButton!: HTMLElement;
+  private mobileZoomControl!: HTMLElement;
+  private zoomInButton!: HTMLElement;
+  private zoomOutButton!: HTMLElement;
   private healthBar!: HTMLElement;
   private healthBarFill!: HTMLElement;
   private healthText!: HTMLElement;
@@ -57,6 +60,7 @@ export class UIManager {
     this.createCameraResetButton();
     this.createTouchCameraToggleButton();
     this.createKeybindsButton();
+    this.createMobileZoomControl();
     this.createHealthBar();
     this.createAlertSystem();
 
@@ -208,6 +212,34 @@ export class UIManager {
     });
   }
 
+  private createMobileZoomControl(): void {
+    if (!this.isMobile()) return; // Only create on mobile
+
+    this.mobileZoomControl = document.createElement('div');
+    this.mobileZoomControl.id = 'mobile-zoom-control';
+    this.mobileZoomControl.innerHTML = `
+      <div id="zoom-out-button">-</div>
+      <div id="zoom-icon">🔍</div>
+      <div id="zoom-in-button">+</div>
+    `;
+    document.body.appendChild(this.mobileZoomControl);
+
+    this.zoomOutButton = document.getElementById('zoom-out-button')!;
+    this.zoomInButton = document.getElementById('zoom-in-button')!;
+
+    // Add event listeners
+    this.zoomOutButton.addEventListener('click', () => {
+      this.inputManager.simulateWheelZoom(100); // Zoom out
+    });
+
+    this.zoomInButton.addEventListener('click', () => {
+      this.inputManager.simulateWheelZoom(-100); // Zoom in
+    });
+
+    // Hide by default (will be shown when camera mode is enabled)
+    this.mobileZoomControl.style.display = 'none';
+  }
+
   private createHealthBar(): void {
     this.healthBar = document.createElement('div');
     this.healthBar.id = 'health-bar';
@@ -246,16 +278,17 @@ export class UIManager {
             .alert {
                 background: linear-gradient(135deg, rgba(255, 0, 0, 0.9), rgba(200, 0, 0, 0.9));
                 color: white;
-                padding: 12px 20px;
+                padding: 6px 12px;
                 margin-bottom: 10px;
-                border-radius: 8px;
+                border-radius: 6px;
                 border: 2px solid rgba(255, 255, 255, 0.3);
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
                 font-family: 'Courier New', monospace;
                 font-weight: bold;
-                font-size: 14px;
+                font-size: 12px;
                 text-align: center;
-                min-width: 300px;
+                min-width: 100px;
+                width: fit-content;
                 animation: alertSlideIn 0.3s ease-out;
                 backdrop-filter: blur(5px);
             }
@@ -296,11 +329,16 @@ export class UIManager {
             @keyframes alertFadeOut {
                 from {
                     opacity: 1;
-                    transform: translateX(-50%) translateY(0);
                 }
                 to {
                     opacity: 0;
-                    transform: translateX(-50%) translateY(-20px);
+                }
+            }
+            
+            /* Mobile portrait adjustments to avoid blocking radar and camera toggle */
+            @media screen and (max-width: 768px) and (orientation: portrait) {
+                #alert-container {
+                    top: 120px;
                 }
             }
         `;
@@ -321,9 +359,17 @@ export class UIManager {
     if (isCameraMode) {
       // Camera icon - Simple eye with crosshairs
       this.touchCameraToggleIcon.innerHTML = `📹`;
+      // Show zoom control when camera mode is enabled
+      if (this.mobileZoomControl) {
+        this.mobileZoomControl.style.display = 'flex';
+      }
     } else {
       // Bomber icon - Simple aircraft shape
       this.touchCameraToggleIcon.innerHTML = `✈️`;
+      // Hide zoom control when camera mode is disabled
+      if (this.mobileZoomControl) {
+        this.mobileZoomControl.style.display = 'none';
+      }
     }
   }
 
@@ -576,6 +622,42 @@ export class UIManager {
                 background-repeat: no-repeat;
                 background-position: center;
                 z-index: 2;
+            }
+            #mobile-zoom-control {
+                position: fixed;
+                bottom: 20px;
+                left: 20px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                background-color: rgba(0, 0, 0, 0.7);
+                border-radius: 20px;
+                padding: 8px;
+                border: 2px solid rgba(255, 255, 255, 0.3);
+                gap: 6px;
+            }
+            #zoom-out-button, #zoom-in-button {
+                width: 32px;
+                height: 32px;
+                background-color: rgba(255, 255, 255, 0.1);
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                font-size: 18px;
+                font-weight: bold;
+                cursor: pointer;
+                user-select: none;
+                transition: background-color 0.3s ease;
+            }
+            #zoom-out-button:active, #zoom-in-button:active {
+                background-color: rgba(255, 255, 255, 0.3);
+            }
+            #zoom-icon {
+                font-size: 16px;
+                color: white;
+                user-select: none;
             }
         `;
     document.head.appendChild(style);
@@ -970,7 +1052,7 @@ export class UIManager {
     if (hasActiveIskanderMissiles) {
       // Show or maintain the alert with single message
       if (!this.activeAlerts.has(this.iskanderAlertId)) {
-        this.showPersistentAlert('MISSILE LOCK DETECTED!', this.iskanderAlertId);
+        this.showPersistentAlert('⚠️ LOCKED', this.iskanderAlertId);
       }
     } else {
       // Remove the alert if no active missiles

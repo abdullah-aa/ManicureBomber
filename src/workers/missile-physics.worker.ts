@@ -347,7 +347,7 @@ function calculateDefenseMissileTrajectory(data: DefenseMissileData): DefenseMis
     };
 
     // Add inaccuracy to make the missile aim off target
-    const inaccuracy = 50 + Math.random() * 50; // Variable inaccuracy between 50-100 units
+    const inaccuracy = 30 + Math.random() * 50; // Variable inaccuracy between 30-80 units
     calculatedTargetPosition = {
       x: bomberFuturePosition.x + (Math.random() - 0.5) * inaccuracy,
       y: bomberFuturePosition.y + (Math.random() - 0.5) * inaccuracy,

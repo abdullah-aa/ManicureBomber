@@ -191,6 +191,10 @@ export class InputManager {
     return this.wheelDelta;
   }
 
+  public simulateWheelZoom(delta: number): void {
+    this.wheelDelta += delta;
+  }
+
   public endFrame(): void {
     this.wheelDelta = 0;
     this.mouseDeltaX = 0;
