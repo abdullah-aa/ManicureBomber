@@ -648,33 +648,33 @@ export class UIManager {
             /* Mobile responsive adjustments - using smaller fixed sizes for landscape mobile */
             @media (max-width: 768px) {
                 #bomb-button, #missile-button, #countermeasure-button {
-                    width: 50px;
-                    height: 50px;
+                    width: 28px;
+                    height: 28px;
                 }
                 
                 #bomb-icon, #missile-icon, #countermeasure-icon {
-                    width: 30px;
-                    height: 30px;
+                    width: 16px;
+                    height: 16px;
                 }
                 
                 #missile-button {
-                    right: 85px;
+                    right: 38px;
                 }
                 
                 #countermeasure-button {
-                    right: 150px;
+                    right: 76px;
                 }
                 
                 #camera-toggle-button {
-                    bottom: 85px;
-                    width: 40px;
-                    height: 40px;
+                    bottom: 38px;
+                    width: 25px;
+                    height: 25px;
                 }
                 
                 #camera-toggle-icon {
-                    width: 25px;
-                    height: 25px;
-                    margin: 3px 0 0 6px;
+                    width: 14px;
+                    height: 14px;
+                    margin: 1px 0 0 3px;
                 }
                 
                 #health-bar {
@@ -690,47 +690,47 @@ export class UIManager {
             
             @media (max-width: 480px) {
                 #bomb-button, #missile-button, #countermeasure-button {
-                    width: 40px;
-                    height: 40px;
-                    bottom: 10px;
+                    width: 24px;
+                    height: 24px;
+                    bottom: 6px;
                 }
                 
                 #bomb-icon, #missile-icon, #countermeasure-icon {
-                    width: 24px;
-                    height: 24px;
+                    width: 14px;
+                    height: 14px;
                 }
                 
                 #missile-button {
-                    right: 65px;
+                    right: 32px;
                 }
                 
                 #countermeasure-button {
-                    right: 120px;
+                    right: 60px;
                 }
                 
                 #camera-toggle-button, #camera-reset-button, #touch-camera-toggle-button {
-                    width: 32px;
-                    height: 32px;
+                    width: 20px;
+                    height: 20px;
                 }
                 
                 #camera-toggle-button {
-                    bottom: 65px;
+                    bottom: 32px;
                 }
                 
                 #camera-toggle-icon {
-                    width: 20px;
-                    height: 20px;
-                    margin: 2px 0 0 4px;
+                    width: 12px;
+                    height: 12px;
+                    margin: 1px 0 0 2px;
                 }
                 
                 #camera-reset-icon {
-                    font-size: 16px;
+                    font-size: 12px;
                 }
                 
                 #touch-camera-toggle-icon {
-                    width: 20px;
-                    height: 20px;
-                    margin: 6px 0 0 6px;
+                    width: 12px;
+                    height: 12px;
+                    margin: 3px 0 0 3px;
                 }
                 
                 #health-bar {
