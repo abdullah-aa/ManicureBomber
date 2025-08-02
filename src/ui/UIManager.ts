@@ -172,7 +172,7 @@ export class UIManager {
     this.cameraResetButton = document.createElement('div');
     this.cameraResetButton.id = 'camera-reset-button';
     this.cameraResetButton.innerHTML = `
-            <div id="camera-reset-icon">👁</div>
+            <div id="camera-reset-icon">👁️</div>
         `;
     document.body.appendChild(this.cameraResetButton);
   }
@@ -302,11 +302,11 @@ export class UIManager {
     const isCameraMode = this.inputManager.getTouchCameraMode();
     // Camera icon when camera mode is enabled, bomber icon when bomber mode is enabled
     if (isCameraMode) {
-      // Camera icon (video camera emoji as SVG)
-      this.touchCameraToggleIcon.style.backgroundImage = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2300ff00" d="M448 112V80c0-26.5-21.5-48-48-48H112C85.5 32 64 53.5 64 80v32H48c-26.5 0-48 21.5-48 48v240c0 26.5 21.5 48 48 48h352c26.5 0 48-21.5 48-48V160c0-26.5-21.5-48-48-48h-16zM288 272c0 35.3-28.7 64-64 64s-64-28.7-64-64 28.7-64 64-64 64 28.7 64 64zm80-48c0-8.8 7.2-16 16-16s16 7.2 16 16-7.2 16-16 16-16-7.2-16-16z"/></svg>')`;
+      // Camera icon - Simple eye with crosshairs
+      this.touchCameraToggleIcon.innerHTML = `📹`;
     } else {
-      // Bomber icon (airplane emoji as SVG)
-      this.touchCameraToggleIcon.style.backgroundImage = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%23ffffff" d="M472 200H360l-65.9-49.4c-5.8-4.4-12.9-6.6-20.1-6.6s-14.3 2.2-20.1 6.6L188 200H76c-22.1 0-40 17.9-40 40s17.9 40 40 40h112l65.9 49.4c5.8 4.4 12.9 6.6 20.1 6.6s14.3-2.2 20.1-6.6L360 280h112c22.1 0 40-17.9 40-40s-17.9-40-40-40z"/></svg>')`;
+      // Bomber icon - Simple aircraft shape
+      this.touchCameraToggleIcon.innerHTML = `✈️`;
     }
   }
 
@@ -522,7 +522,6 @@ export class UIManager {
                 right: 20px;
                 width: 45px;
                 height: 45px;
-                background-color: rgba(0, 0, 0, 0.5);
                 border-radius: 50%;
                 cursor: pointer;
                 display: flex;
@@ -533,7 +532,7 @@ export class UIManager {
                 transition: border-color 0.3s ease;
             }
             #camera-reset-icon {
-                margin-top: 5px;
+                margin-top: 2px;
                 font-size: 24px;
                 color: #ffffff;
                 z-index: 2;
@@ -544,7 +543,6 @@ export class UIManager {
                 right: 75px;
                 width: 45px;
                 height: 45px;
-                background-color: rgba(0, 0, 0, 0.5);
                 border-radius: 50%;
                 cursor: pointer;
                 display: flex;
@@ -555,8 +553,9 @@ export class UIManager {
                 transition: border-color 0.3s ease;
             }
             #touch-camera-toggle-icon {
-                width: 32px;
-                height: 32px;
+                margin: 9px 0 0 9px;
+                width: 28px;
+                height: 28px;
                 background-size: contain;
                 background-repeat: no-repeat;
                 background-position: center;
