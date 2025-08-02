@@ -17,6 +17,8 @@ export class UIManager {
   private cameraToggleButton!: HTMLElement;
   private cameraToggleIcon!: HTMLElement;
   private cameraResetButton!: HTMLElement;
+  private touchCameraToggleButton!: HTMLElement;
+  private touchCameraToggleIcon!: HTMLElement;
   private healthBar!: HTMLElement;
   private healthBarFill!: HTMLElement;
   private healthText!: HTMLElement;
@@ -52,6 +54,7 @@ export class UIManager {
     this.createCountermeasureButton();
     this.createCameraToggleButton();
     this.createCameraResetButton();
+    this.createTouchCameraToggleButton();
     this.createHealthBar();
     this.createAlertSystem();
 
@@ -98,6 +101,15 @@ export class UIManager {
       // Directly call the camera controller's reset method
       this.game.getCameraController().resetCamera(performance.now() / 1000);
     });
+
+    // Listen for touch camera toggle button clicks (mobile only)
+    if (this.touchCameraToggleButton) {
+      this.touchCameraToggleButton.addEventListener('click', () => {
+        const currentMode = this.inputManager.getTouchCameraMode();
+        this.inputManager.setTouchCameraMode(!currentMode);
+        this.updateTouchCameraToggleIcon();
+      });
+    }
   }
 
   private createBombButton(): void {
@@ -163,6 +175,20 @@ export class UIManager {
             <div id="camera-reset-icon">👁</div>
         `;
     document.body.appendChild(this.cameraResetButton);
+  }
+
+  private createTouchCameraToggleButton(): void {
+    if (!this.isMobile()) return; // Only create on mobile
+
+    this.touchCameraToggleButton = document.createElement('div');
+    this.touchCameraToggleButton.id = 'touch-camera-toggle-button';
+    this.touchCameraToggleButton.innerHTML = `
+            <div id="touch-camera-toggle-icon"></div>
+        `;
+    document.body.appendChild(this.touchCameraToggleButton);
+
+    this.touchCameraToggleIcon = document.getElementById('touch-camera-toggle-icon')!;
+    this.updateTouchCameraToggleIcon();
   }
 
   private createHealthBar(): void {
@@ -268,6 +294,20 @@ export class UIManager {
     const showCrosshairs = this.game.getCameraController().getShowGroundCrosshairs();
     // Downward arrow target icon for crosshairs toggle
     this.cameraToggleIcon.style.backgroundImage = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="${showCrosshairs ? '%2300ff00' : '%23ffffff'}" d="M179.641,189.565c2.455,0,4.869,0.193,7.223,0.561l36.999-36.998c-13.193-7.048-28.249-11.051-44.221-11.051 c-51.92,0-94.162,42.241-94.162,94.162c0,51.921,42.242,94.162,94.162,94.162s94.161-42.241,94.161-94.162 c0-15.973-4.002-31.027-11.051-44.22l-36.997,36.999c0.367,2.354,0.56,4.766,0.56,7.222c0,25.736-20.937,46.674-46.672,46.674 c-25.736,0-46.674-20.938-46.674-46.674S153.905,189.565,179.641,189.565z"></path> <path fill="${showCrosshairs ? '%2300ff00' : '%23ffffff'}" d="M290.454,164.316c13.488,20.712,21.338,45.417,21.338,71.922c0,72.87-59.281,132.153-132.15,132.153 c-72.869,0-132.153-59.283-132.153-132.152s59.283-132.153,132.152-132.153c26.508,0,51.211,7.851,71.924,21.34l34.104-34.104 c-29.738-21.817-66.402-34.724-106.027-34.724c-99.055,0-179.641,80.587-179.641,179.641c0,99.054,80.586,179.642,179.641,179.642 c99.054,0,179.638-80.588,179.638-179.642c0-39.626-12.904-76.29-34.721-106.026L290.454,164.316z"></path> <path fill="%23ff0000" d="M415.415,56.64c-1.119-3.539-4.119-6.157-7.775-6.793l-35.449-6.157l-6.156-35.45c-0.637-3.656-3.256-6.655-6.793-7.774 c-3.537-1.122-7.402-0.178-10.027,2.447l-27.412,27.411c-1.863,1.864-2.91,4.393-2.912,7.029l0.002,40.896l-148.1,148.096 c-5.176,5.177-5.176,13.566,0,18.743c5.178,5.175,13.568,5.177,18.744,0L337.632,96.991h40.896c2.635,0,5.164-1.047,7.027-2.911 l27.412-27.413C415.593,64.044,416.536,60.177,415.415,56.64z"></path></svg>')`;
+  }
+
+  public updateTouchCameraToggleIcon(): void {
+    if (!this.touchCameraToggleIcon) return; // Only update if button exists (mobile only)
+    
+    const isCameraMode = this.inputManager.getTouchCameraMode();
+    // Camera icon when camera mode is enabled, bomber icon when bomber mode is enabled
+    if (isCameraMode) {
+      // Camera icon (video camera emoji as SVG)
+      this.touchCameraToggleIcon.style.backgroundImage = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%2300ff00" d="M448 112V80c0-26.5-21.5-48-48-48H112C85.5 32 64 53.5 64 80v32H48c-26.5 0-48 21.5-48 48v240c0 26.5 21.5 48 48 48h352c26.5 0 48-21.5 48-48V160c0-26.5-21.5-48-48-48h-16zM288 272c0 35.3-28.7 64-64 64s-64-28.7-64-64 28.7-64 64-64 64 28.7 64 64zm80-48c0-8.8 7.2-16 16-16s16 7.2 16 16-7.2 16-16 16-16-7.2-16-16z"/></svg>')`;
+    } else {
+      // Bomber icon (airplane emoji as SVG)
+      this.touchCameraToggleIcon.style.backgroundImage = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%23ffffff" d="M472 200H360l-65.9-49.4c-5.8-4.4-12.9-6.6-20.1-6.6s-14.3 2.2-20.1 6.6L188 200H76c-22.1 0-40 17.9-40 40s17.9 40 40 40h112l65.9 49.4c5.8 4.4 12.9 6.6 20.1 6.6s14.3-2.2 20.1-6.6L360 280h112c22.1 0 40-17.9 40-40s-17.9-40-40-40z"/></svg>')`;
+    }
   }
 
   private addStyles(): void {
@@ -493,9 +533,33 @@ export class UIManager {
                 transition: border-color 0.3s ease;
             }
             #camera-reset-icon {
-                margin-top: 5px
+                margin-top: 5px;
                 font-size: 24px;
                 color: #ffffff;
+                z-index: 2;
+            }
+            #touch-camera-toggle-button {
+                position: fixed;
+                top: 50px;
+                right: 75px;
+                width: 45px;
+                height: 45px;
+                background-color: rgba(0, 0, 0, 0.5);
+                border-radius: 50%;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+                border: 2px solid #ffffff;
+                transition: border-color 0.3s ease;
+            }
+            #touch-camera-toggle-icon {
+                width: 32px;
+                height: 32px;
+                background-size: contain;
+                background-repeat: no-repeat;
+                background-position: center;
                 z-index: 2;
             }
         `;
@@ -578,6 +642,7 @@ export class UIManager {
     }
     if (this.pendingUpdates.has('camera')) {
       this.updateCameraButton();
+      this.updateTouchCameraToggleIcon();
     }
     if (this.pendingUpdates.has('health')) {
       this.updateHealthBar();

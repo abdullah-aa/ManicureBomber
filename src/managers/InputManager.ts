@@ -44,7 +44,7 @@ export class InputManager {
   private lastTouchCenter: { x: number; y: number } | null = null;
   private touchDeltaX: number = 0;
   private touchDeltaY: number = 0;
-  private isTouchCamera: boolean = false; // true for 2+ finger camera, false for 1 finger bomber
+  private isTouchCameraMode: boolean = false; // true when UI toggle enables camera mode
   private bomberTouchDeltaX: number = 0;
   private bomberTouchDeltaY: number = 0;
 
@@ -199,7 +199,7 @@ export class InputManager {
   }
 
   public getIsTouchCamera(): boolean {
-    return this.isTouchCamera;
+    return this.isTouchCameraMode && this.touchPointers.size > 0;
   }
 
   public getBomberTouchDeltaX(): number {
@@ -212,6 +212,14 @@ export class InputManager {
 
   public getIsTouchActive(): boolean {
     return this.touchPointers.size > 0;
+  }
+
+  public setTouchCameraMode(enabled: boolean): void {
+    this.isTouchCameraMode = enabled;
+  }
+
+  public getTouchCameraMode(): boolean {
+    return this.isTouchCameraMode;
   }
 
   public isKeyPressed(key: string): boolean {
@@ -395,9 +403,6 @@ export class InputManager {
   }
 
   private updateTouchState(): void {
-    // Determine if this is camera (2+ fingers) or bomber (1 finger) control
-    this.isTouchCamera = this.touchPointers.size >= 2;
-
     if (this.touchPointers.size === 0) {
       this.lastTouchCenter = null;
     }
@@ -422,14 +427,18 @@ export class InputManager {
       const deltaX = centerX - this.lastTouchCenter.x;
       const deltaY = centerY - this.lastTouchCenter.y;
 
-      if (this.isTouchCamera) {
-        // Two or more fingers - camera control (not inverted)
+      if (this.isTouchCameraMode) {
+        // Camera control mode - swipe moves camera
         this.touchDeltaX = deltaX;
         this.touchDeltaY = deltaY;
+        this.bomberTouchDeltaX = 0;
+        this.bomberTouchDeltaY = 0;
       } else {
-        // Single finger - bomber control (not inverted)
+        // Bomber control mode - swipe moves bomber
         this.bomberTouchDeltaX = deltaX;
         this.bomberTouchDeltaY = deltaY;
+        this.touchDeltaX = 0;
+        this.touchDeltaY = 0;
       }
     }
 
