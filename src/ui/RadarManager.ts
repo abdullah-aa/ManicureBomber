@@ -4,6 +4,7 @@ import { Bomber } from '../entities/Bomber';
 import { TerrainManager } from '../managers/TerrainManager';
 import { DefenseMissile } from '../entities/DefenseMissile';
 import { IskanderMissile } from '../entities/IskanderMissile';
+import { DeviceDetection } from '../utils/deviceDetection';
 
 interface RadarMarker {
   element: HTMLElement;
@@ -36,6 +37,7 @@ export class RadarManager {
     this.radarDisplay = document.getElementById('radarDisplay')!;
     this.targetCountElement = document.getElementById('targetCount')!;
     this.createRadarPulseStyles();
+    this.applyMobileStylesIfNeeded();
     this.initializeMarkerPool();
     this.updateRadarPixelRadius();
 
@@ -121,6 +123,50 @@ export class RadarManager {
             }
         `;
     document.head.appendChild(style);
+  }
+
+  private applyMobileStylesIfNeeded(): void {
+    if (DeviceDetection.isMobile()) {
+      const style = document.createElement('style');
+      style.textContent = `
+          #radarOverlay {
+            width: 100px !important;
+            font-size: 10px;
+            top: 12px;
+            left: 12px;
+          }
+
+          #radarDisplay {
+            width: 80px !important;
+            height: 80px !important;
+            margin-bottom: 6px;
+          }
+
+          .radar-sweep {
+            height: 40px !important;
+          }
+
+          #radarDisplay::after {
+            left: calc(100px + 15px);
+            font-size: 8px;
+            padding: 3px 6px;
+          }
+
+          #radarHeader {
+            padding: 6px 8px;
+            font-size: 9px;
+          }
+
+          #radarContent {
+            padding: 8px;
+          }
+
+          #scoreDisplay {
+            font-size: 9px;
+          }
+        `;
+      document.head.appendChild(style);
+    }
   }
 
   public update(

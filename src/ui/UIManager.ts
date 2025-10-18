@@ -1,5 +1,6 @@
 import { Game } from '../managers/Game';
 import { InputManager } from '../managers/InputManager';
+import { DeviceDetection } from '../utils/deviceDetection';
 
 export class UIManager {
   private game: Game;
@@ -184,7 +185,7 @@ export class UIManager {
   }
 
   private createTouchCameraToggleButton(): void {
-    if (!this.isMobile()) return; // Only create on mobile
+    if (!DeviceDetection.isMobile()) return; // Only create on mobile
 
     this.touchCameraToggleButton = document.createElement('div');
     this.touchCameraToggleButton.id = 'touch-camera-toggle-button';
@@ -198,7 +199,7 @@ export class UIManager {
   }
 
   private createKeybindsButton(): void {
-    if (this.isMobile()) return; // Only create on non-mobile
+    if (DeviceDetection.isMobile()) return; // Only create on non-mobile
 
     this.keybindsButton = document.createElement('div');
     this.keybindsButton.id = 'keybinds-button';
@@ -213,7 +214,7 @@ export class UIManager {
   }
 
   private createMobileZoomControl(): void {
-    if (!this.isMobile()) return; // Only create on mobile
+    if (!DeviceDetection.isMobile()) return; // Only create on mobile
 
     this.mobileZoomControl = document.createElement('div');
     this.mobileZoomControl.id = 'mobile-zoom-control';
@@ -730,7 +731,7 @@ export class UIManager {
     document.head.appendChild(style);
 
     // Apply mobile-specific styles if on mobile device
-    if (this.isMobile()) {
+    if (DeviceDetection.isMobile()) {
       const mobileStyle = document.createElement('style');
       mobileStyle.textContent = `
         /* Mobile responsive adjustments - using user agent detection for landscape mobile */
@@ -1073,13 +1074,8 @@ export class UIManager {
     }
   }
 
-  private isMobile(): boolean {
-    const userAgent = navigator.userAgent.toLowerCase();
-    return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/.test(userAgent);
-  }
-
   public showKeybindsModal(): void {
-    if (this.isMobile()) return; // Don't show on mobile
+    if (DeviceDetection.isMobile()) return; // Don't show on mobile
 
     const modal = document.getElementById('keybindsModal');
     const keybindsList = document.getElementById('keybindsList');
