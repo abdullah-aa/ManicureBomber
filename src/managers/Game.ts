@@ -101,7 +101,7 @@ export class Game {
       }
     });
 
-    this.cameraController = new CameraController(this.camera, this.bomber);
+    this.cameraController = new CameraController(this.camera, this.bomber, this.terrainManager);
 
     this.inputManager = new InputManager(this.scene, this.canvas);
     this.uiManager = new UIManager(this, this.inputManager);

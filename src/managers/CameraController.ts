@@ -1,10 +1,13 @@
 import { Bomber } from '../entities/Bomber';
 import { FreeCamera, Vector3 } from '@babylonjs/core';
 import { InputManager } from './InputManager';
+import { TerrainManager } from './TerrainManager';
+import { DeviceDetection } from '../utils/deviceDetection';
 
 export class CameraController {
   private camera: FreeCamera;
   private bomber: Bomber;
+  private terrainManager: TerrainManager;
   private followDistance: number = 200;
   private followHeight: number = 280;
   private smoothing: number = 2.0;
@@ -39,9 +42,10 @@ export class CameraController {
   private cachedCos: number = 0;
   private trigCacheValid: boolean = false;
 
-  constructor(camera: FreeCamera, bomber: Bomber) {
+  constructor(camera: FreeCamera, bomber: Bomber, terrainManager: TerrainManager) {
     this.camera = camera;
     this.bomber = bomber;
+    this.terrainManager = terrainManager;
 
     // Store initial values for reset functionality
     this.initialFollowDistance = this.followDistance;
@@ -51,31 +55,35 @@ export class CameraController {
   public update(deltaTime: number, inputManager: InputManager): void {
     const currentTime = performance.now() / 1000;
 
+    // Check if we're in mobile view with plane controls active (not camera mode)
+    const isMobileWithPlaneControls = DeviceDetection.isMobile() && !inputManager.getTouchCameraMode();
+
     // Handle camera reset with 1 key
     if (inputManager.isCameraResetPressed()) {
       this.resetCamera(currentTime);
     }
 
-    // Handle camera panning with Q and E keys
-    if (inputManager.isCameraPanLeftPressed()) {
-      // Pan camera left (negative X direction)
-      this.panAngleOffset -= this.panSpeed * deltaTime;
-      this.trigCacheValid = false; // Invalidate cache when panning
-    }
-    if (inputManager.isCameraPanRightPressed()) {
-      // Pan camera right (positive X direction)
-      this.panAngleOffset += this.panSpeed * deltaTime;
-      this.trigCacheValid = false; // Invalidate cache when panning
-    }
+    // Skip camera adjustments if on mobile with plane controls active
+    if (!isMobileWithPlaneControls) {
+      // Handle camera panning with Q and E keys
+      if (inputManager.isCameraPanLeftPressed()) {
+        // Pan camera left (negative X direction)
+        this.panAngleOffset -= this.panSpeed * deltaTime;
+        this.trigCacheValid = false; // Invalidate cache when panning
+      }
+      if (inputManager.isCameraPanRightPressed()) {
+        // Pan camera right (positive X direction)
+        this.panAngleOffset += this.panSpeed * deltaTime;
+        this.trigCacheValid = false; // Invalidate cache when panning
+      }
 
-    // Handle camera pitch adjustment with R and F keys
-    if (inputManager.isPitchUpPressed()) {
-      this.followHeight += this.zoomSpeed * deltaTime * 60; // R raises camera
-      this.followHeight = Math.min(this.maxFollowHeight, this.followHeight);
-    }
-    if (inputManager.isPitchDownPressed()) {
-      this.followHeight -= this.zoomSpeed * deltaTime * 60; // F lowers camera
-      this.followHeight = Math.max(this.minFollowHeight, this.followHeight);
+      // Handle camera pitch adjustment with R and F keys
+      if (inputManager.isPitchUpPressed()) {
+        this.followHeight += this.zoomSpeed * deltaTime * 60; // R raises camera
+      }
+      if (inputManager.isPitchDownPressed()) {
+        this.followHeight -= this.zoomSpeed * deltaTime * 60; // F lowers camera
+      }
     }
 
     // Handle camera zoom with 3 and 4 keys
@@ -96,8 +104,8 @@ export class CameraController {
       this.followDistance = Math.max(this.minFollowDistance, Math.min(this.maxFollowDistance, this.followDistance));
     }
 
-    // Handle mouse controls - similar to keyboard but with mouse delta
-    if (inputManager.getIsMouseDragging()) {
+    // Handle mouse controls - similar to keyboard but with mouse delta (skip on mobile with plane controls)
+    if (!isMobileWithPlaneControls && inputManager.getIsMouseDragging()) {
       const mouseDeltaX = inputManager.getMouseDeltaX();
       const mouseDeltaY = inputManager.getMouseDeltaY();
       const mouseSensitivity = 0.005; // Adjust sensitivity
@@ -111,12 +119,11 @@ export class CameraController {
       // Mouse Y controls height (like Q/E keys) - not inverted, much higher sensitivity to match panning
       if (Math.abs(mouseDeltaY) > 0) {
         this.followHeight += mouseDeltaY * mouseSensitivity * 300; // Tripled sensitivity to match pan amount
-        this.followHeight = Math.max(this.minFollowHeight, Math.min(this.maxFollowHeight, this.followHeight));
       }
     }
 
-    // Handle touch camera controls (two finger swipe)
-    if (inputManager.getIsTouchCamera()) {
+    // Handle touch camera controls (two finger swipe) - skip on mobile with plane controls
+    if (!isMobileWithPlaneControls && inputManager.getIsTouchCamera()) {
       const touchDeltaX = inputManager.getTouchDeltaX();
       const touchDeltaY = inputManager.getTouchDeltaY();
       const touchSensitivity = 0.005; // Same as mouse sensitivity
@@ -130,7 +137,6 @@ export class CameraController {
       // Touch Y controls height (like Q/E keys) - not inverted, much higher sensitivity to match panning
       if (Math.abs(touchDeltaY) > 0) {
         this.followHeight += touchDeltaY * touchSensitivity * 300; // Tripled sensitivity to match pan amount
-        this.followHeight = Math.max(this.minFollowHeight, Math.min(this.maxFollowHeight, this.followHeight));
       }
     }
 
@@ -149,11 +155,13 @@ export class CameraController {
     }
 
     // Calculate desired camera position using cached values and reusable vectors
-    this.tempVector1.set(
-      bomberPos.x - this.cachedSin * this.followDistance,
-      this.followHeight,
-      bomberPos.z - this.cachedCos * this.followDistance,
-    );
+    const desiredX = bomberPos.x - this.cachedSin * this.followDistance;
+    const desiredZ = bomberPos.z - this.cachedCos * this.followDistance;
+
+    const minHeightAboveGround = 10; // Minimum heightD above ground
+    const clampedFollowHeight = Math.max(this.followHeight, minHeightAboveGround);
+
+    this.tempVector1.set(desiredX, clampedFollowHeight, desiredZ);
 
     // Use a more performance-friendly smoothing approach
     // Instead of Vector3.Lerp which creates new objects, modify existing vectors
