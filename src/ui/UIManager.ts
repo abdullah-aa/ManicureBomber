@@ -1119,15 +1119,18 @@ export class UIManager {
     const modal = document.getElementById('keybindsModal');
     const saveButton = document.getElementById('saveKeybinds');
     const resetButton = document.getElementById('resetKeybinds');
+    const mobileViewButton = document.getElementById('switchToMobileView');
 
-    if (!modal || !saveButton || !resetButton) return;
+    if (!modal || !saveButton || !resetButton || !mobileViewButton) return;
 
     // Remove existing listeners to prevent duplicates
     const newSaveButton = saveButton.cloneNode(true);
     const newResetButton = resetButton.cloneNode(true);
+    const newMobileViewButton = mobileViewButton.cloneNode(true);
 
     saveButton.parentNode?.replaceChild(newSaveButton, saveButton);
     resetButton.parentNode?.replaceChild(newResetButton, resetButton);
+    mobileViewButton.parentNode?.replaceChild(newMobileViewButton, mobileViewButton);
 
     // Add event listeners
     newSaveButton.addEventListener('click', () => {
@@ -1137,6 +1140,10 @@ export class UIManager {
     newResetButton.addEventListener('click', () => {
       this.inputManager.resetKeybinds();
       this.showKeybindsModal(); // Refresh the modal
+    });
+
+    newMobileViewButton.addEventListener('click', () => {
+      DeviceDetection.enableMobileView();
     });
 
     // Close modal when clicking outside

@@ -1,10 +1,12 @@
 /**
  * Utility for detecting device type with query string override support
+ * Defaults to desktop layout with manual option to switch to mobile view
  */
 
 export class DeviceDetection {
   private static cachedIsMobile: boolean | null = null;
   private static cachedOverride: 'mobile' | 'desktop' | null = null;
+  private static readonly MOBILE_VIEW_KEY = 'manicureBomberMobileView';
 
   /**
    * Check if there's a query string override for device type
@@ -28,32 +30,39 @@ export class DeviceDetection {
   }
 
   /**
-   * Detect if device is mobile based on user agent
+   * Check if user manually selected mobile view
    */
-  private static detectMobileUserAgent(): boolean {
-    const userAgent = navigator.userAgent.toLowerCase();
-    return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/.test(userAgent);
+  private static getManualMobileViewSetting(): boolean {
+    const setting = sessionStorage.getItem(this.MOBILE_VIEW_KEY);
+    return setting === 'true';
   }
 
   /**
    * Check if device should be treated as mobile
-   * Respects query string override: ?device=mobile or ?device=desktop
+   * Priority: Query string override > Manual setting > Default to desktop
    */
   public static isMobile(): boolean {
-    // Check for override first
+    // Check for query string override first
     const override = this.getDeviceOverride();
     if (override !== null) {
       return override === 'mobile';
     }
 
-    // Use cached value if available
-    if (this.cachedIsMobile !== null) {
-      return this.cachedIsMobile;
+    // Check for manual mobile view setting
+    if (this.getManualMobileViewSetting()) {
+      return true;
     }
 
-    // Detect from user agent
-    this.cachedIsMobile = this.detectMobileUserAgent();
-    return this.cachedIsMobile;
+    // Default to desktop layout
+    return false;
+  }
+
+  /**
+   * Enable mobile view and reload the page
+   */
+  public static enableMobileView(): void {
+    sessionStorage.setItem(this.MOBILE_VIEW_KEY, 'true');
+    window.location.reload();
   }
 
   /**

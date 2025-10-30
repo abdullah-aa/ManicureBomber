@@ -449,6 +449,17 @@
         border-color: rgba(255, 100, 0, 0.8);
       }
 
+      .keybinds-button.mobile-view {
+        background: rgba(0, 100, 255, 0.2);
+        border-color: rgba(0, 150, 255, 0.5);
+        color: #4da6ff;
+      }
+
+      .keybinds-button.mobile-view:hover {
+        background: rgba(0, 100, 255, 0.3);
+        border-color: rgba(0, 150, 255, 0.8);
+      }
+
       /* Radar Index Tooltip */
       #radarDisplay {
         position: relative;
@@ -510,6 +521,9 @@
         <div class="keybinds-buttons">
           <button class="keybinds-button reset" id="resetKeybinds">Reset to Defaults</button>
           <button class="keybinds-button" id="saveKeybinds">Save & Close</button>
+        </div>
+        <div class="keybinds-buttons" style="margin-top: 12px;">
+          <button class="keybinds-button mobile-view" id="switchToMobileView">Switch to Mobile View</button>
         </div>
       </div>
     </div>
