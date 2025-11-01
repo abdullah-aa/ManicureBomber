@@ -153,7 +153,7 @@ function checkForFlareTargets(
   // Clear old flare targets that are too far away (optimization)
   const filteredFlareTargets = flareTargets.filter((flarePos) => {
     const distanceToFlare = vector3Distance(position, flarePos);
-    return distanceToFlare <= flareDetectionRange * 2; // Keep flares within 2x detection range
+    return distanceToFlare <= flareDetectionRange * 3; // Keep flares within 3x detection range for longer tracking
   });
 
   // Check if any flares are within detection range
@@ -171,7 +171,7 @@ function checkForFlareTargets(
   }
 
   if (closestFlare) {
-    // Switch to targeting the closest flare
+    // Switch to targeting the closest flare - ALWAYS prefer flares when available
     return {
       targetPosition: closestFlare,
       isTargetingFlare: true,
@@ -669,8 +669,8 @@ function updateIskanderMissilePhysics(data: IskanderMissileData): IskanderMissil
   // If missile is targeting a flare (or was targeting one), check distance to target position
   if (isTargetingFlare || data.isTargetingFlare) {
     // Use the distance to target which should be the flare position when targeting flares
-    if (distanceToTarget <= 12) {
-      // Explode when close to flare lock position
+    if (distanceToTarget <= 3) {
+      // Explode when very close to flare lock position (reduced from 12 to 3)
       flareExplosion = true;
     }
   }
@@ -679,8 +679,8 @@ function updateIskanderMissilePhysics(data: IskanderMissileData): IskanderMissil
   if (!flareExplosion && data.flareTargets && data.flareTargets.length > 0) {
     for (const flarePos of data.flareTargets) {
       const distanceToFlare = vector3Distance(newPosition, flarePos);
-      if (distanceToFlare <= 8) {
-        // Explode when very close to active flare
+      if (distanceToFlare <= 2) {
+        // Explode when very close to active flare (reduced from 8 to 2)
         flareExplosion = true;
         break;
       }

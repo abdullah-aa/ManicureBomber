@@ -46,8 +46,8 @@ export class Game {
   // Iskander missile system
   private iskanderMissiles: IskanderMissile[] = [];
   private nextIskanderLaunchTime: number = -Infinity;
-  private iskanderLaunchInterval: number = 30;
-  private iskanderRandomInterval: number = 45;
+  private iskanderLaunchInterval: number = 10;
+  private iskanderRandomInterval: number = 5;
 
   // Defense missile system - centralized management
   private defenseMissiles: DefenseMissile[] = [];

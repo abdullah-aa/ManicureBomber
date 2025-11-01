@@ -48,8 +48,7 @@ export class IskanderMissile {
 
   // Countermeasure flare targeting
   private flareTargets: Vector3[] = [];
-  private flareDetectionRange: number = 80; // Increased from 50 to 80 for better effectiveness
-  private flareAttractionStrength: number = 0.7; // How strongly flares attract the missile
+  private flareDetectionRange: number = 100;
   private originalTargetPosition: Vector3;
   private isTargetingFlare: boolean = false;
 

@@ -88,9 +88,16 @@ export class Bomber {
   // Countermeasure flare system
   private flareCooldown: number = 8; // 8 seconds cooldown
   private lastFlareTime: number = -Infinity;
-  private activeFlares: Vector3[] = [];
-  private flareLifetime: number = 5; // Flares last 5 seconds
-  private flareDetectionRange: number = 80; // Range for Iskander missiles to detect flares
+  private activeFlares: Array<{
+    position: Vector3;
+    velocity: Vector3;
+    lifetime: number;
+    maxLifetime: number;
+    mesh: Mesh;
+    light: PointLight;
+    particles: ParticleSystem;
+  }> = [];
+  private flareLifetime: number = 4; // Flares last 3 seconds
   private flareParticleSystems: ParticleSystem[] = []; // Visual effects for flares
   private flareMeshes: Mesh[] = []; // Visual flare meshes
 
@@ -608,6 +615,9 @@ export class Bomber {
 
     // Update missiles
     this.updateMissiles(deltaTime);
+
+    // Update flares
+    this.updateFlares(deltaTime);
   }
 
   public getPosition(): Vector3 {
@@ -1174,68 +1184,125 @@ export class Bomber {
     const currentTime = performance.now() / 1000;
     this.lastFlareTime = currentTime;
 
-    // Create multiple flare positions around the bomber
-    const flarePositions = [
-      this.position.add(new Vector3(10, -5, 10)),
-      this.position.add(new Vector3(-10, -5, -10)),
-      this.position.add(new Vector3(10, -5, -10)),
-      this.position.add(new Vector3(-10, -5, 10)),
-      this.position.add(new Vector3(0, -8, 15)),
-      this.position.add(new Vector3(0, -8, -15)),
+    // Release flares in sets over time - simulating sequential deployment
+    // Define sets of flares with different release times
+    const flareSets = [
+      { delay: 0, offsets: [new Vector3(-5, -5, -10), new Vector3(5, -5, -10)] },
+      { delay: 0.15, offsets: [new Vector3(-8, -5, -5), new Vector3(8, -5, -5)] },
+      { delay: 0.3, offsets: [new Vector3(-5, -5, 0), new Vector3(5, -5, 0)] },
+      { delay: 0.45, offsets: [new Vector3(-8, -5, 5), new Vector3(8, -5, 5)] },
     ];
 
-    // Create visual effects for each flare
-    flarePositions.forEach((flarePos, index) => {
-      // Create flare mesh
-      const flareMesh = MeshBuilder.CreateSphere(`flare${index}`, { diameter: 0.5 }, this.scene);
-      flareMesh.position = flarePos.clone();
-
-      const flareMaterial = new StandardMaterial(`flareMaterial${index}`, this.scene);
-      flareMaterial.diffuseColor = new Color3(1, 0.8, 0.2); // Bright orange-yellow
-      flareMaterial.emissiveColor = new Color3(1, 0.6, 0.1); // Glowing effect
-      flareMaterial.specularColor = new Color3(1, 1, 1);
-      flareMesh.material = flareMaterial;
-
-      // Add point light to flare
-      const flareLight = new PointLight(`flareLight${index}`, flarePos.clone(), this.scene);
-      flareLight.diffuse = new Color3(1, 0.8, 0.2);
-      flareLight.specular = new Color3(1, 0.8, 0.2);
-      flareLight.intensity = 3;
-      flareLight.range = 20;
-
-      // Create flare particle system
-      const flareParticles = this.createFlareParticleSystem(flarePos.clone(), index);
-
-      // Store references for cleanup
-      this.flareMeshes.push(flareMesh);
-      this.flareParticleSystems.push(flareParticles);
+    flareSets.forEach((set) => {
+      setTimeout(() => {
+        set.offsets.forEach((offset) => {
+          this.deployFlare(offset);
+        });
+      }, set.delay * 1000);
     });
 
-    // Add flares to active list
-    this.activeFlares.push(...flarePositions);
-
-    // Remove flares after lifetime
-    setTimeout(() => {
-      // Remove flare positions
-      this.activeFlares.splice(0, flarePositions.length);
-
-      // Clean up visual effects
-      this.flareMeshes.forEach((mesh) => {
-        if (mesh) {
-          mesh.dispose();
-        }
-      });
-      this.flareMeshes = [];
-
-      this.flareParticleSystems.forEach((particles) => {
-        if (particles) {
-          particles.dispose();
-        }
-      });
-      this.flareParticleSystems = [];
-    }, this.flareLifetime * 1000);
-
     return true;
+  }
+
+  private deployFlare(offset: Vector3): void {
+    // Use current bomber position at deployment time
+    const flarePos = this.position.clone().add(offset);
+
+    // Give the flare an initial velocity that includes:
+    // 1. Bomber's current velocity (so it's not left behind)
+    // 2. A small outward component
+    // 3. A small downward component
+    const flareVelocity = this.velocity.clone();
+    flareVelocity.x += offset.x * 0.5; // Outward spread
+    flareVelocity.y = -5; // Initial downward velocity
+    flareVelocity.z += offset.z * 0.3; // Slight backward spread
+
+    // Create flare mesh
+    const timestamp = Date.now();
+    const flareMesh = MeshBuilder.CreateSphere(`flare${timestamp}`, { diameter: 0.8 }, this.scene);
+    flareMesh.position = flarePos.clone();
+
+    const flareMaterial = new StandardMaterial(`flareMaterial${timestamp}`, this.scene);
+    flareMaterial.diffuseColor = new Color3(1, 0.8, 0.2); // Bright orange-yellow
+    flareMaterial.emissiveColor = new Color3(1, 0.6, 0.1); // Glowing effect
+    flareMaterial.specularColor = new Color3(1, 1, 1);
+    flareMesh.material = flareMaterial;
+
+    // Add point light to flare
+    const flareLight = new PointLight(`flareLight${timestamp}`, flarePos.clone(), this.scene);
+    flareLight.diffuse = new Color3(1, 0.8, 0.2);
+    flareLight.specular = new Color3(1, 0.8, 0.2);
+    flareLight.intensity = 4;
+    flareLight.range = 25;
+
+    // Create flare particle system
+    const flareParticles = this.createFlareParticleSystem(flarePos.clone(), timestamp);
+
+    // Add to active flares with physics data
+    this.activeFlares.push({
+      position: flarePos,
+      velocity: flareVelocity,
+      lifetime: this.flareLifetime,
+      maxLifetime: this.flareLifetime,
+      mesh: flareMesh,
+      light: flareLight,
+      particles: flareParticles,
+    });
+  }
+
+  private updateFlares(deltaTime: number): void {
+    // Update each active flare's physics and visual effects
+    for (let i = this.activeFlares.length - 1; i >= 0; i--) {
+      const flare = this.activeFlares[i];
+
+      // Update lifetime
+      flare.lifetime -= deltaTime;
+
+      // Remove expired flares
+      if (flare.lifetime <= 0) {
+        flare.mesh.dispose();
+        flare.light.dispose();
+        flare.particles.dispose();
+        this.activeFlares.splice(i, 1);
+        continue;
+      }
+
+      // Apply gravity to velocity (downward acceleration)
+      flare.velocity.y -= 9.8 * deltaTime; // Gravity
+
+      // Apply air resistance (slow down horizontal movement)
+      flare.velocity.x *= 0.98;
+      flare.velocity.z *= 0.98;
+
+      // Update position based on velocity
+      flare.position.x += flare.velocity.x * deltaTime;
+      flare.position.y += flare.velocity.y * deltaTime;
+      flare.position.z += flare.velocity.z * deltaTime;
+
+      // Don't let flares go below ground
+      if (flare.position.y < 0.5) {
+        flare.position.y = 0.5;
+        flare.velocity.y = 0; // Stop falling
+        flare.velocity.x *= 0.5; // Reduce horizontal velocity on ground contact
+        flare.velocity.z *= 0.5;
+      }
+
+      // Update mesh and light positions
+      flare.mesh.position.copyFrom(flare.position);
+      flare.light.position.copyFrom(flare.position);
+
+      // Update particle emitter position
+      if (flare.particles.emitter instanceof Vector3) {
+        flare.particles.emitter.copyFrom(flare.position);
+      }
+
+      // Fade out light intensity as flare ages
+      const lifetimeRatio = flare.lifetime / flare.maxLifetime;
+      flare.light.intensity = 4 * lifetimeRatio;
+
+      // Adjust particle emission rate based on lifetime
+      flare.particles.emitRate = 100 * lifetimeRatio;
+    }
   }
 
   private createFlareParticleSystem(flarePosition: Vector3, index: number): ParticleSystem {
@@ -1285,15 +1352,11 @@ export class Bomber {
   }
 
   public getActiveFlares(): Vector3[] {
-    return this.activeFlares.map((flare) => flare.clone());
+    return this.activeFlares.map((flare) => flare.position.clone());
   }
 
   public hasActiveFlares(): boolean {
     return this.activeFlares.length > 0;
-  }
-
-  public getFlareDetectionRange(): number {
-    return this.flareDetectionRange;
   }
 
   public dispose(): void {
@@ -1320,7 +1383,21 @@ export class Bomber {
       this.bombBayGlowMaterial = null;
     }
 
-    // Clean up flare resources
+    // Clean up active flare resources
+    this.activeFlares.forEach((flare) => {
+      if (flare.mesh) {
+        flare.mesh.dispose();
+      }
+      if (flare.light) {
+        flare.light.dispose();
+      }
+      if (flare.particles) {
+        flare.particles.dispose();
+      }
+    });
+    this.activeFlares = [];
+
+    // Clean up legacy flare arrays (kept for compatibility)
     this.flareMeshes.forEach((mesh) => {
       if (mesh) {
         mesh.dispose();
@@ -1334,9 +1411,6 @@ export class Bomber {
       }
     });
     this.flareParticleSystems = [];
-
-    // Clear active flares
-    this.activeFlares = [];
 
     // Clean up damage effects
     this.damageEffects.forEach((ps) => ps.dispose());
