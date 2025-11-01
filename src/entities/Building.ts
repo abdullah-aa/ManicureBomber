@@ -299,6 +299,21 @@ export class Building {
     };
   }
 
+  // Optimized distance check using squared distance (avoids sqrt)
+  public isWithinRadius(position: Vector3, radius: number): boolean {
+    const pos = this.parent.position;
+    const dx = position.x - pos.x;
+    const dy = position.y - pos.y;
+    const dz = position.z - pos.z;
+    const distanceSquared = dx * dx + dy * dy + dz * dz;
+    return distanceSquared <= radius * radius;
+  }
+
+  // Get mesh for Babylon's built-in intersection methods
+  public getMesh(): Mesh {
+    return this.mesh;
+  }
+
   private createTargetIndicator(): void {
     this.targetRing = MeshBuilder.CreateTorus(
       'targetRing',

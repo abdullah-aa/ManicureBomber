@@ -344,7 +344,7 @@ function performCollisionDetection(objects: CollisionObject[]): GenericCollision
   return results;
 }
 
-// Check Iskander missile collisions with bomber
+// Check Iskander missile collisions with bomber (optimized with squared distance)
 function checkIskanderCollisions(
   iskanderMissiles: IskanderMissileData[],
   bomberData: BomberData,
@@ -361,13 +361,22 @@ function checkIskanderCollisions(
     return;
   }
 
+  // Precompute squared thresholds to avoid sqrt in loop
+  const directHitRadiusSquared = 8 * 8;
+  const proximityRadiusSquared = 20 * 20;
+
   for (const missile of iskanderMissiles) {
     if (missile.isLaunched && !missile.hasExploded) {
-      const distance = vector3Distance(bomberData.position, missile.position);
+      // Calculate squared distance (avoids expensive sqrt)
+      const dx = bomberData.position.x - missile.position.x;
+      const dy = bomberData.position.y - missile.position.y;
+      const dz = bomberData.position.z - missile.position.z;
+      const distanceSquared = dx * dx + dy * dy + dz * dz;
 
       // Check for direct hit or proximity explosion
-      if (distance <= 8) {
-        // Direct hit radius
+      if (distanceSquared <= directHitRadiusSquared) {
+        // Direct hit radius - compute actual distance only when needed
+        const distance = Math.sqrt(distanceSquared);
         collisions.push({
           missileId: missile.id,
           collisionType: 'direct_hit',
@@ -375,8 +384,9 @@ function checkIskanderCollisions(
           damage: 50, // 50% of bomber health
           shouldExplode: true,
         });
-      } else if (distance <= 20) {
-        // Proximity explosion
+      } else if (distanceSquared <= proximityRadiusSquared) {
+        // Proximity explosion - compute actual distance only when needed
+        const distance = Math.sqrt(distanceSquared);
         const damage = Math.max(10, 40 - distance);
         collisions.push({
           missileId: missile.id,
@@ -396,7 +406,7 @@ function checkIskanderCollisions(
   });
 }
 
-// Check defense missile collisions with bomber
+// Check defense missile collisions with bomber (optimized with squared distance)
 function checkDefenseCollisions(
   defenseMissiles: DefenseMissileData[],
   bomberData: BomberData,
@@ -413,13 +423,22 @@ function checkDefenseCollisions(
     return;
   }
 
+  // Precompute squared thresholds to avoid sqrt in loop
+  const directHitRadiusSquared = 8 * 8;
+  const proximityRadiusSquared = 20 * 20;
+
   for (const missile of defenseMissiles) {
     if (missile.isLaunched && !missile.hasExploded) {
-      const distance = vector3Distance(bomberData.position, missile.position);
+      // Calculate squared distance (avoids expensive sqrt)
+      const dx = bomberData.position.x - missile.position.x;
+      const dy = bomberData.position.y - missile.position.y;
+      const dz = bomberData.position.z - missile.position.z;
+      const distanceSquared = dx * dx + dy * dy + dz * dz;
 
       // Check for direct hit or proximity explosion
-      if (distance <= 8) {
-        // Direct hit radius
+      if (distanceSquared <= directHitRadiusSquared) {
+        // Direct hit radius - compute actual distance only when needed
+        const distance = Math.sqrt(distanceSquared);
         collisions.push({
           missileId: missile.id,
           collisionType: 'direct_hit',
@@ -427,8 +446,9 @@ function checkDefenseCollisions(
           damage: 25, // Direct hit damage
           shouldExplode: true,
         });
-      } else if (distance <= 20) {
-        // Proximity explosion
+      } else if (distanceSquared <= proximityRadiusSquared) {
+        // Proximity explosion - compute actual distance only when needed
+        const distance = Math.sqrt(distanceSquared);
         const damage = Math.max(5, 20 - distance);
         collisions.push({
           missileId: missile.id,

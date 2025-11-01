@@ -437,11 +437,9 @@ export class TerrainManager {
     const currentTime = performance.now();
 
     if (this.buildingCache.has(cacheKey) && currentTime - this.lastCacheTime < this.cacheTimeout) {
+      // Use optimized radius check (avoids sqrt by using squared distance)
       return Promise.resolve(
-        this.buildingCache.get(cacheKey)!.filter((building) => {
-          const distance = Vector3.Distance(position, building.getPosition());
-          return distance <= radius;
-        }),
+        this.buildingCache.get(cacheKey)!.filter((building) => building.isWithinRadius(position, radius)),
       );
     }
 

@@ -97,7 +97,7 @@ export class Bomber {
     light: PointLight;
     particles: ParticleSystem;
   }> = [];
-  private flareLifetime: number = 4; // Flares last 3 seconds
+  private flareLifetime: number = 8; // Flares last 8 seconds
   private flareParticleSystems: ParticleSystem[] = []; // Visual effects for flares
   private flareMeshes: Mesh[] = []; // Visual flare meshes
 
