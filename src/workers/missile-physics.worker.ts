@@ -144,6 +144,7 @@ function getIskanderCurvedPathPosition(waypoints: Vector3[], t: number): Vector3
 }
 
 // Check for flare targets (optimized for performance)
+// Real seeker missiles are HIGHLY susceptible to flares - they're infrared decoys!
 function checkForFlareTargets(
   position: Vector3,
   flareTargets: Vector3[],
@@ -151,12 +152,14 @@ function checkForFlareTargets(
   originalTargetPosition: Vector3,
 ): { targetPosition: Vector3; isTargetingFlare: boolean; flareTargets: Vector3[] } {
   // Clear old flare targets that are too far away (optimization)
+  // Use larger range to simulate realistic IR seeker behavior
   const filteredFlareTargets = flareTargets.filter((flarePos) => {
     const distanceToFlare = vector3Distance(position, flarePos);
-    return distanceToFlare <= flareDetectionRange * 3; // Keep flares within 3x detection range for longer tracking
+    return distanceToFlare <= flareDetectionRange * 5; // Expanded range for realistic behavior
   });
 
   // Check if any flares are within detection range
+  // Real seekers are VERY attracted to flares - they're often hotter than the target!
   let closestFlare: Vector3 | null = null;
   let closestDistance = Infinity;
 
@@ -164,7 +167,8 @@ function checkForFlareTargets(
     const flarePos = filteredFlareTargets[i];
     const distanceToFlare = vector3Distance(position, flarePos);
 
-    if (distanceToFlare <= flareDetectionRange && distanceToFlare < closestDistance) {
+    // Increased detection range to simulate realistic IR seeker sensitivity
+    if (distanceToFlare <= flareDetectionRange * 1.5 && distanceToFlare < closestDistance) {
       closestFlare = flarePos;
       closestDistance = distanceToFlare;
     }
@@ -172,6 +176,7 @@ function checkForFlareTargets(
 
   if (closestFlare) {
     // Switch to targeting the closest flare - ALWAYS prefer flares when available
+    // This simulates how IR seekers are highly susceptible to decoys
     return {
       targetPosition: closestFlare,
       isTargetingFlare: true,
@@ -555,7 +560,12 @@ function updateIskanderMissilePhysics(data: IskanderMissileData): IskanderMissil
   let flareTargets = data.flareTargets;
   let lockEstablished = false;
 
+  // Initialize guidance parameters - will be adjusted based on targeting mode
+  let effectiveGuidanceStrength = data.guidanceStrength;
+  let effectiveMaxTurnRate = data.maxTurnRate;
+
   // Handle flare targeting if flare targets exist - check every frame for responsiveness
+  // ALWAYS prioritize flares when detected - this is how real seeker missiles work!
   let currentTargetPosition = data.targetPosition;
   if (data.flareTargets && data.flareTargets.length > 0) {
     const flareResult = checkForFlareTargets(
@@ -567,24 +577,31 @@ function updateIskanderMissilePhysics(data: IskanderMissileData): IskanderMissil
     currentTargetPosition = flareResult.targetPosition;
     isTargetingFlare = flareResult.isTargetingFlare;
     flareTargets = flareResult.flareTargets;
+
+    // When flare is detected, MASSIVELY increase guidance to chase it aggressively
+    // This simulates how IR seekers are extremely attracted to hot flares
+    if (isTargetingFlare) {
+      effectiveGuidanceStrength = data.guidanceStrength * 8.0; // 8x guidance when chasing flares!
+      effectiveMaxTurnRate = data.maxTurnRate * 4.0; // 4x turn rate to aggressively pursue flares!
+    }
   }
 
+  let isOvershooting = false;
   // Check for overshoot condition - if we passed the target, increase turn rate dramatically
-  const directionToTarget = vector3Normalize(vector3Subtract(currentTargetPosition, newPosition));
-  const velocityDirection = vector3Normalize(newVelocity);
-  const dotProduct =
-    directionToTarget.x * velocityDirection.x +
-    directionToTarget.y * velocityDirection.y +
-    directionToTarget.z * velocityDirection.z;
-  const isOvershooting = dotProduct < 0.3; // If angle > 72 degrees, we're likely overshooting
+  // But ONLY if not already targeting a flare (flare guidance takes absolute priority)
+  if (!isTargetingFlare) {
+    const directionToTarget = vector3Normalize(vector3Subtract(currentTargetPosition, newPosition));
+    const velocityDirection = vector3Normalize(newVelocity);
+    const dotProduct =
+      directionToTarget.x * velocityDirection.x +
+      directionToTarget.y * velocityDirection.y +
+      directionToTarget.z * velocityDirection.z;
+    isOvershooting = dotProduct < 0.3; // If angle > 72 degrees, we're likely overshooting
 
-  // Adjust guidance parameters based on overshoot
-  let effectiveGuidanceStrength = data.guidanceStrength;
-  let effectiveMaxTurnRate = data.maxTurnRate;
-
-  if (isOvershooting) {
-    effectiveGuidanceStrength *= 3.0; // Triple guidance strength when overshooting
-    effectiveMaxTurnRate *= 2.0; // Double turn rate for rapid correction
+    if (isOvershooting) {
+      effectiveGuidanceStrength *= 3.0; // Triple guidance strength when overshooting
+      effectiveMaxTurnRate *= 2.0; // Double turn rate for rapid correction
+    }
   }
 
   // Use curved path for initial phase, then direct guidance when locked on
@@ -667,20 +684,21 @@ function updateIskanderMissilePhysics(data: IskanderMissileData): IskanderMissil
   let flareExplosion = false;
 
   // If missile is targeting a flare (or was targeting one), check distance to target position
+  // Real seeker missiles are decoyed by flares at much greater distances!
   if (isTargetingFlare || data.isTargetingFlare) {
     // Use the distance to target which should be the flare position when targeting flares
-    if (distanceToTarget <= 3) {
-      // Explode when very close to flare lock position (reduced from 12 to 3)
+    if (distanceToTarget <= 25) {
+      // Realistic flare deception distance - seekers are fooled from much farther away
       flareExplosion = true;
     }
   }
 
-  // Also check active flare positions if any exist
+  // Also check active flare positions if any exist - prioritize flares over actual target
   if (!flareExplosion && data.flareTargets && data.flareTargets.length > 0) {
     for (const flarePos of data.flareTargets) {
       const distanceToFlare = vector3Distance(newPosition, flarePos);
-      if (distanceToFlare <= 2) {
-        // Explode when very close to active flare (reduced from 8 to 2)
+      if (distanceToFlare <= 25) {
+        // Realistic flare deception distance - much larger than before
         flareExplosion = true;
         break;
       }

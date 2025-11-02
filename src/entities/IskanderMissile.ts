@@ -48,7 +48,7 @@ export class IskanderMissile {
 
   // Countermeasure flare targeting
   private flareTargets: Vector3[] = [];
-  private flareDetectionRange: number = 100;
+  private flareDetectionRange: number = 150; // Increased from 100 - real IR seekers are very sensitive
   private originalTargetPosition: Vector3;
   private isTargetingFlare: boolean = false;
 
@@ -538,7 +538,24 @@ export class IskanderMissile {
   }
 
   public addFlareTarget(flarePosition: Vector3): void {
-    this.flareTargets.push(flarePosition.clone());
+    // Don't add duplicate flare positions - check if this flare is already tracked
+    const isDuplicate = this.flareTargets.some(existing =>
+      Vector3.Distance(existing, flarePosition) < 1 // Within 1 unit = same flare
+    );
+
+    if (!isDuplicate) {
+      this.flareTargets.push(flarePosition.clone());
+    }
+  }
+
+  public clearFlareTargets(): void {
+    this.flareTargets = [];
+  }
+
+  public updateFlareTargets(activeFlares: Vector3[]): void {
+    // Replace old flare targets with current active flares
+    // This prevents accumulation of stale flare positions
+    this.flareTargets = activeFlares.map(flare => flare.clone());
   }
 
   public update(deltaTime: number): void {

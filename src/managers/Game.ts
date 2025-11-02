@@ -382,16 +382,17 @@ export class Game {
   }
 
   private updateIskanderMissiles(deltaTime: number): void {
+    // Get active flares once for all missiles
+    const activeFlares = this.bomber.getActiveFlares();
+
     // Update all Iskander missiles
     for (const missile of this.iskanderMissiles) {
+      // Update flare targets efficiently (replaces old list with current active flares)
+      // This ensures missiles always track current flares without duplication
+      missile.updateFlareTargets(activeFlares);
+
       // Update missile physics (now handled by worker)
       missile.update(deltaTime);
-
-      // Add active flares to missile for targeting
-      const activeFlares = this.bomber.getActiveFlares();
-      activeFlares.forEach((flare) => {
-        missile.addFlareTarget(flare);
-      });
 
       // Remove missiles that have exploded
       if (missile.hasExploded()) {
