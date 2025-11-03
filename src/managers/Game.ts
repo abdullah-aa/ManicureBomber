@@ -426,11 +426,15 @@ export class Game {
       });
   }
 
+  private parseMissileIndex(missileId: string): number {
+    return parseInt(missileId.split('_')[1], 10);
+  }
+
   private handleIskanderCollisionResults(collisions: any[]): void {
     if (this.gameOver || this.bomber.isBomberDestroyed()) return;
 
     for (const collision of collisions) {
-      const missileIndex = parseInt(collision.missileId.split('_')[1]);
+      const missileIndex = this.parseMissileIndex(collision.missileId);
       const missile = this.iskanderMissiles[missileIndex];
 
       if (missile && missile.isLaunched() && !missile.hasExploded()) {
@@ -655,7 +659,7 @@ export class Game {
     if (this.gameOver || this.bomber.isBomberDestroyed()) return;
 
     for (const collision of collisions) {
-      const missileIndex = parseInt(collision.missileId.split('_')[1]);
+      const missileIndex = this.parseMissileIndex(collision.missileId);
       const missile = defenseMissiles[missileIndex];
 
       if (missile && missile.isLaunched() && !missile.hasExploded()) {

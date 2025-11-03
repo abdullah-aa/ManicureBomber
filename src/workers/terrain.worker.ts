@@ -5,6 +5,7 @@ import {
   BuildingConfig,
   BuildingData,
   vector3Distance,
+  vector2DistanceXZ,
 } from './worker-utils';
 
 interface ChunkData {
@@ -332,7 +333,10 @@ function prepareBuildingDataForRadius(request: {
     // Check if chunk is within radius
     const chunkCenterX = chunkX * chunkSize;
     const chunkCenterZ = chunkZ * chunkSize;
-    const chunkDistance = Math.sqrt(Math.pow(position.x - chunkCenterX, 2) + Math.pow(position.z - chunkCenterZ, 2));
+    const chunkDistance = vector2DistanceXZ(
+      position,
+      { x: chunkCenterX, y: 0, z: chunkCenterZ },
+    );
 
     if (chunkDistance <= radius + chunkSize * 0.7) {
       relevantChunkKeys.push(chunkKey);

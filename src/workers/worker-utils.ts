@@ -36,6 +36,13 @@ export function vector3Distance(a: Vector3, b: Vector3): number {
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+// 2D distance calculation (x and z only, for horizontal/ground distances)
+export function vector2DistanceXZ(pos1: Vector3, pos2: Vector3): number {
+  const dx = pos1.x - pos2.x;
+  const dz = pos1.z - pos2.z;
+  return Math.sqrt(dx * dx + dz * dz);
+}
+
 export function vector3Lerp(a: Vector3, b: Vector3, t: number): Vector3 {
   return {
     x: a.x + (b.x - a.x) * t,
