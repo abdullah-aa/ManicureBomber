@@ -59,6 +59,25 @@ export class TomahawkMissile {
   private lastSegmentChangeTime: number = 0;
   private orientationUpdateThreshold: number = 0.15; // When to update orientation (segment progress) - increased threshold
 
+  // Flight phase tracking
+  private flightPhase: 'FLYBY' | 'TERMINAL' = 'FLYBY';
+
+  // Launch animation phase tracking
+  private bomberVelocity: Vector3 = new Vector3(0, 0, 0);
+  private inLaunchAnimationPhase: boolean = false;
+
+  // Particle base properties (stored for dynamic updates)
+  private baseExhaustEmitRate: number = 80;
+  private baseTrailEmitRate: number = 80;
+  private baseSmokeEmitRate: number = 30;
+  private baseExhaustMinPower: number = 40;
+  private baseExhaustMaxPower: number = 70;
+  private baseTrailMinPower: number = 2;
+  private baseTrailMaxPower: number = 5;
+  private baseTrailGravity: Vector3 = new Vector3(0, -1, 0);
+  private baseTrailMinSize: number = 0.8;
+  private baseTrailMaxSize: number = 2.5;
+
   // Target destruction callback
   private onTargetDestroyedCallback: ((building: Building) => void) | null = null;
 
@@ -68,6 +87,7 @@ export class TomahawkMissile {
     targetBuilding: Building,
     launchRotation: Vector3,
     workerManager: WorkerManager,
+    bomberVelocity?: Vector3,
   ) {
     this.scene = scene;
     this.workerManager = workerManager;
@@ -76,6 +96,7 @@ export class TomahawkMissile {
     this.targetPosition = targetBuilding.getPosition().clone();
     this.rotation = launchRotation.clone();
     this.velocity = new Vector3(0, 0, 0); // Start stationary
+    this.bomberVelocity = bomberVelocity ? bomberVelocity.clone() : new Vector3(0, 0, 0);
 
     this.missileGroup = new TransformNode('tomahawkGroup', this.scene);
     this.missileGroup.position = this.position.clone();
@@ -235,13 +256,16 @@ export class TomahawkMissile {
     this.exhaustParticles.color2 = new Color4(1, 0.2, 0.05, 0.9); // Deep orange
     this.exhaustParticles.colorDead = new Color4(0.3, 0.1, 0.02, 0.1);
 
-    this.exhaustParticles.emitRate = 80; // Reduced from 150
+    this.baseExhaustEmitRate = 80; // Store base value
+    this.exhaustParticles.emitRate = this.baseExhaustEmitRate;
     this.exhaustParticles.minLifeTime = 0.3;
     this.exhaustParticles.maxLifeTime = 0.6;
     this.exhaustParticles.minSize = 0.3;
     this.exhaustParticles.maxSize = 1.2;
-    this.exhaustParticles.minEmitPower = 40;
-    this.exhaustParticles.maxEmitPower = 70;
+    this.baseExhaustMinPower = 40;
+    this.baseExhaustMaxPower = 70;
+    this.exhaustParticles.minEmitPower = this.baseExhaustMinPower;
+    this.exhaustParticles.maxEmitPower = this.baseExhaustMaxPower;
     this.exhaustParticles.updateSpeed = 0.01;
 
     this.exhaustParticles.direction1 = new Vector3(-0.2, -0.1, -1);
@@ -275,13 +299,18 @@ export class TomahawkMissile {
     this.trailParticles.color2 = new Color4(0.6, 0.7, 0.9, 0.4); // Medium blue
     this.trailParticles.colorDead = new Color4(0.2, 0.3, 0.5, 0.0);
 
-    this.trailParticles.emitRate = 80; // Reduced from 120
+    this.baseTrailEmitRate = 80; // Store base value
+    this.trailParticles.emitRate = this.baseTrailEmitRate;
     this.trailParticles.minLifeTime = 1.5;
     this.trailParticles.maxLifeTime = 3.0;
-    this.trailParticles.minSize = 0.8;
-    this.trailParticles.maxSize = 2.5;
-    this.trailParticles.minEmitPower = 2;
-    this.trailParticles.maxEmitPower = 5;
+    this.baseTrailMinSize = 0.8;
+    this.baseTrailMaxSize = 2.5;
+    this.trailParticles.minSize = this.baseTrailMinSize;
+    this.trailParticles.maxSize = this.baseTrailMaxSize;
+    this.baseTrailMinPower = 2;
+    this.baseTrailMaxPower = 5;
+    this.trailParticles.minEmitPower = this.baseTrailMinPower;
+    this.trailParticles.maxEmitPower = this.baseTrailMaxPower;
     this.trailParticles.updateSpeed = 0.01;
 
     this.trailParticles.direction1 = new Vector3(0, 0, -0.2);
@@ -326,7 +355,8 @@ export class TomahawkMissile {
     this.flightSmokeParticles.color2 = new Color4(0.6, 0.6, 0.6, 0.2);
     this.flightSmokeParticles.colorDead = new Color4(0.2, 0.2, 0.2, 0.0);
 
-    this.flightSmokeParticles.emitRate = 30; // Reduced from 50
+    this.baseSmokeEmitRate = 30; // Store base value
+    this.flightSmokeParticles.emitRate = this.baseSmokeEmitRate;
     this.flightSmokeParticles.minLifeTime = 2.0;
     this.flightSmokeParticles.maxLifeTime = 4.0;
     this.flightSmokeParticles.minSize = 1.0;
@@ -339,6 +369,48 @@ export class TomahawkMissile {
     this.flightSmokeParticles.direction2 = new Vector3(0, 0, 0.1);
     this.flightSmokeParticles.gravity = new Vector3(0, -0.5, 0);
     this.flightSmokeParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+  }
+
+  private updateParticleEffects(flightPhase: 'FLYBY' | 'TERMINAL'): void {
+    if (flightPhase === 'TERMINAL') {
+      // Terminal descent: Increase exhaust intensity, intensify trail, reduce smoke
+      this.exhaustParticles.emitRate = this.baseExhaustEmitRate * 1.5; // 50% more exhaust
+      this.exhaustParticles.minEmitPower = this.baseExhaustMinPower * 1.2;
+      this.exhaustParticles.maxEmitPower = this.baseExhaustMaxPower * 1.2;
+      
+      // Add slight forward component to exhaust during dive
+      this.exhaustParticles.direction1 = new Vector3(-0.2, -0.2, -1.1);
+      this.exhaustParticles.direction2 = new Vector3(0.2, -0.2, -1.1);
+      
+      // Trail: Increase intensity and size
+      this.trailParticles.emitRate = this.baseTrailEmitRate * 1.2; // 20% more trail
+      this.trailParticles.minSize = this.baseTrailMinSize * 1.3;
+      this.trailParticles.maxSize = this.baseTrailMaxSize * 1.3;
+      this.trailParticles.minEmitPower = this.baseTrailMinPower * 1.2;
+      this.trailParticles.maxEmitPower = this.baseTrailMaxPower * 1.2;
+      
+      // Increase gravity effect during dive (steeper fall)
+      this.trailParticles.gravity = new Vector3(0, -2.0, 0); // Doubled gravity
+      
+      // Smoke: Reduce during terminal descent
+      this.flightSmokeParticles.emitRate = this.baseSmokeEmitRate * 0.5; // 50% less smoke
+    } else {
+      // Flyby phase: Normal emission rates
+      this.exhaustParticles.emitRate = this.baseExhaustEmitRate;
+      this.exhaustParticles.minEmitPower = this.baseExhaustMinPower;
+      this.exhaustParticles.maxEmitPower = this.baseExhaustMaxPower;
+      this.exhaustParticles.direction1 = new Vector3(-0.2, -0.1, -1);
+      this.exhaustParticles.direction2 = new Vector3(0.2, 0.1, -1);
+      
+      this.trailParticles.emitRate = this.baseTrailEmitRate;
+      this.trailParticles.minSize = this.baseTrailMinSize;
+      this.trailParticles.maxSize = this.baseTrailMaxSize;
+      this.trailParticles.minEmitPower = this.baseTrailMinPower;
+      this.trailParticles.maxEmitPower = this.baseTrailMaxPower;
+      this.trailParticles.gravity = this.baseTrailGravity.clone();
+      
+      this.flightSmokeParticles.emitRate = this.baseSmokeEmitRate;
+    }
   }
 
   private setupExplosionEffects(): void {
@@ -552,6 +624,7 @@ export class TomahawkMissile {
     if (this.launched) return;
 
     this.launched = true;
+    this.inLaunchAnimationPhase = true;
 
     // Start trail particles immediately
     this.trailParticles.start();
@@ -561,6 +634,7 @@ export class TomahawkMissile {
 
     // Start guided flight immediately after animation completes without delay
     this.launchAnimationGroup.onAnimationGroupEndObservable.add(() => {
+      this.inLaunchAnimationPhase = false;
       this.startGuidedFlight();
     });
   }
@@ -577,12 +651,25 @@ export class TomahawkMissile {
     // Initialize path time for curved navigation (path is already generated)
     this.pathTime = 0.01; // Small offset to start on curved path
     this.lastSegmentChangeTime = performance.now() / 1000;
+
+    // Initialize particle effects for flyby phase
+    this.flightPhase = 'FLYBY';
+    this.updateParticleEffects(this.flightPhase);
   }
 
   public update(deltaTime: number): void {
     if (!this.launched || this.exploded) return;
 
     const currentTime = performance.now() / 1000;
+
+    // During launch animation phase, move missile with bomber's velocity to maintain relative position
+    if (this.inLaunchAnimationPhase) {
+      // Apply bomber's velocity to maintain position relative to bomber
+      const velocityDelta = this.bomberVelocity.scale(deltaTime);
+      this.position.addInPlace(velocityDelta);
+      this.missileGroup.position = this.position.clone();
+      return; // Don't update physics during launch animation
+    }
 
     // Use worker for physics calculations
     this.updatePhysicsWorker(deltaTime, currentTime);
@@ -649,6 +736,12 @@ export class TomahawkMissile {
     }
     if (result.lastSegmentChangeTime !== undefined) {
       this.lastSegmentChangeTime = result.lastSegmentChangeTime;
+    }
+
+    // Update flight phase and particle effects if phase changed
+    if (result.flightPhase && result.flightPhase !== this.flightPhase) {
+      this.flightPhase = result.flightPhase;
+      this.updateParticleEffects(this.flightPhase);
     }
 
     // Apply transforms

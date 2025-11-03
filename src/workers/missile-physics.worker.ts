@@ -78,6 +78,7 @@ interface DefenseMissileResult extends BaseMissileResult {
 interface TomahawkMissileResult extends BaseMissileResult {
   pathTime: number;
   lastSegmentChangeTime: number;
+  flightPhase: 'FLYBY' | 'TERMINAL';
 }
 
 // Iskander missile specific result
@@ -91,30 +92,68 @@ interface IskanderMissileResult extends BaseMissileResult {
   lockEstablished: boolean;
 }
 
-// Tomahawk missile curved path calculation
+// Catmull-Rom spline interpolation helper for smooth curves
+function catmullRomSpline(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: number): Vector3 {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  
+  return {
+    x: 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+    y: 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
+    z: 0.5 * ((2 * p1.z) + (-p0.z + p2.z) * t + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 + (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * t3),
+  };
+}
+
+// Tomahawk missile curved path calculation with multi-segment support
 function getCurvedPathPosition(waypoints: Vector3[], t: number): Vector3 {
   if (waypoints.length < 2) return waypoints[0] || { x: 0, y: 0, z: 0 };
 
-  const startPos = waypoints[0];
-  const endPos = waypoints[1];
+  // Terminal descent phase threshold (last 25% of path)
+  const terminalDescentThreshold = 0.75;
 
-  // Linear interpolation for base path
-  const basePos = vector3Lerp(startPos, endPos, t);
-
-  // Add curved deviation
-  const distance = vector3Distance(startPos, endPos);
-  const curveAmplitude = distance * 0.2; // 20% curve amplitude
-
-  // Create a winding curve using sine waves
-  const curveX = Math.sin(t * Math.PI * 2) * curveAmplitude;
-  const curveZ = Math.cos(t * Math.PI * 1.5) * curveAmplitude;
-  const curveY = Math.sin(t * Math.PI) * 50; // Height variation
-
-  return {
-    x: basePos.x + curveX,
-    y: basePos.y + curveY,
-    z: basePos.z + curveZ,
-  };
+  if (t <= terminalDescentThreshold) {
+    // Flyby phase: Use Catmull-Rom spline for smooth curved flight
+    // Normalize t to 0-1 range for flyby phase only
+    const flybyT = t / terminalDescentThreshold;
+    
+    if (waypoints.length >= 4) {
+      // Use multi-segment spline interpolation
+      const segmentCount = waypoints.length - 1;
+      const flybySegments = Math.floor(segmentCount * terminalDescentThreshold);
+      const segmentIndex = Math.min(Math.floor(flybyT * flybySegments), flybySegments - 1);
+      const segmentT = (flybyT * flybySegments) % 1.0;
+      
+      // Get control points for spline (use first 4 waypoints for flyby)
+      const p0 = waypoints[Math.max(0, segmentIndex - 1)];
+      const p1 = waypoints[segmentIndex];
+      const p2 = waypoints[Math.min(waypoints.length - 1, segmentIndex + 1)];
+      const p3 = waypoints[Math.min(waypoints.length - 1, segmentIndex + 2)];
+      
+      return catmullRomSpline(p0, p1, p2, p3, segmentT);
+    } else {
+      // Fallback to simple interpolation for 2-3 waypoints
+      if (waypoints.length === 2) {
+        return vector3Lerp(waypoints[0], waypoints[1], flybyT);
+      } else {
+        // Interpolate between first two waypoints for flyby
+        return vector3Lerp(waypoints[0], waypoints[1], flybyT);
+      }
+    }
+  } else {
+    // Terminal descent phase: Sharp dive from waypoint 4 to target
+    const terminalT = (t - terminalDescentThreshold) / (1.0 - terminalDescentThreshold);
+    
+    // Use waypoint 4 (terminal start) and final waypoint (target) for steep dive
+    const terminalStartIndex = Math.min(3, waypoints.length - 2);
+    const terminalStart = waypoints[terminalStartIndex];
+    const target = waypoints[waypoints.length - 1];
+    
+    // Linear interpolation with exponential curve for dramatic dive
+    const diveT = terminalT * terminalT; // Exponential curve for steeper descent
+    const position = vector3Lerp(terminalStart, target, diveT);
+    
+    return position;
+  }
 }
 
 // Iskander missile curved path calculation with wider angles (optimized)
@@ -398,6 +437,7 @@ function updateTomahawkMissilePhysics(data: TomahawkMissileData): TomahawkMissil
       shouldExplode: false,
       distanceToTarget: vector3Distance(data.position, data.targetPosition),
       lastSegmentChangeTime: data.lastSegmentChangeTime,
+      flightPhase: 'FLYBY',
     };
   }
 
@@ -411,14 +451,32 @@ function updateTomahawkMissilePhysics(data: TomahawkMissileData): TomahawkMissil
 
   const currentTime = data.currentTime;
 
-  newPathTime += data.deltaTime * data.pathSpeed;
+  // Terminal descent phase threshold (75% of path)
+  const terminalDescentThreshold = 0.75;
+  const distanceToTarget = vector3Distance(newPosition, data.targetPosition);
+  
+  // Determine flight phase
+  let flightPhase: 'FLYBY' | 'TERMINAL' = 'FLYBY';
+  if (newPathTime > terminalDescentThreshold || distanceToTarget < 300) {
+    flightPhase = 'TERMINAL';
+  }
 
-  // Check if we should update orientation at curve segment boundaries
+  // Calculate path speed multiplier based on phase
+  const pathSpeedMultiplier = flightPhase === 'TERMINAL' ? 1.4 : 1.0; // 40% faster in terminal phase
+  newPathTime += data.deltaTime * data.pathSpeed * pathSpeedMultiplier;
+
+  // Re-check phase after path time update
+  if (newPathTime > terminalDescentThreshold || distanceToTarget < 300) {
+    flightPhase = 'TERMINAL';
+  }
+
+  // Check if we should update orientation at curve segment boundaries (only during flyby)
   const segmentSize = 0.2;
   const segmentProgress = (newPathTime % segmentSize) / segmentSize;
   const orientationUpdateThreshold = data.orientationUpdateThreshold;
 
   const shouldUpdateOrientation =
+    flightPhase === 'FLYBY' &&
     (segmentProgress <= orientationUpdateThreshold || segmentProgress >= 0.9) &&
     currentTime - lastSegmentChangeTime > 0.2;
 
@@ -426,14 +484,20 @@ function updateTomahawkMissilePhysics(data: TomahawkMissileData): TomahawkMissil
     // Follow the curved path
     const targetPosition = getCurvedPathPosition(data.waypoints, newPathTime);
     const directionToTarget = vector3Normalize(vector3Subtract(targetPosition, newPosition));
-    const desiredVelocity = vector3Scale(directionToTarget, data.speed);
+    
+    // Speed multiplier for terminal descent
+    const effectiveSpeed = flightPhase === 'TERMINAL' ? data.speed * 1.3 : data.speed;
+    const desiredVelocity = vector3Scale(directionToTarget, effectiveSpeed);
+
+    // Turn rate multiplier for terminal descent (more aggressive)
+    const effectiveTurnRate = flightPhase === 'TERMINAL' ? data.turnRate * 2.0 : data.turnRate;
 
     // Smoothly interpolate velocity for curved movement
-    newVelocity.x = newVelocity.x + (desiredVelocity.x - newVelocity.x) * data.turnRate * data.deltaTime;
-    newVelocity.y = newVelocity.y + (desiredVelocity.y - newVelocity.y) * data.turnRate * data.deltaTime;
-    newVelocity.z = newVelocity.z + (desiredVelocity.z - newVelocity.z) * data.turnRate * data.deltaTime;
+    newVelocity.x = newVelocity.x + (desiredVelocity.x - newVelocity.x) * effectiveTurnRate * data.deltaTime;
+    newVelocity.y = newVelocity.y + (desiredVelocity.y - newVelocity.y) * effectiveTurnRate * data.deltaTime;
+    newVelocity.z = newVelocity.z + (desiredVelocity.z - newVelocity.z) * effectiveTurnRate * data.deltaTime;
 
-    // Update orientation with look-ahead if it's time
+    // Update orientation with look-ahead if it's time (flyby only)
     if (shouldUpdateOrientation) {
       const lookAheadDistance = data.lookAheadDistance;
       const lookAheadTime = Math.min(newPathTime + lookAheadDistance, 1.0);
@@ -474,7 +538,9 @@ function updateTomahawkMissilePhysics(data: TomahawkMissileData): TomahawkMissil
   } else {
     // Head directly to target when curve is complete
     const directionToTarget = vector3Normalize(vector3Subtract(data.targetPosition, newPosition));
-    newVelocity = vector3Scale(directionToTarget, data.speed);
+    const effectiveSpeed = flightPhase === 'TERMINAL' ? data.speed * 1.3 : data.speed;
+    newVelocity = vector3Scale(directionToTarget, effectiveSpeed);
+    flightPhase = 'TERMINAL'; // Force terminal phase when path complete
   }
 
   // Update rotation based on velocity (only if not updating orientation to look ahead)
@@ -484,8 +550,8 @@ function updateTomahawkMissilePhysics(data: TomahawkMissileData): TomahawkMissil
     const horizontalSpeed = Math.sqrt(newVelocity.x * newVelocity.x + newVelocity.z * newVelocity.z);
     const targetPitch = horizontalSpeed > 0.001 ? Math.atan2(-newVelocity.y, horizontalSpeed) : 0;
 
-    // Smooth rotation interpolation
-    const rotationSpeed = 3.0;
+    // Enhanced rotation speed for terminal descent
+    const rotationSpeed = flightPhase === 'TERMINAL' ? 5.0 : 3.0;
     const maxRotationChange = rotationSpeed * data.deltaTime;
 
     // Handle yaw wrapping
@@ -498,7 +564,7 @@ function updateTomahawkMissilePhysics(data: TomahawkMissileData): TomahawkMissil
     }
     newRotation.y += yawDiff;
 
-    // Smooth pitch change
+    // Smooth pitch change (more aggressive in terminal phase)
     let pitchDiff = targetPitch - newRotation.x;
     if (Math.abs(pitchDiff) > maxRotationChange) {
       pitchDiff = Math.sign(pitchDiff) * maxRotationChange;
@@ -512,8 +578,8 @@ function updateTomahawkMissilePhysics(data: TomahawkMissileData): TomahawkMissil
   newPosition.z += newVelocity.z * data.deltaTime;
 
   // Check collision conditions
-  const distanceToTarget = vector3Distance(newPosition, data.targetPosition);
-  reachedTarget = distanceToTarget <= 5 || newPosition.y <= 0;
+  const finalDistanceToTarget = vector3Distance(newPosition, data.targetPosition);
+  reachedTarget = finalDistanceToTarget <= 5 || newPosition.y <= 0;
   shouldExplode = reachedTarget;
 
   return {
@@ -523,8 +589,9 @@ function updateTomahawkMissilePhysics(data: TomahawkMissileData): TomahawkMissil
     pathTime: newPathTime,
     reachedTarget,
     shouldExplode,
-    distanceToTarget,
+    distanceToTarget: finalDistanceToTarget,
     lastSegmentChangeTime,
+    flightPhase,
   };
 }
 
@@ -740,8 +807,57 @@ function generateTomahawkPath(request: TomahawkPathRequest): { waypoints: Vector
   // Calculate predicted start position after launch animation
   const predictedStartPos = vector3Add(launchPosition, animationOffset);
 
-  // Generate waypoints for curved path using original calculation
-  const waypoints = [predictedStartPos, targetPosition];
+  // Calculate direction from start to target
+  const directionToTarget = vector3Normalize(vector3Subtract(targetPosition, predictedStartPos));
+  const totalDistance = vector3Distance(predictedStartPos, targetPosition);
+
+  // Define cruise altitude (maintain during flyby)
+  const cruiseAltitude = Math.max(predictedStartPos.y, targetPosition.y) + 80;
+  
+  // Calculate horizontal distance (XZ plane)
+  const horizontalDistance = Math.sqrt(
+    (targetPosition.x - predictedStartPos.x) ** 2 + 
+    (targetPosition.z - predictedStartPos.z) ** 2
+  );
+
+  // Create waypoints for curved flyby approach
+  // Waypoint 1: Start position (after launch animation)
+  const wp1 = predictedStartPos;
+
+  // Waypoint 2: Mid-point of flyby arc, offset to create curved approach
+  const midPoint = vector3Lerp(predictedStartPos, targetPosition, 0.3);
+  const perpendicular = {
+    x: -directionToTarget.z,
+    y: 0,
+    z: directionToTarget.x,
+  };
+  const arcOffset = horizontalDistance * 0.15; // 15% offset for arc
+  const wp2 = {
+    x: midPoint.x + perpendicular.x * arcOffset,
+    y: cruiseAltitude,
+    z: midPoint.z + perpendicular.z * arcOffset,
+  };
+
+  // Waypoint 3: Near target at cruise altitude (flyby point)
+  const nearTarget = vector3Lerp(predictedStartPos, targetPosition, 0.7);
+  const wp3 = {
+    x: nearTarget.x + perpendicular.x * arcOffset * 0.5,
+    y: cruiseAltitude,
+    z: nearTarget.z + perpendicular.z * arcOffset * 0.5,
+  };
+
+  // Waypoint 4: Terminal descent start point (above target at cruise altitude)
+  const wp4 = {
+    x: targetPosition.x + directionToTarget.x * 200, // 200 units ahead of target
+    y: cruiseAltitude,
+    z: targetPosition.z + directionToTarget.z * 200,
+  };
+
+  // Waypoint 5: Target position (final impact point)
+  const wp5 = targetPosition;
+
+  // Generate waypoints for curved path
+  const waypoints = [wp1, wp2, wp3, wp4, wp5];
 
   return { waypoints };
 }

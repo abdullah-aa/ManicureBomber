@@ -917,6 +917,7 @@ export class Bomber {
         targetBuilding,
         this.rotation.clone(),
         this.workerManager,
+        this.velocity.clone(), // Pass bomber velocity so missile moves with bomber during launch animation
       );
 
       // Set up target destruction callback
