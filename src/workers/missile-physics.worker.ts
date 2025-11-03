@@ -811,8 +811,10 @@ function generateTomahawkPath(request: TomahawkPathRequest): { waypoints: Vector
   const directionToTarget = vector3Normalize(vector3Subtract(targetPosition, predictedStartPos));
   const totalDistance = vector3Distance(predictedStartPos, targetPosition);
 
-  // Define cruise altitude (maintain during flyby)
-  const cruiseAltitude = Math.max(predictedStartPos.y, targetPosition.y) + 80;
+  // Define cruise altitude below bomber (bomber is at ~200, missile at ~100-120)
+  // Ensure it's well below the bomber but above ground
+  const cruiseAltitude = Math.max(predictedStartPos.y, targetPosition.y) - 80;
+  const safeCruiseAltitude = Math.max(cruiseAltitude, 80); // Minimum 80 units above ground
   
   // Calculate horizontal distance (XZ plane)
   const horizontalDistance = Math.sqrt(
@@ -820,44 +822,121 @@ function generateTomahawkPath(request: TomahawkPathRequest): { waypoints: Vector
     (targetPosition.z - predictedStartPos.z) ** 2
   );
 
-  // Create waypoints for curved flyby approach
-  // Waypoint 1: Start position (after launch animation)
-  const wp1 = predictedStartPos;
-
-  // Waypoint 2: Mid-point of flyby arc, offset to create curved approach
-  const midPoint = vector3Lerp(predictedStartPos, targetPosition, 0.3);
+  // Calculate perpendicular vector for looping (90 degrees to direction)
   const perpendicular = {
     x: -directionToTarget.z,
     y: 0,
     z: directionToTarget.x,
   };
-  const arcOffset = horizontalDistance * 0.15; // 15% offset for arc
+
+  // Calculate looping radius - make it large enough to avoid bomber
+  // Use 40% of horizontal distance, minimum 150 units, maximum 400 units
+  const loopRadius = Math.max(Math.min(horizontalDistance * 0.4, 400), 150);
+  
+  // Calculate center point for loops (midway between start and target, offset from bomber path)
+  const loopCenter = vector3Lerp(predictedStartPos, targetPosition, 0.5);
+  // Offset center away from bomber's path to avoid collision
+  const centerOffset = horizontalDistance * 0.2;
+  const offsetLoopCenter = {
+    x: loopCenter.x + perpendicular.x * centerOffset,
+    y: safeCruiseAltitude,
+    z: loopCenter.z + perpendicular.z * centerOffset,
+  };
+
+  // Create waypoints for looping approach
+  // Waypoint 1: Start position (after launch animation) - descend to cruise altitude
+  const wp1 = {
+    x: predictedStartPos.x,
+    y: safeCruiseAltitude,
+    z: predictedStartPos.z,
+  };
+
+  // First loop - approach from side
+  // Waypoint 2: Entry point for first loop (east/north side)
+  const angle1 = Math.atan2(perpendicular.x, perpendicular.z);
   const wp2 = {
-    x: midPoint.x + perpendicular.x * arcOffset,
-    y: cruiseAltitude,
-    z: midPoint.z + perpendicular.z * arcOffset,
+    x: offsetLoopCenter.x + Math.sin(angle1) * loopRadius,
+    y: safeCruiseAltitude,
+    z: offsetLoopCenter.z + Math.cos(angle1) * loopRadius,
   };
 
-  // Waypoint 3: Near target at cruise altitude (flyby point)
-  const nearTarget = vector3Lerp(predictedStartPos, targetPosition, 0.7);
+  // Waypoint 3: South side of first loop
+  const angle2 = angle1 + Math.PI * 0.5;
   const wp3 = {
-    x: nearTarget.x + perpendicular.x * arcOffset * 0.5,
-    y: cruiseAltitude,
-    z: nearTarget.z + perpendicular.z * arcOffset * 0.5,
+    x: offsetLoopCenter.x + Math.sin(angle2) * loopRadius,
+    y: safeCruiseAltitude,
+    z: offsetLoopCenter.z + Math.cos(angle2) * loopRadius,
   };
 
-  // Waypoint 4: Terminal descent start point (above target at cruise altitude)
+  // Waypoint 4: West side of first loop
+  const angle3 = angle1 + Math.PI;
   const wp4 = {
-    x: targetPosition.x + directionToTarget.x * 200, // 200 units ahead of target
-    y: cruiseAltitude,
-    z: targetPosition.z + directionToTarget.z * 200,
+    x: offsetLoopCenter.x + Math.sin(angle3) * loopRadius,
+    y: safeCruiseAltitude,
+    z: offsetLoopCenter.z + Math.cos(angle3) * loopRadius,
   };
 
-  // Waypoint 5: Target position (final impact point)
-  const wp5 = targetPosition;
+  // Waypoint 5: North side of first loop (completing first loop)
+  const angle4 = angle1 + Math.PI * 1.5;
+  const wp5 = {
+    x: offsetLoopCenter.x + Math.sin(angle4) * loopRadius,
+    y: safeCruiseAltitude,
+    z: offsetLoopCenter.z + Math.cos(angle4) * loopRadius,
+  };
 
-  // Generate waypoints for curved path
-  const waypoints = [wp1, wp2, wp3, wp4, wp5];
+  // Second loop - smaller radius, closer to target
+  const loop2Radius = loopRadius * 0.7;
+  const loop2Center = vector3Lerp(offsetLoopCenter, targetPosition, 0.4);
+  const loop2CenterPos = {
+    x: loop2Center.x,
+    y: safeCruiseAltitude,
+    z: loop2Center.z,
+  };
+
+  // Waypoint 6: Entry point for second loop
+  const angle5 = angle1 + Math.PI * 0.25; // Offset from first loop
+  const wp6 = {
+    x: loop2CenterPos.x + Math.sin(angle5) * loop2Radius,
+    y: safeCruiseAltitude,
+    z: loop2CenterPos.z + Math.cos(angle5) * loop2Radius,
+  };
+
+  // Waypoint 7: Continue second loop
+  const angle6 = angle5 + Math.PI * 0.5;
+  const wp7 = {
+    x: loop2CenterPos.x + Math.sin(angle6) * loop2Radius,
+    y: safeCruiseAltitude,
+    z: loop2CenterPos.z + Math.cos(angle6) * loop2Radius,
+  };
+
+  // Waypoint 8: Continue second loop
+  const angle7 = angle5 + Math.PI;
+  const wp8 = {
+    x: loop2CenterPos.x + Math.sin(angle7) * loop2Radius,
+    y: safeCruiseAltitude,
+    z: loop2CenterPos.z + Math.cos(angle7) * loop2Radius,
+  };
+
+  // Waypoint 9: Complete second loop
+  const angle8 = angle5 + Math.PI * 1.5;
+  const wp9 = {
+    x: loop2CenterPos.x + Math.sin(angle8) * loop2Radius,
+    y: safeCruiseAltitude,
+    z: loop2CenterPos.z + Math.cos(angle8) * loop2Radius,
+  };
+
+  // Waypoint 10: Terminal descent start point (above target, still at cruise altitude)
+  const wp10 = {
+    x: targetPosition.x + directionToTarget.x * 150, // 150 units ahead of target
+    y: safeCruiseAltitude,
+    z: targetPosition.z + directionToTarget.z * 150,
+  };
+
+  // Waypoint 11: Target position (final impact point)
+  const wp11 = targetPosition;
+
+  // Generate waypoints for looping path
+  const waypoints = [wp1, wp2, wp3, wp4, wp5, wp6, wp7, wp8, wp9, wp10, wp11];
 
   return { waypoints };
 }
