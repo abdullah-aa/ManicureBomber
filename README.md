@@ -26,12 +26,14 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 
 ### 🛩️ Advanced Flight Dynamics
 
-- **Realistic Physics**: Banking turns, altitude control, and smooth flight dynamics
-- **Low-Altitude Flight**: Fly as low as 15 units for tactical advantage
+- **Realistic Physics**: Banking turns with 30° max bank angle, altitude control, and smooth flight dynamics
+- **Low-Altitude Flight**: Fly as low as 80 units for tactical advantage
 - **Responsive Controls**: Smooth 60 FPS flight controls with realistic aircraft behavior
+- **Banking System**: Realistic roll angles during turns for authentic flight feel
 - **Advanced Camera Systems**: Sophisticated dual-mode camera with desktop/mobile optimizations
 - **Multi-Platform Input**: Unified touch-to-key simulation with responsive mobile UI
 - **Adaptive Interface**: Smart UI scaling and user agent detection for optimal experience
+- **Bomb Bay System**: Animated bomb bay doors with opening/closing sequences and visual effects
 
 ### 🏗️ Dynamic World Generation
 
@@ -44,9 +46,11 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 
 #### Offensive Capabilities
 
-- **Strategic Bombing**: 9-bomb runs with cooldown system
-- **Tomahawk Missiles**: Cruise missiles with curved flight paths and look-ahead targeting
-- **Precision Targeting**: Advanced targeting systems for maximum effectiveness
+- **Strategic Bombing**: 9-bomb runs with 15-second cooldown system
+- **Animated Bomb Bay**: Realistic bomb bay door opening/closing with visual effects and lighting
+- **Tomahawk Missiles**: Cruise missiles with curved flight paths, look-ahead targeting, and 10-second cooldown
+- **Weapon System Coordination**: Bombing and missile launches are mutually exclusive for realistic operations
+- **Precision Targeting**: Advanced targeting systems with building detection and ground crosshairs
 
 #### Defensive Systems
 
@@ -59,14 +63,15 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 #### Enemy Threats
 
 - **Iskander Missiles**: Advanced ballistic missiles with flare-seeking capabilities
-- **Defense Missiles**: SAM missiles with altitude-based detonation (1000 units)
-- **Predictive Targeting**: Enemy missiles calculate optimal intercept trajectories
+- **Defense Missiles**: SAM missiles with variable altitude detonation (120-200 units)
+- **Predictive Targeting**: Enemy missiles calculate optimal intercept trajectories using worker-based physics
 
 #### Countermeasures
 
-- **Flare System**: 6-flare deployment with 5-second duration
+- **Flare System**: Countermeasure flares with 5-second duration
 - **Strategic Timing**: 8-second cooldown between flare launches
-- **Missile Diversion**: Iskander missiles actively seek and target flares
+- **Missile Diversion**: Iskander missiles actively seek and target flares within 150-unit detection range
+- **Flare Visual Effects**: Realistic particle effects and lighting for deployed flares
 
 ## 🎛️ Advanced Interface Features
 
@@ -95,24 +100,31 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 
 ### Defense Missile System
 
-- **Altitude Detonation**: Missiles explode at 1000 units height
-- **Predictive Targeting**: Calculates optimal intercept based on missile and bomber speeds
-- **Distance-Adaptive**: Closer targets get less lead time, farther targets get more
-- **No Lifetime Limits**: Missiles persist until altitude detonation or collision
+- **Altitude Detonation**: Missiles explode at variable altitudes (120-200 units) based on random assignment
+- **Predictive Targeting**: Calculates optimal intercept trajectories using worker-based physics
+- **Variable Speed**: Missiles have speeds between 120-180 units/second for varied challenge
+- **Worker Optimization**: Physics calculations offloaded to background workers for performance
+- **Visual Effects**: Particle systems for exhaust trails and explosions
 
 ### Iskander Missile System
 
 - **Dynamic Launch Timing**: 30-75 second intervals (30 base + 0-45 random)
 - **Strategic Launch Points**: Launches from defense launcher farthest from bomber
-- **Flare Detection**: 80-unit detection range for countermeasures
-- **Persistent Tracking**: Missiles continue until impact or diversion
+- **Flare Detection**: 150-unit detection range for countermeasures (realistic IR seeker sensitivity)
+- **Advanced Guidance**: Lock-on system with 4-second lock-on time and high turn rate
+- **Curved Trajectories**: Realistic ballistic missile paths with waypoint navigation
+- **Persistent Tracking**: Missiles continue until impact, diversion, or explosion
+- **Damage System**: Explosions deal up to 50% of bomber health based on proximity (25-unit range)
 
 ### Bombing System
 
 - **Strategic Runs**: 9-bomb sequences with 15-second cooldown
-- **Precision Targeting**: Visual ground crosshair for accurate bombing
-- **Damage System**: Buildings have health and destruction states
-- **Target Objectives**: Specific buildings marked as strategic targets
+- **Bomb Bay Animation**: Realistic 1-second door opening sequence before bomb deployment
+- **Timing System**: 1-second interval between individual bomb drops
+- **Precision Targeting**: Visual ground crosshair for accurate bombing (toggleable)
+- **Damage System**: Buildings have health and destruction states with visual feedback
+- **Scoring System**: Tracks destroyed buildings and strategic targets separately
+- **Visual Effects**: Detailed bomb models with particle effects, lighting, and explosion animations
 
 ## 🕹️ Controls
 
@@ -185,29 +197,52 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 
 ## 🏗️ Technical Architecture
 
+### Project Structure
+
+- **TypeScript**: Strict TypeScript configuration with ES2020 target
+- **Webpack**: Module bundling with development server and hot reloading
+- **Babylon.js 8.14.0**: Core 3D engine with inspector support in development
+- **Modular Architecture**: Entity-Component-System pattern with separate managers
+
+#### Source Structure
+
+```
+src/
+├── entities/          # Game entities (Bomber, Missiles, Bombs, Buildings)
+├── managers/         # System managers (Game, Input, Camera, Terrain, Workers)
+├── ui/               # UI systems (UIManager, RadarManager)
+├── utils/            # Utilities (DeviceDetection, NoiseGenerator)
+└── workers/          # Web Workers (Terrain, Missile Physics, Collision)
+```
+
 ### Performance Optimizations
 
-- **Web Worker Architecture**: Physics, terrain generation, and collision detection offloaded
-- **SharedArrayBuffer**: Efficient data sharing between main thread and workers
+- **Web Worker Architecture**: Three specialized workers:
+  - **Terrain Worker**: Procedural terrain generation and chunk management
+  - **Missile Physics Worker**: Missile trajectory calculations and predictive targeting
+  - **Collision Detection Worker**: Efficient collision checking with spatial partitioning
+- **Frame Rate Control**: 60 FPS target with throttled update intervals
+- **Update Batching**: UI and system updates batched to reduce DOM manipulation
+- **Caching Systems**: Trigonometric calculations, target detection, and UI state cached
 - **Object Pooling**: Minimizes garbage collection and memory allocation
-- **Frustum Culling**: Only renders objects within camera view
-- **LOD Systems**: Reduces detail for distant objects
-- **Texture Atlasing**: Minimizes texture switches and draw calls
+- **Change Detection**: Only updates UI elements when values actually change
 
 ### Babylon.js Integration
 
-- **Scene Optimization**: Hardware scaling and scene optimizers
-- **Particle Systems**: Realistic missile trails, explosions, and effects
-- **Material Management**: Efficient PBR materials and texture streaming
-- **Animation Groups**: Smooth missile and aircraft animations
-- **Dynamic Lighting**: Real-time lighting and shadow systems
+- **Scene Optimization**: Hardware scaling and efficient rendering
+- **Particle Systems**: Comprehensive particle effects for missiles, bombs, explosions, and flares
+- **Transform Nodes**: Efficient hierarchical transformations for complex objects
+- **Dynamic Textures**: Runtime texture generation for UI elements
+- **Point Lights**: Dynamic lighting for bombs, missiles, and explosions
+- **Animation Groups**: Smooth bomb bay door animations and missile launch sequences
 
 ### Advanced Physics
 
-- **Worker-Based Physics**: Missile trajectories calculated in background threads
-- **Predictive Targeting**: Real-time calculation of optimal intercept paths
-- **Collision Detection**: Efficient spatial partitioning for collision checks
-- **Realistic Aerodynamics**: Quaternion-based rotations and velocity calculations
+- **Worker-Based Physics**: All heavy calculations offloaded to background workers
+- **Predictive Targeting**: Real-time calculation of optimal intercept paths for missiles
+- **Collision Detection**: Efficient collision checks for bombs, missiles, and terrain
+- **Realistic Aerodynamics**: Banking mechanics, velocity-based movement, and turn rates
+- **Curved Trajectories**: Waypoint-based navigation for Tomahawk and Iskander missiles
 
 ## 🚀 Getting Started
 
@@ -222,46 +257,70 @@ ManicureBomber is a modern combat flight simulator that puts you in control of a
 
 ### Installation
 
-````bash
+```bash
 # Clone the repository
 git clone https://github.com/abdullah-aa/ManicureBomber.git
 cd ManicureBomber
 
 # Install dependencies
 npm install
+```
 
 ### Development
+
 ```bash
-# Start development server
+# Start development server (with hot reload)
 npm start
+# or
+npm run dev
 
 # Build for production
 npm run build
-````
+
+# Lint code
+npm run lint
+
+# Format code
+npm run format
+```
+
+**Development Features:**
+- **Hot Module Replacement**: Instant updates during development
+- **Babylon Inspector**: Press F12 in development mode to open debug inspector
+- **Source Maps**: Full debugging support with TypeScript source maps
+- **Development Server**: Runs on `http://localhost:8080` by default
 
 ## 📊 Performance Specifications
 
-- **Target Frame Rate**: 60 FPS minimum, optimized for 120 FPS
-- **Memory Usage**: ~100MB typical, optimized memory management
-- **Bundle Size**: ~5MB compressed
-- **Network**: Single bundle file for fast loading
-- **Compatibility**: Modern browsers with WebGL 2.0 support
+- **Target Frame Rate**: 60 FPS with frame interval control (16.67ms)
+- **Update Intervals**: Throttled updates for terrain (200ms), UI (50ms), radar (100ms), collision (16ms)
+- **Worker Architecture**: Three background workers for heavy computations
+- **Memory Management**: Efficient object pooling and proper resource disposal
+- **Bundle Size**: Optimized with code splitting (multiple bundle files)
+- **TypeScript**: Strict type checking with ES2020 target
+- **Compatibility**: Modern browsers with WebGL 2.0 support and Worker API
 - **Mobile Optimization**: Landscape-oriented with responsive UI scaling
-- **Touch Performance**: Real-time touch-to-key simulation with 16ms update cycles
+- **Touch Performance**: Real-time touch-to-key simulation with 60fps update cycles
 
 ## 🎯 Gameplay Tips
 
 ### Strategic Bombing
 
-- Plan bombing runs carefully - you only get 9 bombs per run
+- Plan bombing runs carefully - you only get 9 bombs per run with 15-second cooldown
+- Wait for bomb bay doors to fully open (1 second animation) before bombs drop
+- Bombs drop at 1-second intervals, so maintain position during the run
 - Target strategic buildings marked with special indicators
 - Use the ground crosshair (toggle with **4** key) for precision bombing
+- Note: Bombing runs cannot be initiated while missile systems are active
 
 ### Missile Defense
 
 - Launch flares when Iskander missiles are detected (countermeasure button lights up)
+- Flares last 5 seconds and divert Iskander missiles within 150 units
+- Manage your 8-second flare cooldown strategically - timing is critical
 - Use evasive maneuvers to avoid defense missiles
-- Remember that regular defense missiles explode at high altitude
+- Defense missiles explode at variable altitudes (120-200 units)
+- Iskander explosions deal up to 50% damage if within 25 units - keep your distance!
 
 ### Camera Control
 
@@ -288,17 +347,31 @@ npm run build
 ### Architecture Highlights
 
 - **Entity-Component-System**: Modular game object architecture
-- **Event-Driven Design**: Loose coupling between systems
-- **Performance Monitoring**: Built-in performance metrics and optimization
+  - Entities: Bomber, Bomb, TomahawkMissile, IskanderMissile, DefenseMissile, Building
+  - Managers: Game, InputManager, CameraController, TerrainManager, WorkerManager
+  - UI Systems: UIManager, RadarManager
+- **Worker-Based Architecture**: Heavy computations in background threads
+- **Event-Driven Design**: Loose coupling between systems via callbacks
+- **Performance Optimizations**: Frame throttling, update batching, caching systems
 - **Error Handling**: Robust error handling with graceful degradation
+- **Type Safety**: Strict TypeScript with comprehensive type definitions
+
+### Code Quality
+
+- **TypeScript Strict Mode**: Full type safety throughout the codebase
+- **ESLint Integration**: Code linting with TypeScript ESLint rules
+- **Prettier Formatting**: Consistent code formatting
+- **Source Maps**: Full debugging support in development
+- **Modular Design**: Clear separation of concerns and reusable components
 
 ### Future Enhancements
 
-- Additional aircraft types
-- Multiplayer support
-- Enhanced AI systems
-- More sophisticated terrain features
-- Advanced weather systems
+- Additional aircraft types and variants
+- Multiplayer support with network synchronization
+- Enhanced AI systems for enemy behavior
+- More sophisticated terrain features (water, vegetation)
+- Advanced weather systems and atmospheric effects
+- Mission objectives and campaign mode
 
 ## 📄 License
 

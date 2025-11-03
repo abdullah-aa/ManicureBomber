@@ -682,13 +682,16 @@ function updateIskanderMissilePhysics(data: IskanderMissileData): IskanderMissil
 
   // Check if close to any flare target and explode
   let flareExplosion = false;
+  
+  // Flares explode at closer range to simulate missile getting very close to flare head
+  const flareExplosionDistance = 12; // Reduced from 25 to make missiles explode closer to flare
 
   // If missile is targeting a flare (or was targeting one), check distance to target position
-  // Real seeker missiles are decoyed by flares at much greater distances!
+  // Missiles should explode very close to the flare head when diverted
   if (isTargetingFlare || data.isTargetingFlare) {
     // Use the distance to target which should be the flare position when targeting flares
-    if (distanceToTarget <= 25) {
-      // Realistic flare deception distance - seekers are fooled from much farther away
+    if (distanceToTarget <= flareExplosionDistance) {
+      // Missile gets close to flare head before detonation
       flareExplosion = true;
     }
   }
@@ -697,8 +700,8 @@ function updateIskanderMissilePhysics(data: IskanderMissileData): IskanderMissil
   if (!flareExplosion && data.flareTargets && data.flareTargets.length > 0) {
     for (const flarePos of data.flareTargets) {
       const distanceToFlare = vector3Distance(newPosition, flarePos);
-      if (distanceToFlare <= 25) {
-        // Realistic flare deception distance - much larger than before
+      if (distanceToFlare <= flareExplosionDistance) {
+        // Missile explodes close to flare head when diverted
         flareExplosion = true;
         break;
       }
