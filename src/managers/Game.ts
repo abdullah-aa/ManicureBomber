@@ -265,7 +265,7 @@ export class Game {
         this.inputManager.endFrame();
 
         lastFrameTime = currentTime;
-      } catch (error) {
+      } catch {
         // Silent error handling - no console logging
       }
     });

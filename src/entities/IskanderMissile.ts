@@ -630,7 +630,7 @@ export class IskanderMissile {
         this.pendingPhysicsUpdate = false;
         this.applyPhysicsResult(result);
       })
-      .catch((error) => {
+      .catch(() => {
         this.pendingPhysicsUpdate = false;
       });
   }

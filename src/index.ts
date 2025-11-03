@@ -30,7 +30,7 @@ if (process.env.NODE_ENV === 'development') {
             scene.debugLayer.show();
           }
         })
-        .catch((error) => {
+        .catch(() => {
           // Silent error handling - no console logging
         });
     }
@@ -46,7 +46,7 @@ game
   .then(() => {
     // Silent initialization - no console logging
   })
-  .catch((error) => {
+  .catch(() => {
     // Silent error handling - no console logging
   });
 

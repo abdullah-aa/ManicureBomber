@@ -88,7 +88,7 @@ export class TerrainManager {
           }
         },
       )
-      .catch((error: any) => {
+      .catch(() => {
         // Remove failed chunk from tracking
         this.chunks.delete(chunkKey);
       })
@@ -144,7 +144,7 @@ export class TerrainManager {
     requestAnimationFrame(() => {
       try {
         this.createTerrainChunkMesh(result, chunkX, chunkZ);
-      } catch (error) {
+      } catch {
         // Silent error handling
       }
 
@@ -563,7 +563,7 @@ export class TerrainManager {
       if (this.terrainMaterial) {
         this.terrainMaterial.dispose();
       }
-    } catch (error) {
+    } catch {
       // Silent error handling - no console logging
     }
   }
