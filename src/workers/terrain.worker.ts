@@ -1,33 +1,11 @@
 import { NoiseGenerator } from '../utils/NoiseGenerator';
-import { Vector3 } from '@babylonjs/core';
-
-enum BuildingType {
-  RESIDENTIAL = 'residential',
-  COMMERCIAL = 'commercial',
-  INDUSTRIAL = 'industrial',
-  SKYSCRAPER = 'skyscraper',
-}
-
-interface BuildingConfig {
-  position: { x: number; y: number; z: number };
-  type: BuildingType;
-  width: number;
-  height: number;
-  depth: number;
-  isTarget?: boolean;
-  isDefenseLauncher?: boolean;
-}
-
-interface BuildingData {
-  id: string;
-  position: { x: number; y: number; z: number };
-  width: number;
-  height: number;
-  depth: number;
-  isTarget: boolean;
-  isDefenseLauncher: boolean;
-  isDestroyed: boolean;
-}
+import {
+  Vector3,
+  BuildingType,
+  BuildingConfig,
+  BuildingData,
+  vector3Distance,
+} from './worker-utils';
 
 interface ChunkData {
   chunkX: number;
@@ -36,7 +14,7 @@ interface ChunkData {
 }
 
 interface BuildingsInRadiusRequest {
-  bomberPosition: { x: number; y: number; z: number };
+  bomberPosition: Vector3;
   chunks: ChunkData[];
   radius: number;
 }
@@ -177,7 +155,7 @@ function generateBuildings(
       continue;
     }
 
-    const buildingConfig = generateRandomBuildingConfig(new Vector3(buildingX, 0, buildingZ), terrainHeight);
+    const buildingConfig = generateRandomBuildingConfig({ x: buildingX, y: 0, z: buildingZ }, terrainHeight);
 
     buildingConfig.isTarget = Math.random() < 0.1;
     buildingConfigs.push(buildingConfig);
@@ -222,16 +200,6 @@ function getHeightAtPosition(
 
 // New functions for offloaded calculations
 
-function calculateDistance(
-  pos1: { x: number; y: number; z: number },
-  pos2: { x: number; y: number; z: number },
-): number {
-  const dx = pos1.x - pos2.x;
-  const dy = pos1.y - pos2.y;
-  const dz = pos1.z - pos2.z;
-  return Math.sqrt(dx * dx + dy * dy + dz * dz);
-}
-
 function getBuildingsInRadius(request: BuildingsInRadiusRequest): BuildingData[] {
   const { bomberPosition, chunks, radius } = request;
   const buildings: BuildingData[] = [];
@@ -240,7 +208,7 @@ function getBuildingsInRadius(request: BuildingsInRadiusRequest): BuildingData[]
     for (const building of chunk.buildings) {
       // Return ALL buildings within radius, not just defense launchers
       if (!building.isDestroyed) {
-        const distance = calculateDistance(bomberPosition, building.position);
+        const distance = vector3Distance(bomberPosition, building.position);
         if (distance <= radius) {
           buildings.push(building);
         }
@@ -350,7 +318,7 @@ function getChunksToRemove(request: {
 }
 
 function prepareBuildingDataForRadius(request: {
-  position: { x: number; y: number; z: number };
+  position: Vector3;
   radius: number;
   chunkSize: number;
   chunks: [string, any][];
@@ -375,7 +343,7 @@ function prepareBuildingDataForRadius(request: {
 }
 
 function getBuildingsInRadiusMinimal(request: {
-  position: { x: number; y: number; z: number };
+  position: Vector3;
   buildings: any[];
   radius: number;
 }): string[] {
@@ -384,10 +352,7 @@ function getBuildingsInRadiusMinimal(request: {
 
   for (const building of buildings) {
     if (!building.isDestroyed) {
-      const dx = position.x - building.position.x;
-      const dy = position.y - building.position.y;
-      const dz = position.z - building.position.z;
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const dist = vector3Distance(position, building.position);
       if (dist <= radius) {
         ids.push(building.id);
       }

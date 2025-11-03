@@ -1,15 +1,4 @@
-import { Vector3, vector3Distance } from './worker-utils';
-
-interface BuildingData {
-  id: string;
-  position: Vector3;
-  width: number;
-  height: number;
-  depth: number;
-  isTarget: boolean;
-  isDefenseLauncher: boolean;
-  isDestroyed: boolean;
-}
+import { Vector3, vector3Distance, BuildingData } from './worker-utils';
 
 interface MissileData {
   id: string;

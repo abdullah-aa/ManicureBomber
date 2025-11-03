@@ -1,4 +1,4 @@
-// Shared utilities for Web Workers
+// Shared utilities and types for Web Workers
 
 export interface Vector3 {
   x: number;
@@ -42,4 +42,36 @@ export function vector3Lerp(a: Vector3, b: Vector3, t: number): Vector3 {
     y: a.y + (b.y - a.y) * t,
     z: a.z + (b.z - a.z) * t,
   };
+}
+
+// Shared worker types - cannot use Babylon.js types in workers due to serialization constraints
+
+export enum BuildingType {
+  RESIDENTIAL = 'residential',
+  COMMERCIAL = 'commercial',
+  INDUSTRIAL = 'industrial',
+  SKYSCRAPER = 'skyscraper',
+}
+
+// BuildingConfig for workers (simplified version without Color3 since workers can't use Babylon.js classes)
+export interface BuildingConfig {
+  position: Vector3;
+  type: BuildingType;
+  width: number;
+  height: number;
+  depth: number;
+  isTarget?: boolean;
+  isDefenseLauncher?: boolean;
+}
+
+// BuildingData shared across workers
+export interface BuildingData {
+  id: string;
+  position: Vector3;
+  width: number;
+  height: number;
+  depth: number;
+  isTarget: boolean;
+  isDefenseLauncher: boolean;
+  isDestroyed: boolean;
 }
