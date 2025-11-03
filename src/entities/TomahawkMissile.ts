@@ -21,6 +21,7 @@ export class TomahawkMissile {
   private scene: Scene;
   private workerManager: WorkerManager;
   private missileGroup: TransformNode;
+  private launchParent: TransformNode; // Parent node that follows bomber during launch
   private fuselage!: Mesh;
   private position: Vector3;
   private velocity: Vector3;
@@ -98,9 +99,16 @@ export class TomahawkMissile {
     this.velocity = new Vector3(0, 0, 0); // Start stationary
     this.bomberVelocity = bomberVelocity ? bomberVelocity.clone() : new Vector3(0, 0, 0);
 
+    // Create parent node that will follow bomber during launch animation
+    this.launchParent = new TransformNode('tomahawkLaunchParent', this.scene);
+    this.launchParent.position = this.position.clone();
+    this.launchParent.rotation = this.rotation.clone();
+
+    // Create missile group as child of launch parent
     this.missileGroup = new TransformNode('tomahawkGroup', this.scene);
-    this.missileGroup.position = this.position.clone();
-    this.missileGroup.rotation = this.rotation.clone();
+    this.missileGroup.parent = this.launchParent;
+    this.missileGroup.position = Vector3.Zero(); // Start at parent's position (relative)
+    this.missileGroup.rotation = Vector3.Zero(); // Rotation relative to parent
 
     this.createMissileModel();
     this.setupParticleEffects();
@@ -597,6 +605,7 @@ export class TomahawkMissile {
 
   private createLaunchAnimation(): void {
     // Create launch animation that moves missile from launcher to flight path
+    // Animation is relative to parent (launchParent), so use relative offsets
     const launchAnimation = new Animation(
       'missileLaunch',
       'position',
@@ -605,13 +614,13 @@ export class TomahawkMissile {
       Animation.ANIMATIONLOOPMODE_CONSTANT,
     );
 
-    // Start from launch position, then move forward and establish cruise altitude
-    const startPos = this.position.clone();
+    // Start at origin (relative to parent), then move forward and establish cruise altitude
+    // All positions are relative to the launch parent
     const keys = [
-      { frame: 0, value: startPos.clone() },
-      { frame: 15, value: startPos.add(new Vector3(5, -10, 5)) }, // Move forward and down
-      { frame: 30, value: startPos.add(new Vector3(10, -15, 10)) }, // Continue forward and establish cruise altitude
-      { frame: 60, value: startPos.add(new Vector3(15, -20, 15)) }, // Final launch position
+      { frame: 0, value: Vector3.Zero() }, // Start at parent position
+      { frame: 15, value: new Vector3(5, -10, 5) }, // Move forward and down
+      { frame: 30, value: new Vector3(10, -15, 10) }, // Continue forward and establish cruise altitude
+      { frame: 60, value: new Vector3(15, -20, 15) }, // Final launch position
     ];
 
     launchAnimation.setKeys(keys);
@@ -640,8 +649,19 @@ export class TomahawkMissile {
   }
 
   private startGuidedFlight(): void {
-    // Update position to current missile group position after animation
-    this.position = this.missileGroup.position.clone();
+    // Update position to current absolute missile group position after animation
+    // Get absolute position since missileGroup is now a child
+    this.position = this.missileGroup.getAbsolutePosition().clone();
+    
+    // Rotation is already correct since missileGroup rotation is relative to parent
+    // and parent has the initial rotation, so absolute rotation = parent rotation
+    // We'll use the parent's rotation since missileGroup rotation is zero relative to parent
+    this.rotation = this.launchParent.rotation.clone();
+    
+    // Remove parent relationship - missileGroup now controls its own position and rotation
+    this.missileGroup.parent = null;
+    this.missileGroup.position = this.position.clone();
+    this.missileGroup.rotation = this.rotation.clone();
 
     // Start remaining particle effects now that launch animation is complete
     this.pathStartTime = performance.now() / 1000;
@@ -662,12 +682,14 @@ export class TomahawkMissile {
 
     const currentTime = performance.now() / 1000;
 
-    // During launch animation phase, move missile with bomber's velocity to maintain relative position
+    // During launch animation phase, move parent node with bomber's velocity
+    // The animation runs on missileGroup (child), so it naturally combines with parent movement
     if (this.inLaunchAnimationPhase) {
-      // Apply bomber's velocity to maintain position relative to bomber
+      // Apply bomber's velocity to parent node to maintain position relative to bomber
       const velocityDelta = this.bomberVelocity.scale(deltaTime);
       this.position.addInPlace(velocityDelta);
-      this.missileGroup.position = this.position.clone();
+      this.launchParent.position.addInPlace(velocityDelta);
+      // Don't update missileGroup position - let animation handle it
       return; // Don't update physics during launch animation
     }
 
@@ -807,6 +829,7 @@ export class TomahawkMissile {
 
   public dispose(): void {
     if (this.missileGroup) this.missileGroup.dispose();
+    if (this.launchParent) this.launchParent.dispose();
     if (this.fireParticles) this.fireParticles.dispose();
     if (this.explosionSmokeParticles) this.explosionSmokeParticles.dispose();
     if (this.trailParticles) this.trailParticles.dispose();
