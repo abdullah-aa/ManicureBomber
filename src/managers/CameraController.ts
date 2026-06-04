@@ -8,21 +8,23 @@ export class CameraController {
   private bomber: Bomber;
   private terrainManager: TerrainManager;
   private followDistance: number = 200;
-  private followHeight: number = 280;
+  // Camera height is an offset ABOVE the bomber (not an absolute world Y), so the camera can
+  // always rise above the bomber and look down at the ground regardless of the bomber's altitude.
+  private followHeightOffset: number = 140;
   private smoothing: number = 2.0;
-  private minFollowHeight: number = 20;
-  private maxFollowHeight: number = 360;
+  private minFollowHeightOffset: number = 10;
+  private maxFollowHeightOffset: number = 450;
   private zoomSpeed: number = 5;
   private showGroundCrosshairs: boolean = false;
 
   // Camera distance adjustment properties
   private minFollowDistance: number = 50;
-  private maxFollowDistance: number = 300;
+  private maxFollowDistance: number = 500;
   private distanceSpeed: number = 100; // Units per second
 
   // Initial camera state for reset functionality
   private initialFollowDistance: number = 200;
-  private initialFollowHeight: number = 320;
+  private initialFollowHeightOffset: number = 140;
 
   // Camera panning properties
   private panSpeed: number = 1.5; // Radians per second for angular panning
@@ -48,7 +50,7 @@ export class CameraController {
 
     // Store initial values for reset functionality
     this.initialFollowDistance = this.followDistance;
-    this.initialFollowHeight = this.followHeight;
+    this.initialFollowHeightOffset = this.followHeightOffset;
   }
 
   public update(deltaTime: number, inputManager: InputManager): void {
@@ -78,11 +80,11 @@ export class CameraController {
 
       // Mouse Y controls height (like Q/E keys) - not inverted, much higher sensitivity to match panning
       if (Math.abs(mouseDeltaY) > 0) {
-        this.followHeight += mouseDeltaY * mouseSensitivity * 300; // Tripled sensitivity to match pan amount
+        this.followHeightOffset += mouseDeltaY * mouseSensitivity * 300; // Tripled sensitivity to match pan amount
       }
     }
 
-    // Handle touch camera controls (two finger swipe) - only in camera mode
+    // Handle touch camera controls (single-finger swipe) - only in camera mode
     if (isCameraMode && inputManager.getIsTouchCamera()) {
       const touchDeltaX = inputManager.getTouchDeltaX();
       const touchDeltaY = inputManager.getTouchDeltaY();
@@ -96,7 +98,7 @@ export class CameraController {
 
       // Touch Y controls height (like Q/E keys) - not inverted, much higher sensitivity to match panning
       if (Math.abs(touchDeltaY) > 0) {
-        this.followHeight += touchDeltaY * touchSensitivity * 300; // Tripled sensitivity to match pan amount
+        this.followHeightOffset += touchDeltaY * touchSensitivity * 300; // Tripled sensitivity to match pan amount
       }
     }
 
@@ -119,9 +121,11 @@ export class CameraController {
     const desiredZ = bomberPos.z - this.cachedCos * this.followDistance;
 
     const minHeightAboveGround = 10; // Minimum height above ground
-    // Clamp to maxFollowHeight (upper) and minHeightAboveGround (lower). followHeight is
-    // raised unbounded by mouse/touch drag above, so this is where the cap is enforced.
-    const clampedFollowHeight = Math.min(this.maxFollowHeight, Math.max(this.followHeight, minHeightAboveGround));
+    // Height is an offset above the bomber. followHeightOffset is raised/lowered unbounded by
+    // mouse/touch drag above, so clamp it here, then sit the camera that far above the bomber
+    // (never below the ground floor). This keeps the camera able to rise above the bomber at any altitude.
+    const clampedOffset = Math.max(this.minFollowHeightOffset, Math.min(this.maxFollowHeightOffset, this.followHeightOffset));
+    const clampedFollowHeight = Math.max(bomberPos.y + clampedOffset, minHeightAboveGround);
 
     this.tempVector1.set(desiredX, clampedFollowHeight, desiredZ);
 
@@ -163,7 +167,7 @@ export class CameraController {
 
     // Reset other camera properties to initial state
     this.followDistance = this.initialFollowDistance;
-    this.followHeight = this.initialFollowHeight;
+    this.followHeightOffset = this.initialFollowHeightOffset;
 
     // Reset pan offset to center the camera
     this.panAngleOffset = 0;

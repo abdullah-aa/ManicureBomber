@@ -160,6 +160,12 @@ export class Game {
     this.groundCrosshair.rotation.x = Math.PI / 2;
     this.groundCrosshair.isPickable = false;
 
+    // Terrain has elevation (0-60 units) but the crosshair sits at Y=1, so over hills it
+    // would be buried by the terrain. Render it in a dedicated group whose depth buffer is
+    // cleared first, so the crosshair always draws on top of terrain/buildings.
+    this.groundCrosshair.renderingGroupId = 1;
+    this.scene.setRenderingAutoClearDepthStencil(1, true, false, false);
+
     const crosshairMaterial = new StandardMaterial('crosshairMaterial', this.scene);
 
     // Use DynamicTexture to draw a crosshair
