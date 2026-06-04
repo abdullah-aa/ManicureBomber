@@ -123,7 +123,10 @@ function generateRandomBuildingConfig(position: Vector3, terrainHeight: number):
       depth = 8 + Math.random() * 10;
   }
 
-  const isDefenseLauncher = Math.random() < 0.15;
+  // Launcher probability halved alongside the doubled building density below, so the absolute
+  // number of defense launchers (and their per-frame cost / return fire) stays ~constant while
+  // total building density increases.
+  const isDefenseLauncher = Math.random() < 0.075;
 
   return {
     position: { x: position.x, y: terrainHeight, z: position.z },
@@ -145,9 +148,10 @@ function generateBuildings(
   const worldX = chunkX * chunkSize;
   const worldZ = chunkZ * chunkSize;
   const buildingConfigs: BuildingConfig[] = [];
-  // Per-area density, kept low because the symmetric keep-set loads terrain in ALL directions:
-  // total in-view buildings stay near the original build (~150-250) despite the larger world.
-  const buildingDensity = 0.0000125;
+  // Per-area building density. Doubled from the original 0.0000125 now that buildings are cheap
+  // (instanced meshes, shared materials/textures, lazy damage effects) — undamaged buildings cost
+  // only a few instances sharing a material, so ~2x in-view buildings (~300-450) is affordable.
+  const buildingDensity = 0.000025;
   const chunkArea = chunkSize * chunkSize;
   const numBuildings = Math.floor(chunkArea * buildingDensity * (0.5 + Math.random() * 0.8));
 
