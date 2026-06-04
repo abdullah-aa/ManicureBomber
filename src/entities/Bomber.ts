@@ -837,7 +837,10 @@ export class Bomber {
     this.lastTargetCheckTime = currentTime;
     this.lastTargetCheckPosition.copyFrom(this.position);
 
-    const defenseRange = 300; // Same range as defense buildings
+    // Tomahawk acquisition range — reaches near the outer radar ring (radar range is 500).
+    // Deliberately larger than the defense launchers' own radarScanRange (300, Building.ts), so
+    // the bomber can strike launchers as counter-battery from beyond their return-fire range.
+    const defenseRange = 450;
 
     return this.terrainManager!.getBuildingsInRadius(this.position, defenseRange)
       .then((nearbyBuildings) => {
