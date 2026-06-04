@@ -52,10 +52,6 @@ export class Game {
   // Defense missile system - centralized management
   private defenseMissiles: DefenseMissile[] = [];
 
-  // Camera toggle properties
-  private lastCameraToggleTime: number = 0;
-  private cameraToggleCooldown: number = 0.3; // 300ms cooldown to prevent rapid toggling
-
   // Scoring system
   private destroyedBuildings: number = 0;
   private destroyedTargets: number = 0;
@@ -211,7 +207,6 @@ export class Game {
         this.handleMissileLaunch(); // Now uses promise-based callbacks internally
         this.handleIskanderLaunch(safeCurrentTime);
         this.handleCountermeasures();
-        this.handleCameraToggle(safeCurrentTime);
 
         this.bomber.update(safeDeltaTime, this.inputManager);
         this.cameraController.update(safeDeltaTime, this.inputManager);
@@ -441,17 +436,6 @@ export class Game {
         this.bomber.takeDamage(collision.damage);
         missile.explode();
       }
-    }
-  }
-
-  private handleCameraToggle(currentTime: number): void {
-    if (
-      this.inputManager.isCameraTogglePressed() &&
-      currentTime - this.lastCameraToggleTime > this.cameraToggleCooldown
-    ) {
-      this.cameraController.toggleGroundCrosshairs();
-      this.uiManager.updateCameraToggleIcon();
-      this.lastCameraToggleTime = currentTime;
     }
   }
 

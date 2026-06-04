@@ -2,7 +2,6 @@ import { Bomber } from '../entities/Bomber';
 import { FreeCamera, Vector3 } from '@babylonjs/core';
 import { InputManager } from './InputManager';
 import { TerrainManager } from './TerrainManager';
-import { DeviceDetection } from '../utils/deviceDetection';
 
 export class CameraController {
   private camera: FreeCamera;
@@ -53,50 +52,11 @@ export class CameraController {
   }
 
   public update(deltaTime: number, inputManager: InputManager): void {
-    const currentTime = performance.now() / 1000;
+    // Camera adjustments are only allowed while the camera-control mode is active.
+    // Otherwise a single-finger swipe steers the plane and the camera just follows.
+    const isCameraMode = inputManager.getTouchCameraMode();
 
-    // Check if we're in mobile view with plane controls active (not camera mode)
-    const isMobileWithPlaneControls = DeviceDetection.isMobile() && !inputManager.getTouchCameraMode();
-
-    // Handle camera reset with 1 key
-    if (inputManager.isCameraResetPressed()) {
-      this.resetCamera(currentTime);
-    }
-
-    // Skip camera adjustments if on mobile with plane controls active
-    if (!isMobileWithPlaneControls) {
-      // Handle camera panning with Q and E keys
-      if (inputManager.isCameraPanLeftPressed()) {
-        // Pan camera left (negative X direction)
-        this.panAngleOffset -= this.panSpeed * deltaTime;
-        this.trigCacheValid = false; // Invalidate cache when panning
-      }
-      if (inputManager.isCameraPanRightPressed()) {
-        // Pan camera right (positive X direction)
-        this.panAngleOffset += this.panSpeed * deltaTime;
-        this.trigCacheValid = false; // Invalidate cache when panning
-      }
-
-      // Handle camera pitch adjustment with R and F keys
-      if (inputManager.isPitchUpPressed()) {
-        this.followHeight += this.zoomSpeed * deltaTime * 60; // R raises camera
-      }
-      if (inputManager.isPitchDownPressed()) {
-        this.followHeight -= this.zoomSpeed * deltaTime * 60; // F lowers camera
-      }
-    }
-
-    // Handle camera zoom with 3 and 4 keys
-    if (inputManager.isCameraZoomInPressed()) {
-      this.followDistance -= this.distanceSpeed * deltaTime; // 3 decreases distance (zoom in)
-      this.followDistance = Math.max(this.minFollowDistance, this.followDistance);
-    }
-    if (inputManager.isCameraZoomOutPressed()) {
-      this.followDistance += this.distanceSpeed * deltaTime; // 4 increases distance (zoom out)
-      this.followDistance = Math.min(this.maxFollowDistance, this.followDistance);
-    }
-
-    // Handle scroll wheel zoom
+    // Handle zoom (driven by the on-screen +/- zoom buttons via simulateWheelZoom)
     const wheelDelta = inputManager.getWheelDelta();
     if (wheelDelta !== 0) {
       const zoomAmount = (wheelDelta / 100) * this.distanceSpeed;
@@ -104,8 +64,8 @@ export class CameraController {
       this.followDistance = Math.max(this.minFollowDistance, Math.min(this.maxFollowDistance, this.followDistance));
     }
 
-    // Handle mouse controls - similar to keyboard but with mouse delta (skip on mobile with plane controls)
-    if (!isMobileWithPlaneControls && inputManager.getIsMouseDragging()) {
+    // Handle mouse controls - drag to pan/raise the camera (only in camera mode)
+    if (isCameraMode && inputManager.getIsMouseDragging()) {
       const mouseDeltaX = inputManager.getMouseDeltaX();
       const mouseDeltaY = inputManager.getMouseDeltaY();
       const mouseSensitivity = 0.005; // Adjust sensitivity
@@ -122,8 +82,8 @@ export class CameraController {
       }
     }
 
-    // Handle touch camera controls (two finger swipe) - skip on mobile with plane controls
-    if (!isMobileWithPlaneControls && inputManager.getIsTouchCamera()) {
+    // Handle touch camera controls (two finger swipe) - only in camera mode
+    if (isCameraMode && inputManager.getIsTouchCamera()) {
       const touchDeltaX = inputManager.getTouchDeltaX();
       const touchDeltaY = inputManager.getTouchDeltaY();
       const touchSensitivity = 0.005; // Same as mouse sensitivity

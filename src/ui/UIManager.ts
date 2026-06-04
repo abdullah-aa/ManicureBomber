@@ -1,6 +1,5 @@
 import { Game } from '../managers/Game';
 import { InputManager } from '../managers/InputManager';
-import { DeviceDetection } from '../utils/deviceDetection';
 
 export class UIManager {
   private game: Game;
@@ -20,7 +19,6 @@ export class UIManager {
   private cameraResetButton!: HTMLElement;
   private touchCameraToggleButton!: HTMLElement;
   private touchCameraToggleIcon!: HTMLElement;
-  private keybindsButton!: HTMLElement;
   private mobileZoomControl!: HTMLElement;
   private zoomInButton!: HTMLElement;
   private zoomOutButton!: HTMLElement;
@@ -60,7 +58,6 @@ export class UIManager {
     this.createCameraToggleButton();
     this.createCameraResetButton();
     this.createTouchCameraToggleButton();
-    this.createKeybindsButton();
     this.createMobileZoomControl();
     this.createHealthBar();
     this.createAlertSystem();
@@ -185,8 +182,6 @@ export class UIManager {
   }
 
   private createTouchCameraToggleButton(): void {
-    if (!DeviceDetection.isMobile()) return; // Only create on mobile
-
     this.touchCameraToggleButton = document.createElement('div');
     this.touchCameraToggleButton.id = 'touch-camera-toggle-button';
     this.touchCameraToggleButton.innerHTML = `
@@ -198,24 +193,7 @@ export class UIManager {
     this.updateTouchCameraToggleIcon();
   }
 
-  private createKeybindsButton(): void {
-    if (DeviceDetection.isMobile()) return; // Only create on non-mobile
-
-    this.keybindsButton = document.createElement('div');
-    this.keybindsButton.id = 'keybinds-button';
-    this.keybindsButton.innerHTML = '⚙';
-    document.body.appendChild(this.keybindsButton);
-
-    // Add event listener
-    this.keybindsButton.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.showKeybindsModal();
-    });
-  }
-
   private createMobileZoomControl(): void {
-    if (!DeviceDetection.isMobile()) return; // Only create on mobile
-
     this.mobileZoomControl = document.createElement('div');
     this.mobileZoomControl.id = 'mobile-zoom-control';
     this.mobileZoomControl.innerHTML = `
@@ -702,99 +680,71 @@ export class UIManager {
                 font-weight: bold;
                 text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
             }
-            #keybinds-button {
-                position: fixed;
-                bottom: 20px;
-                left: 20px;
-                width: 45px;
-                height: 45px;
-                background: rgba(0, 50, 0, 0.9);
-                border: 2px solid rgba(0, 255, 0, 0.5);
-                border-radius: 50%;
-                color: #00ff00;
-                font-size: 20px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                z-index: 1000;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-            }
-            #keybinds-button:hover {
-                background: rgba(0, 100, 0, 0.9);
-                border-color: rgba(0, 255, 0, 0.8);
-                transform: scale(1.1);
-            }
-            
         `;
     document.head.appendChild(style);
 
-    // Apply mobile-specific styles if on mobile device
-    if (DeviceDetection.isMobile()) {
-      const mobileStyle = document.createElement('style');
-      mobileStyle.textContent = `
-        /* Mobile responsive adjustments - using user agent detection for landscape mobile */
+    // Mobile control sizing
+    const mobileStyle = document.createElement('style');
+    mobileStyle.textContent = `
         #bomb-button, #missile-button, #countermeasure-button {
           width: 50px !important;
           height: 50px !important;
         }
-        
+
         #bomb-icon, #missile-icon, #countermeasure-icon {
           width: 30px !important;
           height: 30px !important;
         }
-        
+
         #missile-button {
           right: calc(20px + 50px + 10px) !important;
         }
-        
+
         #countermeasure-button {
           right: calc(20px + 50px * 2 + 20px) !important;
         }
-        
+
         #camera-toggle-button {
           bottom: calc(20px + 50px + 10px) !important;
           width: 35px !important;
           height: 35px !important;
         }
-        
+
         #camera-toggle-icon {
           width: 20px !important;
           height: 20px !important;
           margin: 2px 0 0 4px !important;
         }
-        
+
         #camera-reset-button, #touch-camera-toggle-button {
           width: 35px !important;
           height: 35px !important;
         }
-        
+
         #camera-reset-icon {
           font-size: 16px !important;
         }
-        
+
         #touch-camera-toggle-icon {
           width: 20px !important;
           height: 20px !important;
         }
-        
+
         #touch-camera-toggle-button {
           right: calc(20px + 35px + 12px) !important;
         }
-        
+
         #health-bar {
           width: 160px !important;
           height: 18px !important;
         }
-        
+
         #health-text {
           line-height: 18px !important;
           font-size: 11px !important;
         }
       `;
-      document.head.appendChild(mobileStyle);
-    }
+    document.head.appendChild(mobileStyle);
   }
 
   public update(): void {
@@ -1074,153 +1024,4 @@ export class UIManager {
     }
   }
 
-  public showKeybindsModal(): void {
-    if (DeviceDetection.isMobile()) return; // Don't show on mobile
-
-    const modal = document.getElementById('keybindsModal');
-    const keybindsList = document.getElementById('keybindsList');
-
-    if (!modal || !keybindsList) return;
-
-    // Populate keybinds list
-    const keybinds = this.inputManager.getKeybinds();
-    keybindsList.innerHTML = '';
-
-    keybinds.forEach((keybind) => {
-      const row = document.createElement('div');
-      row.className = 'keybind-row';
-
-      const label = document.createElement('div');
-      label.className = 'keybind-label';
-      label.textContent = keybind.displayName;
-
-      const keyButton = document.createElement('div');
-      keyButton.className = 'keybind-key';
-      keyButton.textContent = this.getKeyDisplayName(keybind.currentKey);
-      keyButton.dataset.keybindName = keybind.name;
-
-      keyButton.addEventListener('click', () => {
-        this.startKeybindEdit(keyButton, keybind.name);
-      });
-
-      row.appendChild(label);
-      row.appendChild(keyButton);
-      keybindsList.appendChild(row);
-    });
-
-    // Set up event listeners
-    this.setupKeybindsModalEvents();
-
-    // Show modal
-    modal.style.display = 'flex';
-  }
-
-  private setupKeybindsModalEvents(): void {
-    const modal = document.getElementById('keybindsModal');
-    const saveButton = document.getElementById('saveKeybinds');
-    const resetButton = document.getElementById('resetKeybinds');
-    const mobileViewButton = document.getElementById('switchToMobileView');
-
-    if (!modal || !saveButton || !resetButton || !mobileViewButton) return;
-
-    // Remove existing listeners to prevent duplicates
-    const newSaveButton = saveButton.cloneNode(true);
-    const newResetButton = resetButton.cloneNode(true);
-    const newMobileViewButton = mobileViewButton.cloneNode(true);
-
-    saveButton.parentNode?.replaceChild(newSaveButton, saveButton);
-    resetButton.parentNode?.replaceChild(newResetButton, resetButton);
-    mobileViewButton.parentNode?.replaceChild(newMobileViewButton, mobileViewButton);
-
-    // Add event listeners
-    newSaveButton.addEventListener('click', () => {
-      this.hideKeybindsModal();
-    });
-
-    newResetButton.addEventListener('click', () => {
-      this.inputManager.resetKeybinds();
-      this.showKeybindsModal(); // Refresh the modal
-    });
-
-    newMobileViewButton.addEventListener('click', () => {
-      DeviceDetection.enableMobileView();
-    });
-
-    // Close modal when clicking outside
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        this.hideKeybindsModal();
-      }
-    });
-
-    // Close modal with Escape key
-    const escapeHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        this.hideKeybindsModal();
-        document.removeEventListener('keydown', escapeHandler);
-      }
-    };
-    document.addEventListener('keydown', escapeHandler);
-  }
-
-  private hideKeybindsModal(): void {
-    const modal = document.getElementById('keybindsModal');
-    if (modal) {
-      modal.style.display = 'none';
-    }
-  }
-
-  private startKeybindEdit(keyButton: HTMLElement, keybindName: string): void {
-    keyButton.classList.add('editing');
-    keyButton.textContent = 'Press key...';
-
-    const keyHandler = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      // Update the keybind
-      this.inputManager.updateKeybind(keybindName, e.code);
-
-      // Update the button
-      keyButton.classList.remove('editing');
-      keyButton.textContent = this.getKeyDisplayName(e.code);
-
-      // Remove event listener
-      document.removeEventListener('keydown', keyHandler);
-    };
-
-    document.addEventListener('keydown', keyHandler);
-  }
-
-  private getKeyDisplayName(keyCode: string): string {
-    const keyMap: { [key: string]: string } = {
-      KeyW: 'W',
-      KeyA: 'A',
-      KeyS: 'S',
-      KeyD: 'D',
-      KeyQ: 'Q',
-      KeyE: 'E',
-      KeyR: 'R',
-      KeyF: 'F',
-      KeyZ: 'Z',
-      KeyX: 'X',
-      KeyC: 'C',
-      Digit1: '1',
-      Digit2: '2',
-      Digit3: '3',
-      Digit4: '4',
-      Space: 'Space',
-      Escape: 'Esc',
-      ArrowUp: '↑',
-      ArrowDown: '↓',
-      ArrowLeft: '←',
-      ArrowRight: '→',
-      ShiftLeft: 'L-Shift',
-      ShiftRight: 'R-Shift',
-      ControlLeft: 'L-Ctrl',
-      ControlRight: 'R-Ctrl',
-    };
-
-    return keyMap[keyCode] || keyCode.replace('Key', '').replace('Digit', '');
-  }
 }

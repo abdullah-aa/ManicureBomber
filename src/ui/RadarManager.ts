@@ -4,7 +4,6 @@ import { Bomber } from '../entities/Bomber';
 import { TerrainManager } from '../managers/TerrainManager';
 import { DefenseMissile } from '../entities/DefenseMissile';
 import { IskanderMissile } from '../entities/IskanderMissile';
-import { DeviceDetection } from '../utils/deviceDetection';
 
 interface RadarMarker {
   element: HTMLElement;
@@ -37,7 +36,7 @@ export class RadarManager {
     this.radarDisplay = document.getElementById('radarDisplay')!;
     this.targetCountElement = document.getElementById('targetCount')!;
     this.createRadarPulseStyles();
-    this.applyMobileStylesIfNeeded();
+    this.applyMobileStyles();
     this.initializeMarkerPool();
     this.updateRadarPixelRadius();
 
@@ -125,10 +124,9 @@ export class RadarManager {
     document.head.appendChild(style);
   }
 
-  private applyMobileStylesIfNeeded(): void {
-    if (DeviceDetection.isMobile()) {
-      const style = document.createElement('style');
-      style.textContent = `
+  private applyMobileStyles(): void {
+    const style = document.createElement('style');
+    style.textContent = `
           #radarOverlay {
             width: 100px !important;
             font-size: 10px;
@@ -165,8 +163,7 @@ export class RadarManager {
             font-size: 9px;
           }
         `;
-      document.head.appendChild(style);
-    }
+    document.head.appendChild(style);
   }
 
   public update(
