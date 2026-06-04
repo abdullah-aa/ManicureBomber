@@ -94,7 +94,9 @@ export class TomahawkMissile {
     this.workerManager = workerManager;
     this.position = launchPosition.clone();
     this.targetBuilding = targetBuilding;
+    // Aim for the launcher sitting on top of the building, not the base.
     this.targetPosition = targetBuilding.getPosition().clone();
+    this.targetPosition.y += targetBuilding.getMaxHeight();
     this.rotation = launchRotation.clone();
     this.velocity = new Vector3(0, 0, 0); // Start stationary
     this.bomberVelocity = bomberVelocity ? bomberVelocity.clone() : new Vector3(0, 0, 0);
@@ -798,12 +800,11 @@ export class TomahawkMissile {
     this.shockwaveParticles.start();
     this.sparkParticles.start();
 
-    // Destroy the target building if it exists and is close enough
-    if (this.targetBuilding && Vector3.Distance(this.position, this.targetBuilding.getPosition()) <= 20) {
-      const wasDestroyed = this.targetBuilding.takeDamage(100); // Destroy building instantly
-      if (wasDestroyed && this.targetBuilding.isTarget() && this.onTargetDestroyedCallback) {
-        this.onTargetDestroyedCallback(this.targetBuilding);
-      }
+    // Knock out only the launcher and set the building ablaze.
+    // Full destruction is reserved for bombing. Measure against the launcher
+    // target point on top of the building, not the base.
+    if (this.targetBuilding && Vector3.Distance(this.position, this.targetPosition) <= 20) {
+      this.targetBuilding.destroyLauncher();
     }
 
     // Hide missile model

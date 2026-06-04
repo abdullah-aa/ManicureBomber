@@ -53,6 +53,7 @@ export class Building {
 
   // Defense launcher properties
   private launcherMesh: Mesh | null = null;
+  private launcherDestroyed: boolean = false;
   private lastMissileLaunchTime: number = 0;
   private missileLaunchInterval: number = 4 + Math.random() * 6; // Random interval between 4-10 seconds
   private radarScanRange: number = 300; // Detection range
@@ -518,6 +519,27 @@ export class Building {
     return false; // Building still standing
   }
 
+  public destroyLauncher(): void {
+    if (this.launcherDestroyed || this.isDestroyed) return;
+    this.launcherDestroyed = true;
+
+    // Remove the launcher mesh (the threat is gone)
+    if (this.launcherMesh) {
+      this.launcherMesh.dispose();
+      this.launcherMesh = null;
+    }
+
+    // Set the building ablaze without destroying it. Carry damage to ~60% so the
+    // building visibly burns (fire >30%, smoke >50%) AND a follow-up bomb finishes it.
+    // Never reach maxHealth from a Tomahawk — bombing is required for a kill.
+    const igniteDamage = this.maxHealth * 0.6;
+    this.damage = Math.min(Math.max(this.damage, igniteDamage), this.maxHealth * 0.9);
+
+    if (this.fireParticles && !this.fireParticles.isStarted()) this.fireParticles.start();
+    if (this.smokeParticles && !this.smokeParticles.isStarted()) this.smokeParticles.start();
+    if (this.damageLight) this.damageLight.intensity = (this.damage / this.maxHealth) * 2;
+  }
+
   private destroyBuilding(): void {
     this.isDestroyed = true;
 
@@ -695,7 +717,7 @@ export class Building {
     currentTime: number,
     deltaTime: number,
   ): void {
-    if (!this.config.isDefenseLauncher || this.isDestroyed || !this.game) return;
+    if (!this.isDefenseLauncher() || this.isDestroyed || !this.game) return;
 
     // Check if we should launch a new missile
     const distanceToBomber = Vector3.Distance(this.getPosition(), bomberPosition);
@@ -712,7 +734,7 @@ export class Building {
   }
 
   private launchDefenseMissile(bomberPosition: Vector3, bomberVelocity: Vector3): void {
-    if (!this.config.isDefenseLauncher || this.isDestroyed || !this.game) return;
+    if (!this.isDefenseLauncher() || this.isDestroyed || !this.game) return;
 
     const launchPosition = this.getPosition().clone();
     launchPosition.y += this.config.height + 3; // Launch from top of launcher
@@ -724,7 +746,7 @@ export class Building {
   }
 
   public isDefenseLauncher(): boolean {
-    return this.config.isDefenseLauncher || false;
+    return (this.config.isDefenseLauncher || false) && !this.launcherDestroyed;
   }
 
   public dispose(): void {
