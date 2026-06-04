@@ -8,11 +8,13 @@ export class CameraController {
   private bomber: Bomber;
   private terrainManager: TerrainManager;
   private followDistance: number = 200;
-  // Camera height is an offset ABOVE the bomber (not an absolute world Y), so the camera can
-  // always rise above the bomber and look down at the ground regardless of the bomber's altitude.
+  // Camera height is an offset relative to the bomber (not an absolute world Y). A positive
+  // offset rises above the bomber to look down; a negative offset drops below it to look up at
+  // the underside / bomb bay. Either way the camera is kept above the ground floor below.
   private followHeightOffset: number = 140;
   private smoothing: number = 2.0;
-  private minFollowHeightOffset: number = 10;
+  // Negative minimum lets the camera pass below the bomber for a bomb-bay view.
+  private minFollowHeightOffset: number = -250;
   private maxFollowHeightOffset: number = 450;
   private zoomSpeed: number = 5;
   private showGroundCrosshairs: boolean = false;
@@ -121,9 +123,10 @@ export class CameraController {
     const desiredZ = bomberPos.z - this.cachedCos * this.followDistance;
 
     const minHeightAboveGround = 10; // Minimum height above ground
-    // Height is an offset above the bomber. followHeightOffset is raised/lowered unbounded by
-    // mouse/touch drag above, so clamp it here, then sit the camera that far above the bomber
-    // (never below the ground floor). This keeps the camera able to rise above the bomber at any altitude.
+    // Height is an offset relative to the bomber. followHeightOffset is raised/lowered unbounded
+    // by mouse/touch drag above, so clamp it here (it may be negative to sit below the bomber),
+    // then place the camera that far from the bomber's altitude — but never below the ground
+    // floor. So a negative offset only descends below the bomber when there's room above ground.
     const clampedOffset = Math.max(this.minFollowHeightOffset, Math.min(this.maxFollowHeightOffset, this.followHeightOffset));
     const clampedFollowHeight = Math.max(bomberPos.y + clampedOffset, minHeightAboveGround);
 
