@@ -40,6 +40,16 @@ if (process.env.NODE_ENV === 'development') {
 // Create the game instance
 const game = new Game(scene, canvas);
 
+// Wire up the splash screen: gameplay stays paused until the player taps START
+const splashScreen = document.getElementById('splashScreen');
+const startButton = document.getElementById('startButton');
+startButton?.addEventListener('click', () => {
+  game.start();
+  if (splashScreen) {
+    splashScreen.style.display = 'none';
+  }
+});
+
 // Initialize the game
 game
   .initialize()

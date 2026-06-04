@@ -58,6 +58,7 @@ export class Game {
 
   // Game state
   private gameOver: boolean = false;
+  private started: boolean = false; // Gameplay is paused until the player dismisses the splash screen
 
   // Performance optimization: frame rate control
   private targetFrameRate: number = 60;
@@ -118,6 +119,21 @@ export class Game {
 
       this.startGameLoop();
     });
+  }
+
+  /**
+   * Begin gameplay. Called when the player dismisses the splash screen.
+   */
+  public start(): void {
+    if (this.started) {
+      return;
+    }
+    this.started = true;
+
+    // Reset the Iskander attack timer so time spent reading the splash screen
+    // doesn't immediately count against the player.
+    const initialInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
+    this.nextIskanderLaunchTime = performance.now() / 1000 + initialInterval;
   }
 
   private setupLighting(): void {
@@ -186,6 +202,11 @@ export class Game {
     this.scene.registerBeforeRender(() => {
       try {
         const currentTime = performance.now();
+
+        // Wait on the splash screen until the player starts the mission
+        if (!this.started) {
+          return;
+        }
 
         // Check for game over condition - stop processing but don't auto-restart
         if (this.gameOver) {

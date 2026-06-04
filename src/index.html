@@ -353,10 +353,138 @@
       #radarDisplay:hover::after {
         opacity: 1;
       }
+
+      /* Splash / Start Screen */
+      #splashScreen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+        padding: 24px;
+        box-sizing: border-box;
+        background: radial-gradient(circle at 50% 30%, rgba(0, 40, 0, 0.95), rgba(0, 0, 0, 0.98));
+        color: #00ff00;
+        font-family: 'Courier New', monospace;
+        text-align: center;
+        z-index: 5000;
+        overflow-y: auto;
+      }
+
+      #splashTitle {
+        margin: 0;
+        font-size: clamp(28px, 7vw, 52px);
+        letter-spacing: 2px;
+        text-shadow: 0 0 12px rgba(0, 255, 0, 0.8);
+      }
+
+      #splashTagline {
+        margin: -12px 0 0 0;
+        color: rgba(0, 255, 0, 0.7);
+        font-size: clamp(12px, 3vw, 16px);
+        letter-spacing: 4px;
+        text-transform: uppercase;
+      }
+
+      #splashControls {
+        list-style: none;
+        margin: 0;
+        padding: 16px 20px;
+        max-width: 460px;
+        width: 100%;
+        box-sizing: border-box;
+        background: rgba(0, 50, 0, 0.55);
+        border: 1px solid rgba(0, 255, 0, 0.4);
+        border-radius: 10px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+      }
+
+      #splashControls li {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        text-align: left;
+        font-size: clamp(12px, 3.4vw, 15px);
+        line-height: 1.45;
+        color: #d6ffd6;
+        padding: 10px 0;
+        border-bottom: 1px solid rgba(0, 255, 0, 0.15);
+      }
+
+      #splashControls li:last-child {
+        border-bottom: none;
+      }
+
+      #splashControls .control-icon {
+        flex: 0 0 auto;
+        font-size: clamp(20px, 6vw, 28px);
+        width: 36px;
+        text-align: center;
+      }
+
+      #splashControls strong {
+        color: #00ff00;
+      }
+
+      #startButton {
+        background: linear-gradient(135deg, #00b300, #007a00);
+        color: #ffffff;
+        border: 2px solid rgba(0, 255, 0, 0.8);
+        padding: 16px 48px;
+        font-family: 'Courier New', monospace;
+        font-size: clamp(16px, 4.5vw, 22px);
+        font-weight: bold;
+        letter-spacing: 3px;
+        border-radius: 10px;
+        cursor: pointer;
+        text-transform: uppercase;
+        box-shadow: 0 0 18px rgba(0, 255, 0, 0.5);
+        transition:
+          transform 0.15s ease,
+          box-shadow 0.15s ease,
+          background 0.15s ease;
+      }
+
+      #startButton:hover {
+        background: linear-gradient(135deg, #00d600, #009900);
+        box-shadow: 0 0 26px rgba(0, 255, 0, 0.8);
+        transform: translateY(-2px);
+      }
+
+      #startButton:active {
+        transform: translateY(0);
+        box-shadow: 0 0 14px rgba(0, 255, 0, 0.6);
+      }
     </style>
   </head>
   <body>
     <canvas id="renderCanvas"></canvas>
+
+    <!-- Splash / Start Screen -->
+    <div id="splashScreen">
+      <h1 id="splashTitle">✈️🚀💥 Manicure Bomber</h1>
+      <p id="splashTagline">Fly · Bomb · Survive</p>
+      <ul id="splashControls">
+        <li>
+          <span class="control-icon">🕹️</span>
+          <span><strong>Swipe</strong> anywhere to fly — up/down to climb &amp; dive, left/right to turn.</span>
+        </li>
+        <li>
+          <span class="control-icon">💣</span>
+          <span>Tap the <strong>Bomb</strong>, <strong>Missile</strong> &amp; <strong>Flare</strong> buttons (bottom-right) to bomb targets, launch Tomahawks, and dodge incoming Iskander missiles.</span>
+        </li>
+        <li>
+          <span class="control-icon">📹</span>
+          <span>Tap the <strong>camera</strong> button (top-right) to switch to camera mode, then swipe to look around and use <strong>🔍 +/−</strong> to zoom.</span>
+        </li>
+      </ul>
+      <button id="startButton">Start Mission</button>
+    </div>
 
     <div id="radarOverlay">
       <div id="radarHeader">
