@@ -5,6 +5,7 @@ import {
   StandardMaterial,
   Color3,
   Mesh,
+  AbstractMesh,
   TransformNode,
   ParticleSystem,
   Texture,
@@ -17,6 +18,7 @@ import {
 import { WorkerManager } from '../managers/WorkerManager';
 import { Game } from '../managers/Game';
 import { DefenseMissile } from './DefenseMissile';
+import { BuildingAssets } from './BuildingAssets';
 
 export enum BuildingType {
   RESIDENTIAL = 'residential',
@@ -40,7 +42,7 @@ export class Building {
   private scene: Scene;
   private workerManager: WorkerManager;
   private game: Game | null = null;
-  private mesh: Mesh;
+  private mesh: AbstractMesh;
   private parent: TransformNode;
   private config: BuildingConfig;
   private targetRing: Mesh | null = null;
@@ -50,9 +52,10 @@ export class Building {
   private fireParticles: ParticleSystem | null = null;
   private smokeParticles: ParticleSystem | null = null;
   private damageLight: PointLight | null = null;
+  private damageEffectsInitialized: boolean = false;
 
   // Defense launcher properties
-  private launcherMesh: Mesh | null = null;
+  private launcherMesh: AbstractMesh | null = null;
   private launcherDestroyed: boolean = false;
   private lastMissileLaunchTime: number = 0;
   private missileLaunchInterval: number = 4 + Math.random() * 6; // Random interval between 4-10 seconds
@@ -67,7 +70,6 @@ export class Building {
     this.config = config;
     this.parent = new TransformNode(`building_${config.type}_${Date.now()}`, scene);
     this.mesh = this.createBuildingMesh();
-    this.setupMaterial();
     this.positionBuilding();
 
     if (config.isTarget) {
@@ -78,10 +80,11 @@ export class Building {
       this.createDefenseLauncher();
     }
 
-    this.setupDamageEffects();
+    // Damage effects (fire/smoke particles, damage light) are created lazily on first
+    // damage — most buildings are never hit, so allocating them up front is pure waste.
   }
 
-  private createBuildingMesh(): Mesh {
+  private createBuildingMesh(): AbstractMesh {
     const { width, height, depth, type } = this.config;
 
     switch (type) {
@@ -98,185 +101,72 @@ export class Building {
     }
   }
 
-  private createBasicBuilding(width: number, height: number, depth: number): Mesh {
-    const building = MeshBuilder.CreateBox(
-      `building_basic`,
-      {
-        width: width,
-        height: height,
-        depth: depth,
-      },
-      this.scene,
-    );
-
-    building.parent = this.parent;
-    return building;
+  // Instance of the shared per-type unit box, scaled to the requested dimensions.
+  // Instances inherit the source's shared material and batch into a single draw call,
+  // so building count no longer multiplies draw calls / materials. (config.color is no
+  // longer honored at the mesh level — it is never set by the terrain generator.)
+  private boxInstance(name: string, width: number, height: number, depth: number): AbstractMesh {
+    const source = BuildingAssets.get(this.scene).getBoxSource(this.config.type);
+    const instance = source.createInstance(name);
+    instance.scaling.set(width, height, depth);
+    instance.parent = this.parent;
+    return instance;
   }
 
-  private createResidentialBuilding(width: number, height: number, depth: number): Mesh {
-    const building = MeshBuilder.CreateBox(
-      `building_residential`,
-      {
-        width: width,
-        height: height,
-        depth: depth,
-      },
-      this.scene,
-    );
+  private createBasicBuilding(width: number, height: number, depth: number): AbstractMesh {
+    return this.boxInstance(`building_basic`, width, height, depth);
+  }
+
+  private createResidentialBuilding(width: number, height: number, depth: number): AbstractMesh {
+    const building = this.boxInstance(`building_residential`, width, height, depth);
 
     // Add a simple roof
-    const roof = MeshBuilder.CreateBox(
-      `roof`,
-      {
-        width: width + 2,
-        height: 2,
-        depth: depth + 2,
-      },
-      this.scene,
-    );
-
+    const roof = this.boxInstance(`roof`, width + 2, 2, depth + 2);
     roof.position.y = height / 2 + 1;
-    roof.parent = this.parent;
-    building.parent = this.parent;
 
     return building;
   }
 
-  private createCommercialBuilding(width: number, height: number, depth: number): Mesh {
-    const building = MeshBuilder.CreateBox(
-      `building_commercial`,
-      {
-        width: width,
-        height: height,
-        depth: depth,
-      },
-      this.scene,
-    );
+  private createCommercialBuilding(width: number, height: number, depth: number): AbstractMesh {
+    const building = this.boxInstance(`building_commercial`, width, height, depth);
 
-    // Add antenna or signage on top
-    const antenna = MeshBuilder.CreateCylinder(
-      `antenna`,
-      {
-        height: 4,
-        diameterTop: 0.5,
-        diameterBottom: 1,
-      },
-      this.scene,
-    );
-
+    // Add antenna or signage on top (fixed-size instance of the shared antenna source)
+    const antenna = BuildingAssets.get(this.scene).getAntennaSource().createInstance(`antenna`);
     antenna.position.y = height / 2 + 2;
     antenna.parent = this.parent;
-    building.parent = this.parent;
 
     return building;
   }
 
-  private createIndustrialBuilding(width: number, height: number, depth: number): Mesh {
-    const building = MeshBuilder.CreateBox(
-      `building_industrial`,
-      {
-        width: width,
-        height: height,
-        depth: depth,
-      },
-      this.scene,
-    );
+  private createIndustrialBuilding(width: number, height: number, depth: number): AbstractMesh {
+    const building = this.boxInstance(`building_industrial`, width, height, depth);
 
-    // Add smokestacks
+    // Add smokestacks (scaled instances of the shared unit-cylinder source)
+    const stackSource = BuildingAssets.get(this.scene).getSmokestackSource();
     const numStacks = Math.floor(Math.random() * 3) + 1;
     for (let i = 0; i < numStacks; i++) {
-      const stack = MeshBuilder.CreateCylinder(
-        `smokestack_${i}`,
-        {
-          height: height * 0.8,
-          diameter: 2,
-        },
-        this.scene,
-      );
-
+      const stack = stackSource.createInstance(`smokestack_${i}`);
+      stack.scaling.set(2, height * 0.8, 2);
       stack.position.x = (Math.random() - 0.5) * width * 0.6;
       stack.position.z = (Math.random() - 0.5) * depth * 0.6;
       stack.position.y = height / 2 + (height * 0.8) / 2;
       stack.parent = this.parent;
     }
 
-    building.parent = this.parent;
     return building;
   }
 
-  private createSkyscraper(width: number, height: number, depth: number): Mesh {
-    const building = MeshBuilder.CreateBox(
-      `building_skyscraper`,
-      {
-        width: width,
-        height: height,
-        depth: depth,
-      },
-      this.scene,
-    );
+  private createSkyscraper(width: number, height: number, depth: number): AbstractMesh {
+    const building = this.boxInstance(`building_skyscraper`, width, height, depth);
 
     // Add multiple tiers for skyscraper effect
-    const tier1 = MeshBuilder.CreateBox(
-      `tier1`,
-      {
-        width: width * 0.8,
-        height: height * 0.3,
-        depth: depth * 0.8,
-      },
-      this.scene,
-    );
-
-    const tier2 = MeshBuilder.CreateBox(
-      `tier2`,
-      {
-        width: width * 0.6,
-        height: height * 0.2,
-        depth: depth * 0.6,
-      },
-      this.scene,
-    );
+    const tier1 = this.boxInstance(`tier1`, width * 0.8, height * 0.3, depth * 0.8);
+    const tier2 = this.boxInstance(`tier2`, width * 0.6, height * 0.2, depth * 0.6);
 
     tier1.position.y = height / 2 + (height * 0.3) / 2;
     tier2.position.y = height / 2 + height * 0.3 + (height * 0.2) / 2;
 
-    tier1.parent = this.parent;
-    tier2.parent = this.parent;
-    building.parent = this.parent;
-
     return building;
-  }
-
-  private setupMaterial(): void {
-    const material = new StandardMaterial(`buildingMaterial_${this.config.type}`, this.scene);
-
-    // Set color based on building type or use provided color
-    if (this.config.color) {
-      material.diffuseColor = this.config.color;
-    } else {
-      switch (this.config.type) {
-        case BuildingType.RESIDENTIAL:
-          material.diffuseColor = new Color3(0.8, 0.7, 0.6); // Warm beige
-          break;
-        case BuildingType.COMMERCIAL:
-          material.diffuseColor = new Color3(0.6, 0.8, 0.9); // Light blue
-          break;
-        case BuildingType.INDUSTRIAL:
-          material.diffuseColor = new Color3(0.5, 0.5, 0.5); // Gray
-          break;
-        case BuildingType.SKYSCRAPER:
-          material.diffuseColor = new Color3(0.3, 0.3, 0.4); // Dark blue-gray
-          break;
-        default:
-          material.diffuseColor = new Color3(0.7, 0.7, 0.7); // Light gray
-      }
-    }
-
-    material.specularColor = new Color3(0.1, 0.1, 0.1);
-
-    // Apply material to all child meshes
-    this.parent.getChildMeshes().forEach((mesh) => {
-      mesh.material = material;
-    });
   }
 
   private positionBuilding(): void {
@@ -311,7 +201,7 @@ export class Building {
   }
 
   // Get mesh for Babylon's built-in intersection methods
-  public getMesh(): Mesh {
+  public getMesh(): AbstractMesh {
     return this.mesh;
   }
 
@@ -335,76 +225,25 @@ export class Building {
   }
 
   private createDefenseLauncher(): void {
-    // Create a missile launcher on top of the building
-    this.launcherMesh = MeshBuilder.CreateBox(
-      `launcher_${Date.now()}`,
-      {
-        width: 3,
-        height: 2,
-        depth: 3,
-      },
-      this.scene,
-    );
-
+    // Instance of the shared launcher source (fixed 3x2x3); the shared material carries the
+    // flashing animation, so all launchers share one animated material and batch together.
+    this.launcherMesh = BuildingAssets.get(this.scene).getLauncherSource().createInstance(`launcher_${Date.now()}`);
     this.launcherMesh.position.y = this.config.height;
     this.launcherMesh.parent = this.parent;
+  }
 
-    const launcherMaterial = new StandardMaterial(`launcherMaterial_${Date.now()}`, this.scene);
-    launcherMaterial.diffuseColor = new Color3(1.0, 0.5, 0.0); // Orange
-    launcherMaterial.specularColor = new Color3(1.0, 0.7, 0.3);
-    launcherMaterial.emissiveColor = new Color3(0.3, 0.15, 0.0); // Base orange glow
-
-    // Create flashing animation
-    const emissiveAnimation = new Animation(
-      'launcherFlash',
-      'emissiveColor',
-      30,
-      Animation.ANIMATIONTYPE_COLOR3,
-      Animation.ANIMATIONLOOPMODE_CYCLE,
-    );
-
-    const keyFrames = [];
-    keyFrames.push({
-      frame: 0,
-      value: new Color3(0.3, 0.15, 0.0), // Dim orange
-    });
-    keyFrames.push({
-      frame: 15,
-      value: new Color3(1.0, 0.5, 0.0), // Bright orange
-    });
-    keyFrames.push({
-      frame: 30,
-      value: new Color3(0.3, 0.15, 0.0), // Back to dim orange
-    });
-
-    emissiveAnimation.setKeys(keyFrames);
-    launcherMaterial.animations = [emissiveAnimation];
-
-    // Start the animation
-    this.scene.beginAnimation(launcherMaterial, 0, 30, true);
-
-    this.launcherMesh.material = launcherMaterial;
+  private ensureDamageEffects(): void {
+    if (this.damageEffectsInitialized) return;
+    this.damageEffectsInitialized = true;
+    this.setupDamageEffects();
   }
 
   private setupDamageEffects(): void {
-    // Create procedural fire texture
-    const fireTexture = new DynamicTexture('buildingFireTexture', { width: 64, height: 64 }, this.scene);
-    const fireContext = fireTexture.getContext();
+    const assets = BuildingAssets.get(this.scene);
 
-    // Create fire effect with gradient
-    const fireGradient = fireContext.createRadialGradient(32, 32, 0, 32, 32, 32);
-    fireGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    fireGradient.addColorStop(0.3, 'rgba(255, 200, 0, 0.8)');
-    fireGradient.addColorStop(0.7, 'rgba(255, 100, 0, 0.4)');
-    fireGradient.addColorStop(1, 'rgba(200, 0, 0, 0)');
-
-    fireContext.fillStyle = fireGradient;
-    fireContext.fillRect(0, 0, 64, 64);
-    fireTexture.update();
-
-    // Fire particles for when building is damaged
+    // Fire particles for when building is damaged (texture shared across all buildings)
     this.fireParticles = new ParticleSystem('buildingFire', 200, this.scene);
-    this.fireParticles.particleTexture = fireTexture;
+    this.fireParticles.particleTexture = assets.getFireTexture();
     this.fireParticles.emitter = this.parent.position;
     this.fireParticles.minEmitBox = new Vector3(-this.config.width / 2, 0, -this.config.depth / 2);
     this.fireParticles.maxEmitBox = new Vector3(this.config.width / 2, this.config.height, this.config.depth / 2);
@@ -424,35 +263,9 @@ export class Building {
     this.fireParticles.maxEmitPower = 3;
     this.fireParticles.stop();
 
-    // Create procedural smoke texture
-    const smokeTexture = new DynamicTexture('buildingSmokeTexture', { width: 64, height: 64 }, this.scene);
-    const smokeContext = smokeTexture.getContext();
-
-    // Create smoke effect with noise
-    smokeContext.fillStyle = 'rgba(0, 0, 0, 0)';
-    smokeContext.fillRect(0, 0, 64, 64);
-
-    // Add several overlapping circles for smoke effect
-    for (let i = 0; i < 8; i++) {
-      const x = 32 + (Math.random() - 0.5) * 40;
-      const y = 32 + (Math.random() - 0.5) * 40;
-      const radius = 15 + Math.random() * 15;
-      const alpha = 0.1 + Math.random() * 0.3;
-
-      const gradient = smokeContext.createRadialGradient(x, y, 0, x, y, radius);
-      gradient.addColorStop(0, `rgba(100, 100, 100, ${alpha})`);
-      gradient.addColorStop(1, 'rgba(50, 50, 50, 0)');
-
-      smokeContext.fillStyle = gradient;
-      smokeContext.beginPath();
-      smokeContext.arc(x, y, radius, 0, 2 * Math.PI);
-      smokeContext.fill();
-    }
-    smokeTexture.update();
-
-    // Smoke particles
+    // Smoke particles (texture shared across all buildings)
     this.smokeParticles = new ParticleSystem('buildingSmoke', 150, this.scene);
-    this.smokeParticles.particleTexture = smokeTexture;
+    this.smokeParticles.particleTexture = assets.getSmokeTexture();
     this.smokeParticles.emitter = this.parent.position;
     this.smokeParticles.minEmitBox = new Vector3(
       -this.config.width / 2,
@@ -489,6 +302,8 @@ export class Building {
   public takeDamage(damage: number, isBombDamage: boolean = false): boolean {
     if (this.isDestroyed) return false;
 
+    this.ensureDamageEffects();
+
     this.damage += damage;
     const damagePercent = this.damage / this.maxHealth;
 
@@ -522,6 +337,8 @@ export class Building {
   public destroyLauncher(): void {
     if (this.launcherDestroyed || this.isDestroyed) return;
     this.launcherDestroyed = true;
+
+    this.ensureDamageEffects();
 
     // Remove the launcher mesh (the threat is gone)
     if (this.launcherMesh) {
