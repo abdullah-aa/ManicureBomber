@@ -51,6 +51,7 @@ export class Bomber {
   private currentBankAngle: number = 0; // Current roll angle
   private targetBankAngle: number = 0; // Target roll angle
   private minimumAltitude: number = 80;
+  private maximumAltitude: number = 500; // Cap climb so the camera can't reveal far terrain
 
   // Tomahawk missile system
   private missiles: TomahawkMissile[] = [];
@@ -582,8 +583,8 @@ export class Bomber {
     const bankDifference = this.targetBankAngle - this.currentBankAngle;
     this.currentBankAngle += bankDifference * this.bankSpeed * deltaTime;
 
-    // Keep altitude within reasonable bounds - above terrain (max ~80) but still allow low flying
-    this.altitude = Math.max(this.minimumAltitude, this.altitude);
+    // Keep altitude within bounds - above terrain (min) and below the climb cap (max)
+    this.altitude = Math.min(this.maximumAltitude, Math.max(this.minimumAltitude, this.altitude));
 
     // Cache trigonometric calculations to avoid repeated sin/cos calls
     if (!this.trigCacheValid || Math.abs(this.rotation.y - this.lastRotationY) > 0.01) {

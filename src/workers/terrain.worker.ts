@@ -35,10 +35,28 @@ interface ChunkDistanceRequest {
 interface ChunkGenerationRequest {
   currentChunkX: number;
   currentChunkZ: number;
-  bomberPosition: { x: number; z: number };
   existingChunks: string[];
   maxTotalChunks: number;
   maxChunksPerUpdate: number;
+  radius: number;
+}
+
+/**
+ * Compute the keep-set used by BOTH generation and removal: a symmetric, heading-INDEPENDENT
+ * Chebyshev square of radius `radius` chunks around the plane's chunk. Because it depends only on
+ * (currentChunkX, currentChunkZ), turning never changes membership -> zero churn and no directional
+ * gaps. The square (not a Euclidean disk) guarantees `radius * chunkSize` of coverage in every
+ * direction including the 45-degree diagonal, so a turn toward any heading always faces loaded
+ * terrain that fog hides before its edge (see TerrainManager: radius*chunkSize - 300 >= fogEnd).
+ */
+function computeKeepSet(currentChunkX: number, currentChunkZ: number, radius: number): Set<string> {
+  const keep = new Set<string>();
+  for (let dx = -radius; dx <= radius; dx++) {
+    for (let dz = -radius; dz <= radius; dz++) {
+      keep.add(`${currentChunkX + dx}_${currentChunkZ + dz}`);
+    }
+  }
+  return keep;
 }
 
 const noiseGenerator = new NoiseGenerator();
@@ -127,7 +145,9 @@ function generateBuildings(
   const worldX = chunkX * chunkSize;
   const worldZ = chunkZ * chunkSize;
   const buildingConfigs: BuildingConfig[] = [];
-  const buildingDensity = 0.00005;
+  // Per-area density, kept low because the symmetric keep-set loads terrain in ALL directions:
+  // total in-view buildings stay near the original build (~150-250) despite the larger world.
+  const buildingDensity = 0.0000125;
   const chunkArea = chunkSize * chunkSize;
   const numBuildings = Math.floor(chunkArea * buildingDensity * (0.5 + Math.random() * 0.8));
 
@@ -245,77 +265,43 @@ function getTerrainHeight(request: TerrainHeightRequest): number {
 }
 
 function generateChunksNearPlayer(request: ChunkGenerationRequest): { chunkX: number; chunkZ: number }[] {
-  const { currentChunkX, currentChunkZ, bomberPosition, existingChunks, maxTotalChunks, maxChunksPerUpdate } = request;
+  const { currentChunkX, currentChunkZ, existingChunks, maxTotalChunks, maxChunksPerUpdate, radius } = request;
 
-  const chunksToGenerate: { chunkX: number; chunkZ: number }[] = [];
-  let chunksGenerated = 0;
-
-  // Generate chunks in immediate vicinity
-  for (let x = currentChunkX - 1; x <= currentChunkX + 1 && chunksGenerated < maxChunksPerUpdate; x++) {
-    for (let z = currentChunkZ - 1; z <= currentChunkZ + 1 && chunksGenerated < maxChunksPerUpdate; z++) {
-      const chunkKey = `${x}_${z}`;
-      if (!existingChunks.includes(chunkKey)) {
-        chunksToGenerate.push({ chunkX: x, chunkZ: z });
-        chunksGenerated++;
-      }
-    }
+  if (existingChunks.length >= maxTotalChunks) {
+    return [];
   }
 
-  // Generate additional chunks based on direction if needed
-  if (chunksGenerated < maxChunksPerUpdate && existingChunks.length < maxTotalChunks) {
-    // Calculate direction based on bomber position relative to current chunk center
-    const chunkCenterX = (currentChunkX + 0.5) * 500; // Assuming chunkSize = 500
-    const chunkCenterZ = (currentChunkZ + 0.5) * 500;
+  const keep = computeKeepSet(currentChunkX, currentChunkZ, radius);
+  const existing = new Set(existingChunks);
 
-    const directionX = bomberPosition.x > chunkCenterX ? 1 : -1;
-    const directionZ = bomberPosition.z > chunkCenterZ ? 1 : -1;
-
-    // Prioritize direction with larger offset
-    const offsetX = Math.abs(bomberPosition.x - chunkCenterX);
-    const offsetZ = Math.abs(bomberPosition.z - chunkCenterZ);
-
-    if (offsetX > offsetZ) {
-      // Generate chunks in X direction
-      for (let z = currentChunkZ - 1; z <= currentChunkZ + 1 && chunksGenerated < maxChunksPerUpdate; z++) {
-        const chunkKey = `${currentChunkX + directionX * 2}_${z}`;
-        if (!existingChunks.includes(chunkKey)) {
-          chunksToGenerate.push({ chunkX: currentChunkX + directionX * 2, chunkZ: z });
-          chunksGenerated++;
-        }
-      }
-    } else {
-      // Generate chunks in Z direction
-      for (let x = currentChunkX - 1; x <= currentChunkX + 1 && chunksGenerated < maxChunksPerUpdate; x++) {
-        const chunkKey = `${x}_${currentChunkZ + directionZ * 2}`;
-        if (!existingChunks.includes(chunkKey)) {
-          chunksToGenerate.push({ chunkX: x, chunkZ: currentChunkZ + directionZ * 2 });
-          chunksGenerated++;
-        }
-      }
-    }
+  // Missing chunks of the keep-set, nearest-to-the-plane first (chunk-space distance, so it is
+  // independent of chunkSize) so the ground under/around the plane fills before the outer ring.
+  const missing: { chunkX: number; chunkZ: number; distSq: number }[] = [];
+  for (const chunkKey of keep) {
+    if (existing.has(chunkKey)) continue;
+    const [chunkX, chunkZ] = chunkKey.split('_').map(Number);
+    const dx = chunkX - currentChunkX;
+    const dz = chunkZ - currentChunkZ;
+    missing.push({ chunkX, chunkZ, distSq: dx * dx + dz * dz });
   }
 
-  return chunksToGenerate;
+  missing.sort((a, b) => a.distSq - b.distSq);
+
+  const budget = Math.min(maxChunksPerUpdate, maxTotalChunks - existingChunks.length);
+  return missing.slice(0, budget).map(({ chunkX, chunkZ }) => ({ chunkX, chunkZ }));
 }
 
 function getChunksToRemove(request: {
   currentChunkX: number;
   currentChunkZ: number;
   existingChunks: string[];
-  maxDistance: number;
+  radius: number;
 }): string[] {
-  const { currentChunkX, currentChunkZ, existingChunks, maxDistance } = request;
-  const chunksToRemove: string[] = [];
+  const { currentChunkX, currentChunkZ, existingChunks, radius } = request;
 
-  for (const chunkKey of existingChunks) {
-    const [chunkX, chunkZ] = chunkKey.split('_').map(Number);
-    const distance = Math.abs(chunkX - currentChunkX) + Math.abs(chunkZ - currentChunkZ);
-    if (distance > maxDistance) {
-      chunksToRemove.push(chunkKey);
-    }
-  }
-
-  return chunksToRemove;
+  // Remove anything outside the symmetric keep-set (mirrors generation).
+  const keep = computeKeepSet(currentChunkX, currentChunkZ, radius);
+  return existingChunks.filter((chunkKey) => !keep.has(chunkKey));
 }
 
 function prepareBuildingDataForRadius(request: {

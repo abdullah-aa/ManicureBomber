@@ -75,20 +75,20 @@ export class WorkerManager {
   public generateChunksNearPlayer(
     currentChunkX: number,
     currentChunkZ: number,
-    bomberPosition: Vector3,
     existingChunks: string[],
     maxTotalChunks: number,
     maxChunksPerUpdate: number,
+    radius: number,
   ): Promise<any> {
     return this.sendMessageToWorker(this.terrainWorker, {
       type: 'GENERATE_CHUNKS_NEAR_PLAYER',
       data: {
         currentChunkX,
         currentChunkZ,
-        bomberPosition: { x: bomberPosition.x, z: bomberPosition.z },
         existingChunks,
         maxTotalChunks,
         maxChunksPerUpdate,
+        radius,
       },
     });
   }
@@ -97,7 +97,7 @@ export class WorkerManager {
     currentChunkX: number,
     currentChunkZ: number,
     existingChunks: string[],
-    maxDistance: number,
+    radius: number,
   ): Promise<any> {
     return this.sendMessageToWorker(this.terrainWorker, {
       type: 'GET_CHUNKS_TO_REMOVE',
@@ -105,7 +105,7 @@ export class WorkerManager {
         currentChunkX,
         currentChunkZ,
         existingChunks,
-        maxDistance,
+        radius,
       },
     });
   }

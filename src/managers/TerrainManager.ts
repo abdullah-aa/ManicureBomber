@@ -23,12 +23,19 @@ export class TerrainManager {
   private scene: Scene;
   private game: Game | null = null;
   private chunks: Map<string, TerrainChunk | null> = new Map();
-  private chunkSize: number = 500;
-  private generationThreshold: number = 400; // Increased for modern machines - can be reduced later if needed
+  private chunkSize: number = 900;
+  private generationThreshold: number = 300; // < chunkSize/2 (450) so it fires near an edge, not always
+  // Symmetric, heading-independent Chebyshev keep-set of radius keepRadius (see terrain.worker
+  // computeKeepSet): (2R+1)^2 chunks loaded around the plane. Sized so the nearest loaded edge is
+  // always beyond fogEnd (keepRadius*chunkSize - 300 >= fogEnd), so no edge is ever visible.
+  // R=2, S=900 -> 2*900-300 = 1500 >= fogEnd 1500. Few, large, low-poly chunks keep mobile fast.
+  private keepRadius: number = 2;
+  private maxTotalChunks: number = 30; // (2*2+1)^2 = 25 footprint + slack
+  private maxChunksPerUpdate: number = 6;
   private terrainMaterial!: StandardMaterial;
   private lastTerrainUpdateTime: number = 0;
   private heightmapCache: Map<string, Float32Array> = new Map();
-  private subdivisions = 64;
+  private subdivisions = 48;
   private bomber: any = null;
 
   private buildingCache: Map<string, Building[]> = new Map();
@@ -238,10 +245,21 @@ export class TerrainManager {
 
   private createBuildingsFromConfigs(chunk: TerrainChunk, configs: BuildingConfig[]): void {
     // Process buildings in batches to prevent frame drops
+    const chunkKey = `${chunk.x}_${chunk.z}`;
     const maxBuildingsPerFrame = 3; // Limit buildings per frame
     let processedBuildings = 0;
 
     const processBuildingBatch = () => {
+      // If the chunk was removed or replaced while we spread building creation across
+      // frames, stop — otherwise these buildings are orphaned (never disposed) and pile
+      // up on revisit. (this.chunks.get returns undefined after removal, or a different
+      // chunk object after regeneration.)
+      if (this.isDisposing || this.chunks.get(chunkKey) !== chunk) {
+        chunk.buildings.forEach((building) => building.dispose());
+        chunk.buildings.length = 0;
+        return;
+      }
+
       const endIndex = Math.min(processedBuildings + maxBuildingsPerFrame, configs.length);
 
       for (let i = processedBuildings; i < endIndex; i++) {
@@ -314,6 +332,14 @@ export class TerrainManager {
   private createClearSky(): void {
     // Set scene clear color to a clear sky blue
     this.scene.clearColor = new Color4(0.5, 0.7, 0.9, 1.0);
+
+    // Linear distance fog fades distant terrain into the sky, hiding the edge of the
+    // (small) loaded world and cutting fill-rate. fogColor MUST match clearColor RGB so
+    // the horizon dissolves seamlessly, and fogEnd must stay below camera.maxZ (1800).
+    this.scene.fogMode = Scene.FOGMODE_LINEAR;
+    this.scene.fogColor = new Color3(0.5, 0.7, 0.9);
+    this.scene.fogStart = 900;
+    this.scene.fogEnd = 1500;
   }
 
   public generateInitialTerrain(center: Vector3): Promise<void> {
@@ -324,9 +350,10 @@ export class TerrainManager {
     const chunkX = Math.floor(center.x / this.chunkSize);
     const chunkZ = Math.floor(center.z / this.chunkSize);
 
+    // Seed the full keep-radius disk so the very first frame is already blank-free out to fogEnd.
     const chunkPromises: Promise<void>[] = [];
-    for (let x = chunkX - 1; x <= chunkX + 1; x++) {
-      for (let z = chunkZ - 1; z <= chunkZ + 1; z++) {
+    for (let x = chunkX - this.keepRadius; x <= chunkX + this.keepRadius; x++) {
+      for (let z = chunkZ - this.keepRadius; z <= chunkZ + this.keepRadius; z++) {
         chunkPromises.push(this.generateChunk(x, z));
       }
     }
@@ -338,35 +365,36 @@ export class TerrainManager {
     const currentChunkX = Math.floor(bomberPosition.x / this.chunkSize);
     const currentChunkZ = Math.floor(bomberPosition.z / this.chunkSize);
 
-    // Performance optimization: limit update frequency and prevent updates during game over
-    const currentTime = performance.now();
-    if (currentTime - this.lastTerrainUpdateTime < 100) {
-      return;
-    }
-    this.lastTerrainUpdateTime = currentTime;
+    // Cadence is owned by the game loop (terrainUpdateInterval); no internal throttle here.
+    this.lastTerrainUpdateTime = performance.now();
 
     // Check if we're in a safe state for worker calls
     if (!this.isSafeForWorkerCalls()) {
-      // Don't generate new terrain when not safe
+      // Don't generate new terrain when not safe.
       return;
     }
 
-    // Use worker to calculate distance to chunk edge and generate chunks if needed
-    this.workerManager
-      .getDistanceToNearestChunkEdge(bomberPosition, this.chunkSize)
-      .then((result: { distance: number }) => {
-        if (result.distance < this.generationThreshold) {
-          this.generateChunksNearPlayerAsync(currentChunkX, currentChunkZ, bomberPosition);
-        }
-      })
-      .catch(() => {
-        // Skip on failed updates - no fallback
-        return;
-      });
+    // Generate whenever the keep-set may have holes: either we're near a chunk edge, or we simply
+    // have room for more chunks (the worker returns [] when nothing's needed).
+    if (this.chunks.size < this.maxTotalChunks) {
+      this.generateChunksNearPlayerAsync(currentChunkX, currentChunkZ);
+    } else {
+      this.workerManager
+        .getDistanceToNearestChunkEdge(bomberPosition, this.chunkSize)
+        .then((result: { distance: number }) => {
+          if (result.distance < this.generationThreshold) {
+            this.generateChunksNearPlayerAsync(currentChunkX, currentChunkZ);
+          }
+        })
+        .catch(() => {
+          // Skip on failed updates - no fallback
+          return;
+        });
+    }
 
-    // Use worker to determine which chunks to remove
+    // Use worker to determine which chunks to remove (symmetric keep-set, mirrors generation).
     this.workerManager
-      .getChunksToRemove(currentChunkX, currentChunkZ, Array.from(this.chunks.keys()), 3)
+      .getChunksToRemove(currentChunkX, currentChunkZ, Array.from(this.chunks.keys()), this.keepRadius)
       .then((result: { chunksToRemove: string[] }) => {
         this.removeChunks(result.chunksToRemove);
       })
@@ -378,7 +406,9 @@ export class TerrainManager {
 
   private removeChunks(chunksToRemove: string[]): void {
     let chunksProcessed = 0;
-    const maxChunksToProcessPerFrame = 2;
+    // Match the generation rate so retired (off-screen) chunks free their slots fast enough not to
+    // pin chunks.size at the cap and starve generation when a new edge row enters at a crossing.
+    const maxChunksToProcessPerFrame = 6;
 
     chunksToRemove.forEach((key) => {
       if (chunksProcessed >= maxChunksToProcessPerFrame) return;
@@ -396,29 +426,27 @@ export class TerrainManager {
     });
   }
 
-  private generateChunksNearPlayerAsync(currentChunkX: number, currentChunkZ: number, bomberPosition: Vector3): void {
+  private generateChunksNearPlayerAsync(currentChunkX: number, currentChunkZ: number): void {
     // Don't generate chunks if not safe for worker calls
     if (!this.isSafeForWorkerCalls()) {
       return;
     }
 
-    const maxTotalChunks = 20; // Reduced from 25 to prevent too many concurrent chunks
-    if (this.chunks.size >= maxTotalChunks) {
+    if (this.chunks.size >= this.maxTotalChunks) {
       return;
     }
 
     const existingChunks = Array.from(this.chunks.keys());
-    const maxChunksPerUpdate = 2; // Reduced from 4 to spread generation over more frames
 
     // Use promise-based callbacks instead of async/await
     this.workerManager
       .generateChunksNearPlayer(
         currentChunkX,
         currentChunkZ,
-        bomberPosition,
         existingChunks,
-        maxTotalChunks,
-        maxChunksPerUpdate,
+        this.maxTotalChunks,
+        this.maxChunksPerUpdate,
+        this.keepRadius,
       )
       .then((result) => {
         const chunksToGenerate = result.chunks as { chunkX: number; chunkZ: number }[];

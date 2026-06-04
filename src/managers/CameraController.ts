@@ -11,13 +11,13 @@ export class CameraController {
   private followHeight: number = 280;
   private smoothing: number = 2.0;
   private minFollowHeight: number = 20;
-  private maxFollowHeight: number = 500;
+  private maxFollowHeight: number = 360;
   private zoomSpeed: number = 5;
   private showGroundCrosshairs: boolean = false;
 
   // Camera distance adjustment properties
   private minFollowDistance: number = 50;
-  private maxFollowDistance: number = 500;
+  private maxFollowDistance: number = 300;
   private distanceSpeed: number = 100; // Units per second
 
   // Initial camera state for reset functionality
@@ -118,8 +118,10 @@ export class CameraController {
     const desiredX = bomberPos.x - this.cachedSin * this.followDistance;
     const desiredZ = bomberPos.z - this.cachedCos * this.followDistance;
 
-    const minHeightAboveGround = 10; // Minimum heightD above ground
-    const clampedFollowHeight = Math.max(this.followHeight, minHeightAboveGround);
+    const minHeightAboveGround = 10; // Minimum height above ground
+    // Clamp to maxFollowHeight (upper) and minHeightAboveGround (lower). followHeight is
+    // raised unbounded by mouse/touch drag above, so this is where the cap is enforced.
+    const clampedFollowHeight = Math.min(this.maxFollowHeight, Math.max(this.followHeight, minHeightAboveGround));
 
     this.tempVector1.set(desiredX, clampedFollowHeight, desiredZ);
 

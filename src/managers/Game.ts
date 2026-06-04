@@ -64,7 +64,7 @@ export class Game {
   private targetFrameRate: number = 60;
   private frameInterval: number = 1000 / this.targetFrameRate; // 16.67ms for 60 FPS
   private lastTerrainUpdateTime: number = 0;
-  private terrainUpdateInterval: number = 200; // Increased from 100ms to 200ms to reduce frequency
+  private terrainUpdateInterval: number = 100; // Re-evaluate streaming often so terrain leads turns
   private lastDefenseUpdateTime: number = 0;
   private defenseUpdateInterval: number = 50; // Update defense every 50ms
   private lastUIUpdateTime: number = 0;
@@ -148,6 +148,9 @@ export class Game {
   private setupCamera(): void {
     this.camera = new FreeCamera('camera', new Vector3(0, 280, -200), this.scene);
     this.camera.setTarget(new Vector3(0, 200, 0));
+    // Limit the far clip plane to cull distant terrain. Must sit beyond the fog end
+    // (fogEnd = 1500, set in TerrainManager.createClearSky) so terrain fully fades to sky.
+    this.camera.maxZ = 1700;
     // Don't attach built-in controls - we handle camera movement manually via CameraController
     // this.camera.attachControl(this.canvas, true);
   }
@@ -245,7 +248,8 @@ export class Game {
 
         // Update terrain less frequently
         if (currentTime - this.lastTerrainUpdateTime > this.terrainUpdateInterval) {
-          this.terrainManager.update(this.bomber.getPosition()); // Now uses promise-based callbacks internally
+          // Streaming is heading-independent (symmetric keep-set), so only position is needed.
+          this.terrainManager.update(this.bomber.getPosition());
           this.lastTerrainUpdateTime = currentTime;
         }
 
