@@ -800,11 +800,21 @@ export class TomahawkMissile {
     this.shockwaveParticles.start();
     this.sparkParticles.start();
 
-    // Knock out only the launcher and set the building ablaze.
-    // Full destruction is reserved for bombing. Measure against the launcher
-    // target point on top of the building, not the base.
-    if (this.targetBuilding && Vector3.Distance(this.position, this.targetPosition) <= 20) {
-      this.targetBuilding.destroyLauncher();
+    // Knock out only the launcher and set the building ablaze; full destruction is reserved for
+    // bombing. The missile is dedicated to one target, so ignite whenever it detonates near that
+    // building's footprint, measured horizontally (XZ) so a ground-level OR rooftop detonation
+    // both count. The old sphere was centered on the top-of-building target point, so a missile
+    // that dove into the ground (worker explodes on y<=0) was already >20 units below it on tall
+    // buildings — which is why only the first/closest launcher ever lit up and farther ones didn't.
+    if (this.targetBuilding) {
+      const base = this.targetBuilding.getPosition();
+      const dx = this.position.x - base.x;
+      const dz = this.position.z - base.z;
+      const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+      const hitRadius = Math.max(this.targetBuilding.getMaxHeight() * 0.5, 30); // generous, footprint-scaled
+      if (horizontalDist <= hitRadius) {
+        this.targetBuilding.destroyLauncher();
+      }
     }
 
     // Hide missile model
