@@ -64,6 +64,20 @@ export class TerrainManager {
     this.createClearSky();
   }
 
+  /**
+   * Rendered-terrain surface height at world (x, z); 0 when the chunk isn't
+   * loaded. Reads the chunk's GroundMesh directly (getHeightAtCoordinates) — the
+   * worker's heightmapCache rows are z-flipped relative to CreateGround's vertex
+   * order, so the mesh is the only source guaranteed to match what's drawn.
+   */
+  public getTerrainHeightAt(x: number, z: number): number {
+    const chunkX = Math.round(x / this.chunkSize);
+    const chunkZ = Math.round(z / this.chunkSize);
+    const chunk = this.chunks.get(`${chunkX}_${chunkZ}`);
+    if (!chunk) return 0;
+    return chunk.mesh.getHeightAtCoordinates(x, z);
+  }
+
   private generateChunk(chunkX: number, chunkZ: number): Promise<void> {
     const chunkKey = `${chunkX}_${chunkZ}`;
     if (this.chunks.has(chunkKey)) return Promise.resolve();

@@ -268,9 +268,9 @@ export class DefenseMissile {
     this.exploded = true;
     this.exhaustParticles.stop();
 
-    // Small airburst flash: fire only, no lingering smoke/shockwave (matches the
-    // old single 350-particle explosion at this size)
-    ExplosionPool.get(this.scene).explode(this.position, 0.45, { smoke: false, shockwave: false, sparks: false });
+    // Small airburst flash: fire only, no lingering smoke/shockwave. Sized well
+    // below the Iskander's 0.85 to match its much lower damage.
+    ExplosionPool.get(this.scene).explode(this.position, 0.3, { smoke: false, shockwave: false, sparks: false });
 
     // Hide the missile mesh
     this.missileGroup.setEnabled(false);

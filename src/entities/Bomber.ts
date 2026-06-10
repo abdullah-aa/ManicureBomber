@@ -102,7 +102,9 @@ export class Bomber {
   }> = [];
   // One pooled light per flare volley, positioned at the centroid of active flares
   private flareVolleyLightHandle: LightHandle = LightHandle.inert();
-  private flareLifetime: number = 5; // Flares last 5 seconds
+  // Long enough to still be burning after a fall from cruise altitude (~4.5s);
+  // must stay below flareCooldown so the pool fully recycles between volleys
+  private flareLifetime: number = 7;
   private flareParticleSystems: ParticleSystem[] = []; // Visual effects for flares
   private flareMeshes: Mesh[] = []; // Visual flare meshes
   // Shared by every flare for the bomber's lifetime (flares are frequent and identical)
@@ -1318,9 +1320,13 @@ export class Bomber {
       flare.position.y += flare.velocity.y * deltaTime;
       flare.position.z += flare.velocity.z * deltaTime;
 
-      // Don't let flares go below ground
-      if (flare.position.y < 0.5) {
-        flare.position.y = 0.5;
+      // Don't let flares go below ground — rest on the actual terrain surface,
+      // not the flat-world y=0 floor (terrain has hills)
+      const flareGroundY = this.terrainManager
+        ? this.terrainManager.getTerrainHeightAt(flare.position.x, flare.position.z) + 0.5
+        : 0.5;
+      if (flare.position.y < flareGroundY) {
+        flare.position.y = flareGroundY;
         flare.velocity.y = 0; // Stop falling
         flare.velocity.x *= 0.5; // Reduce horizontal velocity on ground contact
         flare.velocity.z *= 0.5;
@@ -1334,9 +1340,10 @@ export class Bomber {
         flare.particles.emitter.copyFrom(flare.position);
       }
 
-      // Adjust particle emission rate based on lifetime
+      // Burn at full brightness for most of the descent; only fade over the
+      // final 30% of lifetime so flares still glow when they reach the ground
       const lifetimeRatio = flare.lifetime / flare.maxLifetime;
-      flare.particles.emitRate = 100 * lifetimeRatio;
+      flare.particles.emitRate = 100 * Math.min(1, lifetimeRatio / 0.3);
 
       centroidX += flare.position.x;
       centroidY += flare.position.y;

@@ -46,6 +46,10 @@ export class AIController {
   private readonly tomahawkHoldDistance = 200; // don't tie up the bomb bay this close to a run
   private readonly manualOverrideGrace = 2.5; // seconds the AI yields after manual input
   private readonly weavePeriod = 2; // seconds per evasive S-turn
+  // Hold flares until the missile is this close. Its seeker grabs flares within
+  // 225 u (flareDetectionRange 150 × 1.5), so releasing at 300 u puts fresh flares
+  // in seeker range within ~1 s instead of spending the burn while it's far out.
+  private readonly flareReleaseRange = 300;
 
   constructor(game: Game, bomber: Bomber, terrainManager: TerrainManager, inputManager: InputManager) {
     this.game = game;
@@ -95,7 +99,7 @@ export class AIController {
     }
 
     const underThreat = this.game.hasIskanderMissilesForAlert();
-    if (underThreat) {
+    if (underThreat && this.game.getClosestIskanderThreatDistance() <= this.flareReleaseRange) {
       this.inputManager.setAIControl('countermeasure', true);
     }
 

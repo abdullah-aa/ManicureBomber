@@ -61,6 +61,10 @@ export interface IskanderMissileData extends BaseMissileData {
   guidanceStrength: number;
   maxTurnRate: number;
   currentTime: number;
+  // Terrain surface height at the missile's (x, z); detonate on reaching it.
+  // Callers pass 0 until the missile is clearly airborne (arming guard) so
+  // launches from raised terrain don't detonate on the pad.
+  groundHeight?: number;
 }
 
 // Base result interface
@@ -699,7 +703,15 @@ export function updateIskanderMissilePhysics(data: IskanderMissileData): Iskande
     }
   }
 
-  reachedTarget = distanceToTarget <= 5 || newPosition.y <= 0 || flareExplosion;
+  // Detonate at the terrain surface (chasing grounded flares must not take the
+  // missile underground); clamp so the explosion renders at the surface.
+  const groundHeight = data.groundHeight ?? 0;
+  const hitGround = newPosition.y <= groundHeight;
+  if (hitGround) {
+    newPosition.y = groundHeight;
+  }
+
+  reachedTarget = distanceToTarget <= 5 || hitGround || flareExplosion;
   shouldExplode = reachedTarget;
 
   return {

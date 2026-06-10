@@ -11,6 +11,7 @@ import {
 } from '@babylonjs/core';
 import { Bomber } from './Bomber';
 import { WorkerManager } from '../managers/WorkerManager';
+import type { TerrainManager } from '../managers/TerrainManager';
 import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
 import { EffectTextures } from '../effects/EffectTextures';
 import { ExplosionPool } from '../effects/ExplosionPool';
@@ -42,6 +43,11 @@ export class IskanderMissile {
   // Performance optimization: cached calculations
   private lastUpdateTime: number = 0;
   private updateInterval: number = 1 / 60; // 60 FPS max updates
+
+  // Terrain-surface detonation: armed once the missile is clearly airborne so a
+  // launch from raised terrain doesn't detonate on the pad
+  private terrainManager: TerrainManager | null = null;
+  private groundCheckArmed: boolean = false;
 
   // Countermeasure flare targeting
   private flareTargets: Vector3[] = [];
@@ -280,6 +286,10 @@ export class IskanderMissile {
     this.flightSmokeParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
   }
 
+  public setTerrainManager(terrainManager: TerrainManager): void {
+    this.terrainManager = terrainManager;
+  }
+
   public launch(): void {
     if (this.launched) return;
 
@@ -354,6 +364,19 @@ export class IskanderMissile {
       this.lastTargetUpdateTime = currentTime;
     }
 
+    // Terrain-surface detonation height; 0 (legacy flat-world floor) until the
+    // missile has once been clearly above the local terrain
+    let groundHeight = 0;
+    if (this.terrainManager) {
+      const terrainY = this.terrainManager.getTerrainHeightAt(this.position.x, this.position.z);
+      if (!this.groundCheckArmed && this.position.y > terrainY + 10) {
+        this.groundCheckArmed = true;
+      }
+      if (this.groundCheckArmed) {
+        groundHeight = terrainY;
+      }
+    }
+
     // Per-frame guidance runs on the main thread (no round-trip latency — flare
     // diversion and lock-on react within the same frame).
     const result = updateIskanderMissilePhysics({
@@ -384,6 +407,7 @@ export class IskanderMissile {
       lockOnDuration: this.lockOnDuration,
       guidanceStrength: this.guidanceStrength,
       maxTurnRate: this.maxTurnRate,
+      groundHeight: groundHeight,
     });
     this.applyPhysicsResult(result);
   }
@@ -471,10 +495,13 @@ export class IskanderMissile {
 
   public dispose(): void {
     // Flight particle textures are shared via EffectTextures — dispose(false).
-    if (this.missileGroup) this.missileGroup.dispose(false, true);
+    // Particle systems must go BEFORE the group: disposing their emitter mesh
+    // would auto-dispose them with disposeTexture=true, killing the shared
+    // textures for every later missile/bomb.
     if (this.trailParticles) this.trailParticles.dispose(false);
     if (this.exhaustParticles) this.exhaustParticles.dispose(false);
     if (this.flightSmokeParticles) this.flightSmokeParticles.dispose(false);
+    if (this.missileGroup) this.missileGroup.dispose(false, true);
     this.lightHandle.release();
   }
 }

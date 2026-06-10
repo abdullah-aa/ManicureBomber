@@ -51,6 +51,9 @@ export class Game {
   private iskanderExplodedAt: Map<IskanderMissile, number> = new Map();
   // Recomputed once per frame; read by AI, countermeasures, and the UI tick
   private iskanderAlertActive: boolean = false;
+  // Distance to the nearest locking/locked Iskander (Infinity when none); the AI
+  // uses it to hold flares until the missile is actually close
+  private closestIskanderThreatDistance: number = Infinity;
   private nextIskanderLaunchTime: number = -Infinity;
   private iskanderLaunchInterval: number = 30;
   private iskanderRandomInterval: number = 45;
@@ -400,6 +403,7 @@ export class Game {
           launchPosition.y += 5; // Launch from above the launcher
 
           const missile = new IskanderMissile(this.scene, launchPosition, this.bomber, this.workerManager);
+          missile.setTerrainManager(this.terrainManager);
 
           missile.launch();
           this.iskanderMissiles.push(missile);
@@ -572,7 +576,13 @@ export class Game {
     return this.iskanderAlertActive;
   }
 
+  public getClosestIskanderThreatDistance(): number {
+    return this.closestIskanderThreatDistance;
+  }
+
   private computeIskanderAlert(): boolean {
+    let closestThreatDistanceSq = Infinity;
+    this.closestIskanderThreatDistance = Infinity;
     if (this.iskanderMissiles.length === 0) return false;
 
     const bomberPosition = this.bomber.getPositionRef();
@@ -585,16 +595,18 @@ export class Game {
         const isLockedOn = missile.getIsLockedOn();
         const lockProgress = missile.getLockProgress();
 
-        // Show alert if missile is locked on OR has started the lock process (progress > 0)
+        // Track alert if missile is locked on OR has started the lock process (progress > 0)
         if (isLockedOn || lockProgress > 0) {
           const missilePosition = missile.getPositionRef();
-          if (Vector3.DistanceSquared(bomberPosition, missilePosition) <= alertRangeSq) {
-            return true;
+          const distanceSq = Vector3.DistanceSquared(bomberPosition, missilePosition);
+          if (distanceSq < closestThreatDistanceSq) {
+            closestThreatDistanceSq = distanceSq;
           }
         }
       }
     }
-    return false;
+    this.closestIskanderThreatDistance = Math.sqrt(closestThreatDistanceSq);
+    return closestThreatDistanceSq <= alertRangeSq;
   }
 
   private updateBombs(deltaTime: number): void {

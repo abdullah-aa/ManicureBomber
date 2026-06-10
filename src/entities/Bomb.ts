@@ -246,6 +246,11 @@ export class Bomb {
       this.explosionSound.play();
     }
 
+    // Detach the trail from the doomed mesh first: disposing an emitter mesh
+    // auto-disposes its particle systems with disposeTexture=true, which would
+    // kill the shared EffectTextures trail texture for every later bomb/missile.
+    this.trailParticles.emitter = this.position.clone();
+
     // Dispose part materials/textures with the hierarchy (all are per-bomb instances)
     this.mesh.dispose(false, true);
 
@@ -261,8 +266,10 @@ export class Bomb {
   }
 
   public dispose(): void {
-    this.mesh.dispose(false, true);
+    // Trail before mesh: the mesh is the trail's emitter, and disposing it first
+    // would auto-dispose the trail with the shared texture (see explode()).
     if (this.trailParticles) this.trailParticles.dispose(false);
+    this.mesh.dispose(false, true);
     if (this.explosionSound) this.explosionSound.dispose();
     this.lightHandle.release();
   }

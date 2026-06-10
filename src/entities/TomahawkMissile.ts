@@ -563,11 +563,14 @@ export class TomahawkMissile {
   public dispose(): void {
     // Dispose part materials with the hierarchy (they are per-missile instances).
     // Flight particle textures are shared via EffectTextures — dispose(false).
-    if (this.missileGroup) this.missileGroup.dispose(false, true);
-    if (this.launchParent) this.launchParent.dispose(false, true);
+    // Particle systems must go BEFORE the mesh hierarchy: disposing their emitter
+    // mesh would auto-dispose them with disposeTexture=true, killing the shared
+    // textures for every later missile/bomb.
     if (this.trailParticles) this.trailParticles.dispose(false);
     if (this.exhaustParticles) this.exhaustParticles.dispose(false);
     if (this.flightSmokeParticles) this.flightSmokeParticles.dispose(false);
+    if (this.missileGroup) this.missileGroup.dispose(false, true);
+    if (this.launchParent) this.launchParent.dispose(false, true);
     this.lightHandle.release();
     if (this.launchAnimationGroup) this.launchAnimationGroup.dispose();
   }
