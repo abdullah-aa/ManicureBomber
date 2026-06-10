@@ -388,8 +388,8 @@ export class Building {
     explosionParticles.color1 = new Color4(1, 0.8, 0, 1.0);
     explosionParticles.color2 = new Color4(1, 0.3, 0, 1.0);
     explosionParticles.colorDead = new Color4(0.3, 0.1, 0, 0.0);
-    explosionParticles.minSize = 1.0;
-    explosionParticles.maxSize = 4.0;
+    explosionParticles.minSize = 0.75;
+    explosionParticles.maxSize = 3.0;
     explosionParticles.minLifeTime = 0.8;
     explosionParticles.maxLifeTime = 2.0;
     explosionParticles.emitRate = 400;
@@ -397,8 +397,8 @@ export class Building {
     explosionParticles.gravity = new Vector3(0, -5, 0);
     explosionParticles.direction1 = new Vector3(-3, 3, -3);
     explosionParticles.direction2 = new Vector3(3, 6, 3);
-    explosionParticles.minEmitPower = 2;
-    explosionParticles.maxEmitPower = 5;
+    explosionParticles.minEmitPower = 1.5;
+    explosionParticles.maxEmitPower = 3.8;
     explosionParticles.manualEmitCount = 400;
     explosionParticles.start();
 
@@ -430,8 +430,8 @@ export class Building {
     bombExplosionParticles.color1 = new Color4(1, 0.9, 0, 1.0); // Brighter yellow
     bombExplosionParticles.color2 = new Color4(1, 0.4, 0, 1.0); // Brighter orange
     bombExplosionParticles.colorDead = new Color4(0.3, 0.1, 0, 0.0);
-    bombExplosionParticles.minSize = 2.0; // Larger particles
-    bombExplosionParticles.maxSize = 6.0; // Larger particles
+    bombExplosionParticles.minSize = 1.5; // Larger particles
+    bombExplosionParticles.maxSize = 4.5; // Larger particles
     bombExplosionParticles.minLifeTime = 1.2; // Longer duration
     bombExplosionParticles.maxLifeTime = 2.5; // Longer duration
     bombExplosionParticles.emitRate = 800; // Higher emission rate
@@ -439,8 +439,8 @@ export class Building {
     bombExplosionParticles.gravity = new Vector3(0, -5, 0);
     bombExplosionParticles.direction1 = new Vector3(-5, 5, -5); // More spread
     bombExplosionParticles.direction2 = new Vector3(5, 10, 5); // More spread
-    bombExplosionParticles.minEmitPower = 4; // More power
-    bombExplosionParticles.maxEmitPower = 8; // More power
+    bombExplosionParticles.minEmitPower = 3; // More power
+    bombExplosionParticles.maxEmitPower = 6; // More power
     bombExplosionParticles.manualEmitCount = 800;
     bombExplosionParticles.start();
 
@@ -453,8 +453,8 @@ export class Building {
     debrisParticles.color1 = new Color4(0.6, 0.6, 0.6, 1.0);
     debrisParticles.color2 = new Color4(0.4, 0.4, 0.4, 0.8);
     debrisParticles.colorDead = new Color4(0.2, 0.2, 0.2, 0.0);
-    debrisParticles.minSize = 0.5;
-    debrisParticles.maxSize = 2.0;
+    debrisParticles.minSize = 0.4;
+    debrisParticles.maxSize = 1.5;
     debrisParticles.minLifeTime = 2.0;
     debrisParticles.maxLifeTime = 4.0;
     debrisParticles.emitRate = 300;
@@ -462,8 +462,8 @@ export class Building {
     debrisParticles.gravity = new Vector3(0, -15, 0); // Stronger gravity for debris
     debrisParticles.direction1 = new Vector3(-8, 3, -8);
     debrisParticles.direction2 = new Vector3(8, 8, 8);
-    debrisParticles.minEmitPower = 3;
-    debrisParticles.maxEmitPower = 6;
+    debrisParticles.minEmitPower = 2.3;
+    debrisParticles.maxEmitPower = 4.5;
     debrisParticles.manualEmitCount = 300;
     debrisParticles.start();
 

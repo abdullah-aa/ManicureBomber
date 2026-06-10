@@ -30,7 +30,7 @@ interface ExplosionBundle {
  * its previous smoke finish fading in place.
  *
  * Particle counts/sizes are tuned for mobile fill rate: fewer, larger particles
- * than the originals (fire 2000 -> 700 at +25% size, smoke 1200 -> 400).
+ * than the originals (fire 2000 -> 700, smoke 1200 -> 400).
  */
 export class ExplosionPool {
   private static cache: WeakMap<Scene, ExplosionPool> = new WeakMap();
@@ -53,14 +53,14 @@ export class ExplosionPool {
   private static readonly SPARK_COUNT = 150;
   private static readonly SHOCKWAVE_COUNT = 120;
 
-  private static readonly FIRE_MIN_SIZE = 3.1;
-  private static readonly FIRE_MAX_SIZE = 8.1;
-  private static readonly SMOKE_MIN_SIZE = 4.0;
-  private static readonly SMOKE_MAX_SIZE = 8.0;
-  private static readonly SPARK_MIN_SIZE = 0.5;
-  private static readonly SPARK_MAX_SIZE = 1.5;
-  private static readonly SHOCKWAVE_MIN_SIZE = 8.0;
-  private static readonly SHOCKWAVE_MAX_SIZE = 15.0;
+  private static readonly FIRE_MIN_SIZE = 2.3;
+  private static readonly FIRE_MAX_SIZE = 6.1;
+  private static readonly SMOKE_MIN_SIZE = 3.0;
+  private static readonly SMOKE_MAX_SIZE = 6.0;
+  private static readonly SPARK_MIN_SIZE = 0.4;
+  private static readonly SPARK_MAX_SIZE = 1.1;
+  private static readonly SHOCKWAVE_MIN_SIZE = 6.0;
+  private static readonly SHOCKWAVE_MAX_SIZE = 11.3;
 
   private bundles: ExplosionBundle[] = [];
 
@@ -86,8 +86,8 @@ export class ExplosionPool {
       fire.gravity = new Vector3(0, -9.81, 0);
       fire.direction1 = new Vector3(-10, 8, -10);
       fire.direction2 = new Vector3(10, 10, 10);
-      fire.minEmitPower = 5;
-      fire.maxEmitPower = 15;
+      fire.minEmitPower = 3.8;
+      fire.maxEmitPower = 11.3;
       fire.updateSpeed = 0.005;
 
       const smoke = new ParticleSystem(`poolExplosionSmoke${i}`, ExplosionPool.SMOKE_COUNT, scene);
@@ -106,8 +106,8 @@ export class ExplosionPool {
       smoke.gravity = new Vector3(0, -2, 0);
       smoke.direction1 = new Vector3(-1.2, 3, -1.2);
       smoke.direction2 = new Vector3(1.2, 3, 1.2);
-      smoke.minEmitPower = 1.2;
-      smoke.maxEmitPower = 3;
+      smoke.minEmitPower = 0.9;
+      smoke.maxEmitPower = 2.3;
       smoke.updateSpeed = 0.01;
 
       const spark = new ParticleSystem(`poolExplosionSpark${i}`, ExplosionPool.SPARK_COUNT, scene);
@@ -126,8 +126,8 @@ export class ExplosionPool {
       spark.gravity = new Vector3(0, -10, 0);
       spark.direction1 = new Vector3(-8, 5, -8);
       spark.direction2 = new Vector3(8, 8, 8);
-      spark.minEmitPower = 10;
-      spark.maxEmitPower = 20;
+      spark.minEmitPower = 7.5;
+      spark.maxEmitPower = 15;
       spark.updateSpeed = 0.01;
 
       const shockwave = new ParticleSystem(`poolExplosionShockwave${i}`, ExplosionPool.SHOCKWAVE_COUNT, scene);
@@ -146,8 +146,8 @@ export class ExplosionPool {
       shockwave.gravity = new Vector3(0, 0, 0);
       shockwave.direction1 = new Vector3(-0.5, 0, -0.5);
       shockwave.direction2 = new Vector3(0.5, 0, 0.5);
-      shockwave.minEmitPower = 20;
-      shockwave.maxEmitPower = 30;
+      shockwave.minEmitPower = 15;
+      shockwave.maxEmitPower = 22.5;
       shockwave.updateSpeed = 0.01;
 
       // Park every system: started but emitting nothing until re-armed.

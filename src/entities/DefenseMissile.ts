@@ -15,6 +15,9 @@ import { EffectTextures } from '../effects/EffectTextures';
 import { ExplosionPool } from '../effects/ExplosionPool';
 
 export class DefenseMissile {
+  /** Highest altitude any defense missile can reach before self-detonating. */
+  public static readonly MAX_ALTITUDE = 200;
+
   private scene: Scene;
   private workerManager: WorkerManager;
   private missileGroup: TransformNode;
@@ -29,7 +32,7 @@ export class DefenseMissile {
   private exhaustParticles!: ParticleSystem;
   private lightHandle: LightHandle = LightHandle.inert();
   private targetSet: boolean = false; // Performance optimization flag
-  private maxAltitude: number = 120 + Math.random() * 80; // Maximum altitude before detonation
+  private maxAltitude: number = 120 + Math.random() * (DefenseMissile.MAX_ALTITUDE - 120); // Maximum altitude before detonation
 
   // Trajectory calculation properties
   private trajectoryCalculated: boolean = false;

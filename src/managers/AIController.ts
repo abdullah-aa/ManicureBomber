@@ -1,6 +1,7 @@
 import { Vector3 } from '@babylonjs/core';
 import { Bomber } from '../entities/Bomber';
 import { Building } from '../entities/Building';
+import { DefenseMissile } from '../entities/DefenseMissile';
 import { InputManager } from './InputManager';
 import { TerrainManager } from './TerrainManager';
 import { Game } from './Game';
@@ -14,10 +15,9 @@ enum AIState {
 
 /**
  * Autopilot: flies the bomber to nearby targets, runs bombing passes, fires
- * tomahawks at defense launchers and pops flares (with evasive weaving) when
- * Iskanders threaten. Issues all commands through InputManager's AI virtual
- * controls, so the existing weapon handlers keep enforcing every cooldown and
- * safety gate.
+ * tomahawks at defense launchers and pops flares when Iskanders threaten.
+ * Issues all commands through InputManager's AI virtual controls, so the
+ * existing weapon handlers keep enforcing every cooldown and safety gate.
  */
 export class AIController {
   private game: Game;
@@ -30,12 +30,14 @@ export class AIController {
   private currentTarget: Building | null = null;
   private lastTargetScanTime: number = -Infinity;
   private manualOverrideUntil: number = -Infinity;
-  private weavePhase: number = 0;
   private sawRunActive: boolean = false;
 
   private readonly targetScanRadius = 500; // matches radar range
   private readonly targetScanInterval = 1; // seconds between building queries
-  private readonly cruiseAltitude = 200;
+  // Defense missiles airburst at DefenseMissile.MAX_ALTITUDE (200) with a 20 u
+  // proximity damage radius; +30 keeps the bomber clear of both even at the
+  // bottom of the altitude deadband.
+  private readonly cruiseAltitude = DefenseMissile.MAX_ALTITUDE + 30;
   private readonly altitudeDeadband = 5;
   private readonly headingDeadband = 0.04; // rad; > per-frame turn step (0.5 * 1/60)
   // Bombs fall straight down; the 9-bomb stick lands 25-225 units past run start
@@ -45,7 +47,6 @@ export class AIController {
   private readonly standoffTurnDistance = 250; // orbit out when bombing is on cooldown
   private readonly tomahawkHoldDistance = 200; // don't tie up the bomb bay this close to a run
   private readonly manualOverrideGrace = 2.5; // seconds the AI yields after manual input
-  private readonly weavePeriod = 2; // seconds per evasive S-turn
   // Hold flares until the missile is this close. Its seeker grabs flares within
   // 225 u (flareDetectionRange 150 × 1.5), so releasing at 300 u puts fresh flares
   // in seeker range within ~1 s instead of spending the burn while it's far out.
@@ -106,15 +107,6 @@ export class AIController {
     this.scanForTarget(currentTime);
     this.handleTomahawk();
     this.holdAltitude();
-
-    // Evasive weave replaces normal steering while threatened, except on a bomb
-    // run where wings must stay level over the target
-    if (underThreat && this.state !== AIState.BOMB_RUN) {
-      this.weavePhase += deltaTime;
-      const turnRight = this.weavePhase % this.weavePeriod < this.weavePeriod / 2;
-      this.inputManager.setAIControl(turnRight ? 'turnRight' : 'turnLeft', true);
-      return;
-    }
 
     switch (this.state) {
       case AIState.SEARCH:

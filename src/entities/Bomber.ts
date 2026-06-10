@@ -1027,10 +1027,10 @@ export class Bomber {
     explosionParticles.emitRate = 500;
     explosionParticles.minLifeTime = 1;
     explosionParticles.maxLifeTime = 3;
-    explosionParticles.minSize = 3;
-    explosionParticles.maxSize = 8;
-    explosionParticles.minEmitPower = 50;
-    explosionParticles.maxEmitPower = 100;
+    explosionParticles.minSize = 2.3;
+    explosionParticles.maxSize = 6;
+    explosionParticles.minEmitPower = 37;
+    explosionParticles.maxEmitPower = 75;
     explosionParticles.updateSpeed = 0.01;
 
     explosionParticles.direction1 = new Vector3(-2, -1, -2);
