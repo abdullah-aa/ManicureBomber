@@ -9,7 +9,6 @@ export class InputManager {
   private scene: Scene;
   private canvas: HTMLCanvasElement;
   private keys: { [key: string]: boolean } = {};
-  private wheelDelta: number = 0;
 
   // Internal action -> key-code registry. The game is touch-only, so these keys
   // are never produced by a physical keyboard; they are the codes that on-screen
@@ -37,11 +36,6 @@ export class InputManager {
   // Touch controls
   private touchPointers: Map<number, { x: number; y: number }> = new Map();
   private lastTouchCenter: { x: number; y: number } | null = null;
-  // Two-finger pinch zoom (camera mode only). Distance is in screen pixels; the
-  // sensitivity converts pixels of pinch into wheel-delta units consumed by
-  // CameraController (~1 wheel unit = 1 unit of followDistance, range 50-500).
-  private lastPinchDistance: number | null = null;
-  private pinchZoomSensitivity: number = 1.5;
   private touchDeltaX: number = 0;
   private touchDeltaY: number = 0;
   private isTouchCameraMode: boolean = false; // true when UI toggle enables camera mode
@@ -114,10 +108,9 @@ export class InputManager {
         this.touchPointers.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
       }
 
-      // The touch count changed: restart center/pinch tracking from the new
-      // configuration so the jump in center/distance doesn't register as a gesture.
+      // The touch count changed: restart center tracking from the new
+      // configuration so the jump in center doesn't register as a swipe.
       this.lastTouchCenter = null;
-      this.lastPinchDistance = null;
 
       // Set initial touch position for movement simulation
       if (event.touches.length === 1 && !this.isTouchCameraMode) {
@@ -153,10 +146,9 @@ export class InputManager {
         this.touchPointers.delete(touch.identifier);
       }
 
-      // The touch count changed: restart center/pinch tracking from the remaining
-      // touches so the jump in center/distance doesn't register as a gesture.
+      // The touch count changed: restart center tracking from the remaining
+      // touches so the jump in center doesn't register as a swipe.
       this.lastTouchCenter = null;
-      this.lastPinchDistance = null;
 
       // Clear touch simulation when touch ends
       if (this.touchPointers.size === 0) {
@@ -174,12 +166,7 @@ export class InputManager {
     });
   }
 
-  public getWheelDelta(): number {
-    return this.wheelDelta;
-  }
-
   public endFrame(): void {
-    this.wheelDelta = 0;
     this.mouseDeltaX = 0;
     this.mouseDeltaY = 0;
     this.touchDeltaX = 0;
@@ -366,27 +353,11 @@ export class InputManager {
   private updateTouchState(): void {
     if (this.touchPointers.size === 0) {
       this.lastTouchCenter = null;
-      this.lastPinchDistance = null;
     }
   }
 
   private updateTouchMovement(): void {
     if (this.touchPointers.size === 0) return;
-
-    // Camera mode, two fingers: pinch-to-zoom. The pinch owns the gesture — it
-    // feeds wheelDelta (consumed by CameraController as followDistance) and the
-    // touch deltas stay zero so finger movement doesn't also pan the camera.
-    if (this.isTouchCameraMode && this.touchPointers.size === 2) {
-      const [a, b] = [...this.touchPointers.values()];
-      const pinchDistance = Math.hypot(b.x - a.x, b.y - a.y);
-      if (this.lastPinchDistance !== null) {
-        // Fingers spreading apart = zoom in = negative wheel delta
-        this.wheelDelta -= (pinchDistance - this.lastPinchDistance) * this.pinchZoomSensitivity;
-      }
-      this.lastPinchDistance = pinchDistance;
-      this.lastTouchCenter = null;
-      return;
-    }
 
     // Calculate center point of all touches
     let centerX = 0;

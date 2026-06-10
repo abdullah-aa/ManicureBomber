@@ -16,13 +16,7 @@ export class CameraController {
   // Negative minimum lets the camera pass below the bomber for a bomb-bay view.
   private minFollowHeightOffset: number = -250;
   private maxFollowHeightOffset: number = 450;
-  private zoomSpeed: number = 5;
   private showGroundCrosshairs: boolean = false;
-
-  // Camera distance adjustment properties
-  private minFollowDistance: number = 50;
-  private maxFollowDistance: number = 500;
-  private distanceSpeed: number = 100; // Units per second
 
   // Initial camera state for the snap-behind-bomber action
   private initialFollowHeightOffset: number = 140;
@@ -53,14 +47,6 @@ export class CameraController {
     // Camera adjustments are only allowed while the camera-control mode is active.
     // Otherwise a single-finger swipe steers the plane and the camera just follows.
     const isCameraMode = inputManager.getTouchCameraMode();
-
-    // Handle zoom (driven by the two-finger pinch gesture via wheelDelta)
-    const wheelDelta = inputManager.getWheelDelta();
-    if (wheelDelta !== 0) {
-      const zoomAmount = (wheelDelta / 100) * this.distanceSpeed;
-      this.followDistance += zoomAmount;
-      this.followDistance = Math.max(this.minFollowDistance, Math.min(this.maxFollowDistance, this.followDistance));
-    }
 
     // Handle mouse controls - drag to pan/raise the camera (only in camera mode)
     if (isCameraMode && inputManager.getIsMouseDragging()) {
@@ -158,9 +144,8 @@ export class CameraController {
 
   /**
    * Re-center the camera behind the bomber: clears the free-look yaw and height
-   * offsets accumulated in camera mode. Zoom (followDistance) is a preference and
-   * is deliberately kept. The per-frame smoothing lerp in update() turns this into
-   * a smooth swing-back rather than a teleport.
+   * offsets accumulated in camera mode. The per-frame smoothing lerp in update()
+   * turns this into a smooth swing-back rather than a teleport.
    */
   public snapBehindBomber(): void {
     this.followHeightOffset = this.initialFollowHeightOffset;
