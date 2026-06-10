@@ -10,6 +10,7 @@ enum AIState {
   SEARCH = 'SEARCH',
   NAVIGATE = 'NAVIGATE',
   STANDOFF = 'STANDOFF',
+  EXTEND = 'EXTEND',
   BOMB_RUN = 'BOMB RUN',
 }
 
@@ -31,6 +32,7 @@ export class AIController {
   private lastTargetScanTime: number = -Infinity;
   private manualOverrideUntil: number = -Infinity;
   private sawRunActive: boolean = false;
+  private extendAnchor: Vector3 | null = null;
 
   private readonly targetScanRadius = 500; // matches radar range
   private readonly targetScanInterval = 1; // seconds between building queries
@@ -45,6 +47,11 @@ export class AIController {
   private readonly bombLeadDistance = 125;
   private readonly bombHeadingTolerance = 0.12; // rad; cross-track ~15 u at lead distance, blast radius is 75
   private readonly standoffTurnDistance = 250; // orbit out when bombing is on cooldown
+  // Fixed-rate turn circle: Bomber speed (25) / turnSpeed (0.5). A target inside
+  // either turning circle can never be aligned with by pure pursuit.
+  private readonly turnRadius = 50;
+  private readonly reachabilityMargin = 1.2; // boundary-grazing targets are practically unreachable too
+  private readonly reattackDistance = 250; // extend out at least this far before turning back in
   private readonly tomahawkHoldDistance = 200; // don't tie up the bomb bay this close to a run
   private readonly manualOverrideGrace = 2.5; // seconds the AI yields after manual input
   // Hold flares until the missile is this close. Its seeker grabs flares within
@@ -66,6 +73,7 @@ export class AIController {
       this.state = AIState.SEARCH;
       this.currentTarget = null;
       this.sawRunActive = false;
+      this.extendAnchor = null;
       this.manualOverrideUntil = -Infinity;
     }
   }
@@ -124,6 +132,10 @@ export class AIController {
         this.updateStandoff();
         break;
 
+      case AIState.EXTEND:
+        this.updateExtend();
+        break;
+
       case AIState.BOMB_RUN:
         this.updateBombRun();
         break;
@@ -150,6 +162,8 @@ export class AIController {
     const buildings = this.terrainManager.getBuildingsInRadiusSync(bomberPosition, this.targetScanRadius);
     let nearest: Building | null = null;
     let nearestDistanceSq = Infinity;
+    let nearestReachable: Building | null = null;
+    let nearestReachableDistanceSq = Infinity;
     for (const building of buildings) {
       if (building.isTarget() && !building.getIsDestroyed()) {
         const distanceSq = Vector3.DistanceSquared(bomberPosition, building.getPosition());
@@ -157,11 +171,48 @@ export class AIController {
           nearestDistanceSq = distanceSq;
           nearest = building;
         }
+        if (distanceSq < nearestReachableDistanceSq && this.isPositionReachable(building.getPosition())) {
+          nearestReachableDistanceSq = distanceSq;
+          nearestReachable = building;
+        }
       }
     }
-    if (nearest) {
-      this.currentTarget = nearest;
+    // Stick with a still-viable target (in radius and reachable): the turning
+    // circles sweep with heading, so re-ranking every scan would churn between
+    // buildings mid-approach
+    if (
+      this.currentTarget &&
+      Vector3.DistanceSquared(bomberPosition, this.currentTarget.getPosition()) <=
+        this.targetScanRadius * this.targetScanRadius &&
+      this.isPositionReachable(this.currentTarget.getPosition())
+    ) {
+      return;
     }
+    const next = nearestReachable ?? nearest;
+    if (next) {
+      this.currentTarget = next;
+    }
+  }
+
+  /**
+   * A target inside either fixed-rate turning circle (centers abeam at turnRadius)
+   * can never be aligned with by pure pursuit — the bomber would orbit it forever.
+   */
+  private isPositionReachable(targetPosition: Vector3): boolean {
+    const position = this.bomber.getPositionRef();
+    const yaw = this.bomber.getRotationRef().y;
+    // Heading is (sin yaw, cos yaw); perpendicular-right is (cos yaw, -sin yaw)
+    const perpX = Math.cos(yaw) * this.turnRadius;
+    const perpZ = -Math.sin(yaw) * this.turnRadius;
+    const minDistanceSq = (this.reachabilityMargin * this.turnRadius) ** 2;
+    for (const side of [1, -1]) {
+      const dx = targetPosition.x - (position.x + perpX * side);
+      const dz = targetPosition.z - (position.z + perpZ * side);
+      if (dx * dx + dz * dz < minDistanceSq) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private handleTomahawk(): void {
@@ -188,6 +239,13 @@ export class AIController {
   private updateNavigate(): void {
     if (!this.currentTarget) {
       this.state = AIState.SEARCH;
+      return;
+    }
+
+    // A target inside the turning circle would orbit forever; extend out and re-attack
+    if (!this.isPositionReachable(this.currentTarget.getPosition())) {
+      this.extendAnchor = this.currentTarget.getPosition().clone();
+      this.state = AIState.EXTEND;
       return;
     }
 
@@ -218,6 +276,35 @@ export class AIController {
     }
     // Gentle orbit around the target until the bombing cooldown is ready
     this.steerToward(this.headingToTarget() + Math.PI / 2);
+  }
+
+  private updateExtend(): void {
+    if (!this.currentTarget || !this.extendAnchor) {
+      this.extendAnchor = null;
+      this.state = AIState.SEARCH;
+      return;
+    }
+    // The scan may have swapped in a viable target far enough for a clean turn-in.
+    // (Reachable alone isn't enough: the original target sits "behind" us within
+    // seconds of turning away, and turning back that early re-traps it.)
+    if (
+      this.distanceToTarget() >= this.reattackDistance &&
+      this.isPositionReachable(this.currentTarget.getPosition())
+    ) {
+      this.extendAnchor = null;
+      this.state = AIState.NAVIGATE;
+      return;
+    }
+    const position = this.bomber.getPositionRef();
+    const dx = position.x - this.extendAnchor.x;
+    const dz = position.z - this.extendAnchor.z;
+    if (dx * dx + dz * dz >= this.reattackDistance * this.reattackDistance) {
+      this.extendAnchor = null;
+      this.state = AIState.NAVIGATE;
+      return;
+    }
+    // Steer away from the anchor (not currentTarget) so scan churn can't whipsaw us
+    this.steerToward(Math.atan2(dx, dz));
   }
 
   private updateBombRun(): void {
