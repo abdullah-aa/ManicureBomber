@@ -17,7 +17,6 @@ export class UIManager {
   private cameraToggleButton!: HTMLElement;
   private cameraToggleIcon!: HTMLElement;
   private aiToggleButton!: HTMLElement;
-  private cameraResetButton!: HTMLElement;
   private touchCameraToggleButton!: HTMLElement;
   private touchCameraToggleIcon!: HTMLElement;
   private mobileZoomControl!: HTMLElement;
@@ -59,7 +58,6 @@ export class UIManager {
     this.createCountermeasureButton();
     this.createCameraToggleButton();
     this.createAIToggleButton();
-    this.createCameraResetButton();
     this.createTouchCameraToggleButton();
     this.createMobileZoomControl();
     this.createHealthBar();
@@ -111,18 +109,17 @@ export class UIManager {
       this.updateAIToggleButton(true);
     });
 
-    // Listen for camera reset button clicks
-    this.cameraResetButton.addEventListener('click', () => {
-      // Directly call the camera controller's reset method
-      this.game.getCameraController().resetCamera(performance.now() / 1000);
-    });
-
     // Listen for touch camera toggle button clicks (mobile only)
     if (this.touchCameraToggleButton) {
       this.touchCameraToggleButton.addEventListener('click', () => {
         const currentMode = this.inputManager.getTouchCameraMode();
         this.inputManager.setTouchCameraMode(!currentMode);
         this.updateTouchCameraToggleIcon();
+        // Navigate mode always keeps the camera behind the plane: leaving camera
+        // mode swings the camera back to its follow position.
+        if (!this.inputManager.getTouchCameraMode()) {
+          this.game.getCameraController().snapBehindBomber();
+        }
       });
     }
   }
@@ -190,15 +187,6 @@ export class UIManager {
             <div id="ai-toggle-icon">AI</div>
         `;
     document.body.appendChild(this.aiToggleButton);
-  }
-
-  private createCameraResetButton(): void {
-    this.cameraResetButton = document.createElement('div');
-    this.cameraResetButton.id = 'camera-reset-button';
-    this.cameraResetButton.innerHTML = `
-            <div id="camera-reset-icon">👁️</div>
-        `;
-    document.body.appendChild(this.cameraResetButton);
   }
 
   private createTouchCameraToggleButton(): void {
@@ -580,7 +568,7 @@ export class UIManager {
             }
             #ai-toggle-button {
                 position: fixed;
-                bottom: calc(20px + min(80px, 10vw) + 20px + min(45px, 6vw) + 10px);
+                top: 50px;
                 right: 20px;
                 width: min(45px, 6vw);
                 height: min(45px, 6vw);
@@ -615,27 +603,6 @@ export class UIManager {
             }
             #ai-toggle-button.suspended #ai-toggle-icon {
                 color: #ffaa00;
-            }
-            #camera-reset-button {
-                position: fixed;
-                top: 50px;
-                right: 20px;
-                width: min(45px, 6vw);
-                height: min(45px, 6vw);
-                border-radius: 50%;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                overflow: hidden;
-                border: 2px solid #ffffff;
-                transition: border-color 0.3s ease;
-            }
-            #camera-reset-icon {
-                margin-top: min(2px, 0.25vw);
-                font-size: clamp(18px, 3vw, 24px);
-                color: #ffffff;
-                z-index: 2;
             }
             #touch-camera-toggle-button {
                 position: fixed;
@@ -774,23 +741,13 @@ export class UIManager {
           margin: 2px 0 0 4px !important;
         }
 
-        #ai-toggle-button {
-          bottom: calc(20px + 50px + 10px + 35px + 10px) !important;
-          width: 35px !important;
-          height: 35px !important;
-        }
-
         #ai-toggle-icon {
           font-size: 12px !important;
         }
 
-        #camera-reset-button, #touch-camera-toggle-button {
+        #ai-toggle-button, #touch-camera-toggle-button {
           width: 35px !important;
           height: 35px !important;
-        }
-
-        #camera-reset-icon {
-          font-size: 16px !important;
         }
 
         #touch-camera-toggle-icon {

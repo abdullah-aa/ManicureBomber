@@ -24,17 +24,12 @@ export class CameraController {
   private maxFollowDistance: number = 500;
   private distanceSpeed: number = 100; // Units per second
 
-  // Initial camera state for reset functionality
-  private initialFollowDistance: number = 200;
+  // Initial camera state for the snap-behind-bomber action
   private initialFollowHeightOffset: number = 140;
 
   // Camera panning properties
   private panSpeed: number = 1.5; // Radians per second for angular panning
   private panAngleOffset: number = 0; // Current angular offset from normal position (no limits)
-
-  // Reset cooldown to prevent rapid resets
-  private lastResetTime: number = 0;
-  private resetCooldown: number = 0.5; // 500ms cooldown
 
   // Performance optimization: reuse Vector3 objects to reduce GC pressure
   private tempVector1: Vector3 = new Vector3();
@@ -50,8 +45,7 @@ export class CameraController {
     this.bomber = bomber;
     this.terrainManager = terrainManager;
 
-    // Store initial values for reset functionality
-    this.initialFollowDistance = this.followDistance;
+    // Store initial value for the snap-behind-bomber action
     this.initialFollowHeightOffset = this.followHeightOffset;
   }
 
@@ -162,20 +156,15 @@ export class CameraController {
     return this.camera;
   }
 
-  public resetCamera(currentTime: number): void {
-    // Check if cooldown has passed
-    if (currentTime - this.lastResetTime < this.resetCooldown) {
-      return; // Cooldown not yet complete
-    }
-
-    // Reset other camera properties to initial state
-    this.followDistance = this.initialFollowDistance;
+  /**
+   * Re-center the camera behind the bomber: clears the free-look yaw and height
+   * offsets accumulated in camera mode. Zoom (followDistance) is a preference and
+   * is deliberately kept. The per-frame smoothing lerp in update() turns this into
+   * a smooth swing-back rather than a teleport.
+   */
+  public snapBehindBomber(): void {
     this.followHeightOffset = this.initialFollowHeightOffset;
-
-    // Reset pan offset to center the camera
     this.panAngleOffset = 0;
-
-    // Update last reset time
-    this.lastResetTime = currentTime;
+    this.trigCacheValid = false;
   }
 }
