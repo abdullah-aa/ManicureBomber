@@ -19,9 +19,6 @@ export class UIManager {
   private aiToggleButton!: HTMLElement;
   private touchCameraToggleButton!: HTMLElement;
   private touchCameraToggleIcon!: HTMLElement;
-  private mobileZoomControl!: HTMLElement;
-  private zoomInButton!: HTMLElement;
-  private zoomOutButton!: HTMLElement;
   private healthBar!: HTMLElement;
   private healthBarFill!: HTMLElement;
   private healthText!: HTMLElement;
@@ -59,7 +56,6 @@ export class UIManager {
     this.createCameraToggleButton();
     this.createAIToggleButton();
     this.createTouchCameraToggleButton();
-    this.createMobileZoomControl();
     this.createHealthBar();
     this.createAlertSystem();
 
@@ -201,32 +197,6 @@ export class UIManager {
     this.updateTouchCameraToggleIcon();
   }
 
-  private createMobileZoomControl(): void {
-    this.mobileZoomControl = document.createElement('div');
-    this.mobileZoomControl.id = 'mobile-zoom-control';
-    this.mobileZoomControl.innerHTML = `
-      <div id="zoom-out-button">-</div>
-      <div id="zoom-icon">🔍</div>
-      <div id="zoom-in-button">+</div>
-    `;
-    document.body.appendChild(this.mobileZoomControl);
-
-    this.zoomOutButton = document.getElementById('zoom-out-button')!;
-    this.zoomInButton = document.getElementById('zoom-in-button')!;
-
-    // Add event listeners
-    this.zoomOutButton.addEventListener('click', () => {
-      this.inputManager.simulateWheelZoom(100); // Zoom out
-    });
-
-    this.zoomInButton.addEventListener('click', () => {
-      this.inputManager.simulateWheelZoom(-100); // Zoom in
-    });
-
-    // Hide by default (will be shown when camera mode is enabled)
-    this.mobileZoomControl.style.display = 'none';
-  }
-
   private createHealthBar(): void {
     this.healthBar = document.createElement('div');
     this.healthBar.id = 'health-bar';
@@ -346,17 +316,9 @@ export class UIManager {
     if (isCameraMode) {
       // Camera icon - Simple eye with crosshairs
       this.touchCameraToggleIcon.innerHTML = `📹`;
-      // Show zoom control when camera mode is enabled
-      if (this.mobileZoomControl) {
-        this.mobileZoomControl.style.display = 'flex';
-      }
     } else {
       // Bomber icon - Simple aircraft shape
       this.touchCameraToggleIcon.innerHTML = `✈️`;
-      // Hide zoom control when camera mode is disabled
-      if (this.mobileZoomControl) {
-        this.mobileZoomControl.style.display = 'none';
-      }
     }
   }
 
@@ -626,42 +588,6 @@ export class UIManager {
                 background-repeat: no-repeat;
                 background-position: center;
                 z-index: 2;
-            }
-            #mobile-zoom-control {
-                position: fixed;
-                bottom: 20px;
-                left: 20px;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                background-color: rgba(0, 0, 0, 0.7);
-                border-radius: 20px;
-                padding: 8px;
-                border: 2px solid rgba(255, 255, 255, 0.3);
-                gap: 6px;
-            }
-            #zoom-out-button, #zoom-in-button {
-                width: 32px;
-                height: 32px;
-                background-color: rgba(255, 255, 255, 0.1);
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: white;
-                font-size: 18px;
-                font-weight: bold;
-                cursor: pointer;
-                user-select: none;
-                transition: background-color 0.3s ease;
-            }
-            #zoom-out-button:active, #zoom-in-button:active {
-                background-color: rgba(255, 255, 255, 0.3);
-            }
-            #zoom-icon {
-                font-size: 16px;
-                color: white;
-                user-select: none;
             }
         `;
     document.head.appendChild(style);

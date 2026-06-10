@@ -54,7 +54,7 @@ export class CameraController {
     // Otherwise a single-finger swipe steers the plane and the camera just follows.
     const isCameraMode = inputManager.getTouchCameraMode();
 
-    // Handle zoom (driven by the on-screen +/- zoom buttons via simulateWheelZoom)
+    // Handle zoom (driven by the two-finger pinch gesture via wheelDelta)
     const wheelDelta = inputManager.getWheelDelta();
     if (wheelDelta !== 0) {
       const zoomAmount = (wheelDelta / 100) * this.distanceSpeed;
