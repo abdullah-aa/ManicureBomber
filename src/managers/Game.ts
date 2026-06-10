@@ -21,6 +21,7 @@ import { UIManager } from '../ui/UIManager';
 import { RadarManager } from '../ui/RadarManager';
 import { WorkerManager } from './WorkerManager';
 import { Building } from '../entities/Building';
+import { AIController } from './AIController';
 
 export class Game {
   private readonly scene: Scene;
@@ -34,6 +35,7 @@ export class Game {
   private radarManager!: RadarManager;
   private groundCrosshair!: Mesh;
   private workerManager!: WorkerManager;
+  private aiController!: AIController;
 
   // Bombing properties
   private bombs: Bomb[] = [];
@@ -101,6 +103,7 @@ export class Game {
     this.cameraController = new CameraController(this.camera, this.bomber, this.terrainManager);
 
     this.inputManager = new InputManager(this.scene, this.canvas);
+    this.aiController = new AIController(this, this.bomber, this.terrainManager, this.inputManager);
     this.uiManager = new UIManager(this, this.inputManager);
 
     // Expose UIManager to global scope for HTML event handlers
@@ -231,6 +234,10 @@ export class Game {
 
         const safeDeltaTime = Math.min(deltaTime, 0.1);
         const safeCurrentTime = currentTime / 1000;
+
+        // AI runs first so its virtual controls are consumed by the weapon
+        // handlers and bomber update in this same frame
+        this.aiController.update(safeDeltaTime, safeCurrentTime);
 
         // Always update critical systems
         this.handleBombing(safeCurrentTime);
@@ -514,6 +521,10 @@ export class Game {
 
   public getCameraController(): CameraController {
     return this.cameraController;
+  }
+
+  public getAIController(): AIController {
+    return this.aiController;
   }
 
   public getBomberHealth(): number {

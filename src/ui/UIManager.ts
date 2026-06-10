@@ -16,6 +16,7 @@ export class UIManager {
   private countermeasureButtonCooldown!: HTMLElement;
   private cameraToggleButton!: HTMLElement;
   private cameraToggleIcon!: HTMLElement;
+  private aiToggleButton!: HTMLElement;
   private cameraResetButton!: HTMLElement;
   private touchCameraToggleButton!: HTMLElement;
   private touchCameraToggleIcon!: HTMLElement;
@@ -38,6 +39,8 @@ export class UIManager {
   private lastHasTarget: boolean = false;
   private lastShowCrosshairs: boolean = false;
   private lastHealth: number = -1;
+  private lastAIEnabled: boolean = false;
+  private lastAISuspended: boolean = false;
   private updateBatchTimeout: ReturnType<typeof setTimeout> | null = null;
   private pendingUpdates: Set<string> = new Set();
 
@@ -56,6 +59,7 @@ export class UIManager {
     this.createMissileButton();
     this.createCountermeasureButton();
     this.createCameraToggleButton();
+    this.createAIToggleButton();
     this.createCameraResetButton();
     this.createTouchCameraToggleButton();
     this.createMobileZoomControl();
@@ -98,6 +102,14 @@ export class UIManager {
     this.cameraToggleButton.addEventListener('click', () => {
       this.game.getCameraController().toggleGroundCrosshairs();
       this.updateCameraToggleIcon();
+    });
+
+    // Listen for AI toggle button clicks
+    this.aiToggleButton.addEventListener('click', () => {
+      const aiController = this.game.getAIController();
+      aiController.setEnabled(!aiController.isEnabled());
+      this.showAlert(aiController.isEnabled() ? 'AUTOPILOT ENGAGED' : 'AUTOPILOT OFF', 'default', 2000);
+      this.updateAIToggleButton(true);
     });
 
     // Listen for camera reset button clicks
@@ -170,6 +182,15 @@ export class UIManager {
 
     this.cameraToggleIcon = document.getElementById('camera-toggle-icon')!;
     this.updateCameraToggleIcon();
+  }
+
+  private createAIToggleButton(): void {
+    this.aiToggleButton = document.createElement('div');
+    this.aiToggleButton.id = 'ai-toggle-button';
+    this.aiToggleButton.innerHTML = `
+            <div id="ai-toggle-icon">AI</div>
+        `;
+    document.body.appendChild(this.aiToggleButton);
   }
 
   private createCameraResetButton(): void {
@@ -558,6 +579,44 @@ export class UIManager {
                 background-position: center;
                 z-index: 2;
             }
+            #ai-toggle-button {
+                position: fixed;
+                bottom: calc(20px + min(80px, 10vw) + 20px + min(45px, 6vw) + 10px);
+                right: 20px;
+                width: min(45px, 6vw);
+                height: min(45px, 6vw);
+                background-color: rgba(0, 0, 0, 0.5);
+                border-radius: 50%;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+                border: 2px solid #ffffff;
+                transition: border-color 0.3s ease, box-shadow 0.3s ease;
+            }
+            #ai-toggle-icon {
+                color: #ffffff;
+                font-family: 'Courier New', monospace;
+                font-size: clamp(12px, 1.8vw, 16px);
+                font-weight: bold;
+                z-index: 2;
+                user-select: none;
+            }
+            #ai-toggle-button.active {
+                border-color: #00ff00;
+                box-shadow: 0 0 15px rgba(0, 255, 0, 0.6);
+            }
+            #ai-toggle-button.active #ai-toggle-icon {
+                color: #00ff00;
+            }
+            #ai-toggle-button.suspended {
+                border-color: #ffaa00;
+                box-shadow: 0 0 15px rgba(255, 170, 0, 0.6);
+            }
+            #ai-toggle-button.suspended #ai-toggle-icon {
+                color: #ffaa00;
+            }
             #camera-reset-button {
                 position: fixed;
                 top: 50px;
@@ -716,6 +775,16 @@ export class UIManager {
           margin: 2px 0 0 4px !important;
         }
 
+        #ai-toggle-button {
+          bottom: calc(20px + 50px + 10px + 35px + 10px) !important;
+          width: 35px !important;
+          height: 35px !important;
+        }
+
+        #ai-toggle-icon {
+          font-size: 12px !important;
+        }
+
         #camera-reset-button, #touch-camera-toggle-button {
           width: 35px !important;
           height: 35px !important;
@@ -753,6 +822,7 @@ export class UIManager {
     this.scheduleUpdate('missile');
     this.scheduleUpdate('countermeasure');
     this.scheduleUpdate('camera');
+    this.scheduleUpdate('ai');
     this.scheduleUpdate('health');
     this.scheduleUpdate('iskander-alert');
   }
@@ -782,6 +852,9 @@ export class UIManager {
     if (this.pendingUpdates.has('camera')) {
       this.updateCameraButton();
       this.updateTouchCameraToggleIcon();
+    }
+    if (this.pendingUpdates.has('ai')) {
+      this.updateAIToggleButton();
     }
     if (this.pendingUpdates.has('health')) {
       this.updateHealthBar();
@@ -916,6 +989,22 @@ export class UIManager {
     } else {
       this.countermeasureButton.classList.remove('has-iskander');
     }
+  }
+
+  private updateAIToggleButton(force: boolean = false): void {
+    const aiController = this.game.getAIController();
+    const enabled = aiController.isEnabled();
+    const suspended = aiController.isSuspended();
+
+    // Only update if changed
+    if (!force && enabled === this.lastAIEnabled && suspended === this.lastAISuspended) {
+      return;
+    }
+    this.lastAIEnabled = enabled;
+    this.lastAISuspended = suspended;
+
+    this.aiToggleButton.classList.toggle('suspended', enabled && suspended);
+    this.aiToggleButton.classList.toggle('active', enabled && !suspended);
   }
 
   private updateCameraButton(): void {

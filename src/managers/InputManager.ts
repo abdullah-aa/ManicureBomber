@@ -45,6 +45,11 @@ export class InputManager {
   private touchSimulatedKeys: { [key: string]: boolean } = {};
   private touchDeadZone: number = 20; // pixels before movement is registered
 
+  // AI virtual controls — keyed by action name ('turnLeft', 'bomb', ...), set each
+  // frame by AIController. Kept separate from `keys` so manual-input detection
+  // never sees AI presses.
+  private aiControls: { [action: string]: boolean } = {};
+
   // Cache frequently accessed keys to reduce lookup overhead
   private cachedKeys: { [key: string]: boolean } = {};
   private keyCacheValid: boolean = false;
@@ -239,17 +244,45 @@ export class InputManager {
     return this.keys[key] || false;
   }
 
+  public setAIControl(action: string, active: boolean): void {
+    this.aiControls[action] = active;
+  }
+
+  public clearAIControls(): void {
+    this.aiControls = {};
+  }
+
+  // True when the player is actively flying: a real flight key is down, touch-to-key
+  // simulation is producing flight keys, or a single-finger bomber-steering touch is
+  // in progress. Ignores aiControls so the AI never trips its own override detector.
+  public isManualFlightInputActive(): boolean {
+    const flightActions = ['altitudeUp', 'altitudeDown', 'turnLeft', 'turnRight'];
+    for (const action of flightActions) {
+      const keybind = this.keybinds.find((k) => k.name === action);
+      if (keybind && this.keys[keybind.currentKey]) {
+        return true;
+      }
+    }
+    if (Object.keys(this.touchSimulatedKeys).length > 0) {
+      return true;
+    }
+    return this.getIsTouchActive() && !this.isTouchCameraMode;
+  }
+
   public isBombKeyPressed(): boolean {
+    if (this.aiControls['bomb']) return true;
     const keybind = this.keybinds.find((k) => k.name === 'bomb');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isMissileKeyPressed(): boolean {
+    if (this.aiControls['missile']) return true;
     const keybind = this.keybinds.find((k) => k.name === 'missile');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isCountermeasureKeyPressed(): boolean {
+    if (this.aiControls['countermeasure']) return true;
     const keybind = this.keybinds.find((k) => k.name === 'countermeasure');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
@@ -286,21 +319,25 @@ export class InputManager {
 
   // Bomber movement controls
   public isAltitudeUpPressed(): boolean {
+    if (this.aiControls['altitudeUp']) return true;
     const keybind = this.keybinds.find((k) => k.name === 'altitudeUp');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isAltitudeDownPressed(): boolean {
+    if (this.aiControls['altitudeDown']) return true;
     const keybind = this.keybinds.find((k) => k.name === 'altitudeDown');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public getTurnLeftPressed(): boolean {
+    if (this.aiControls['turnLeft']) return true;
     const keybind = this.keybinds.find((k) => k.name === 'turnLeft');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public getTurnRightPressed(): boolean {
+    if (this.aiControls['turnRight']) return true;
     const keybind = this.keybinds.find((k) => k.name === 'turnRight');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
