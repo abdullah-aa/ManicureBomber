@@ -5,10 +5,11 @@ export class WorkerManager {
   private missilePhysicsWorker!: Worker;
   private collisionDetectionWorker!: Worker;
 
-  private messageCallbacks: Map<string, (result: any) => void> = new Map();
+  private messageCallbacks: Map<string, { resolve: (result: any) => void; timeoutId: ReturnType<typeof setTimeout> }> =
+    new Map();
   private messageIdCounter: number = 0;
 
-  private WORKER_TIMEOUT = 10000; // 5 second timeout
+  private WORKER_TIMEOUT = 10000;
 
   constructor() {
     this.initializeWorkers();
@@ -38,9 +39,10 @@ export class WorkerManager {
 
       // Handle callback if messageId exists
       if (messageId && this.messageCallbacks.has(messageId)) {
-        const callback = this.messageCallbacks.get(messageId)!;
-        callback(data);
+        const entry = this.messageCallbacks.get(messageId)!;
+        clearTimeout(entry.timeoutId);
         this.messageCallbacks.delete(messageId);
+        entry.resolve(data);
       }
     };
 
@@ -62,83 +64,10 @@ export class WorkerManager {
     });
   }
 
-  public getDistanceToNearestChunkEdge(position: Vector3, chunkSize: number): Promise<any> {
-    return this.sendMessageToWorker(this.terrainWorker, {
-      type: 'GET_DISTANCE_TO_CHUNK_EDGE',
-      data: {
-        position: { x: position.x, z: position.z },
-        chunkSize,
-      },
-    });
-  }
-
-  public generateChunksNearPlayer(
-    currentChunkX: number,
-    currentChunkZ: number,
-    existingChunks: string[],
-    maxTotalChunks: number,
-    maxChunksPerUpdate: number,
-    radius: number,
-  ): Promise<any> {
-    return this.sendMessageToWorker(this.terrainWorker, {
-      type: 'GENERATE_CHUNKS_NEAR_PLAYER',
-      data: {
-        currentChunkX,
-        currentChunkZ,
-        existingChunks,
-        maxTotalChunks,
-        maxChunksPerUpdate,
-        radius,
-      },
-    });
-  }
-
-  public getChunksToRemove(
-    currentChunkX: number,
-    currentChunkZ: number,
-    existingChunks: string[],
-    radius: number,
-  ): Promise<any> {
-    return this.sendMessageToWorker(this.terrainWorker, {
-      type: 'GET_CHUNKS_TO_REMOVE',
-      data: {
-        currentChunkX,
-        currentChunkZ,
-        existingChunks,
-        radius,
-      },
-    });
-  }
-
-  public getBuildingsInRadiusMinimal(position: Vector3, buildings: any[], radius: number): Promise<any> {
-    return this.sendMessageToWorker(this.terrainWorker, {
-      type: 'GET_BUILDINGS_IN_RADIUS_MINIMAL',
-      data: {
-        position: { x: position.x, y: position.y, z: position.z },
-        buildings,
-        radius,
-      },
-    });
-  }
-
   // Missile physics worker methods
   public calculateDefenseTrajectory(missileData: any): Promise<any> {
     return this.sendMessageToWorker(this.missilePhysicsWorker, {
       type: 'CALCULATE_DEFENSE_TRAJECTORY',
-      data: missileData,
-    });
-  }
-
-  public updateTomahawkMissile(missileData: any): Promise<any> {
-    return this.sendMessageToWorker(this.missilePhysicsWorker, {
-      type: 'UPDATE_TOMAHAWK_MISSILE',
-      data: missileData,
-    });
-  }
-
-  public updateIskanderMissile(missileData: any): Promise<any> {
-    return this.sendMessageToWorker(this.missilePhysicsWorker, {
-      type: 'UPDATE_ISKANDER_MISSILE',
       data: missileData,
     });
   }
@@ -193,31 +122,22 @@ export class WorkerManager {
     });
   }
 
-  // Generic message sending with promise-based approach
+  // Generic message sending with promise-based approach. One promise per message;
+  // the timeout is cleared as soon as the response arrives so no timers accumulate.
   private sendMessageToWorker(worker: Worker, message: any): Promise<any> {
     const messageId = `msg_${this.messageIdCounter++}`;
     const messageWithId = { ...message, messageId };
 
-    // Create a promise that resolves when we get a response
-    const responsePromise = new Promise<any>((resolve) => {
-      // Store callback for response
-      this.messageCallbacks.set(messageId, resolve);
-
-      // Send message to worker
-      worker.postMessage(messageWithId);
-    });
-
-    // Create timeout promise
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
+    return new Promise<any>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
         if (this.messageCallbacks.has(messageId)) {
           this.messageCallbacks.delete(messageId);
           reject(new Error('Worker response timeout'));
         }
       }, this.WORKER_TIMEOUT);
-    });
 
-    // Race between response and timeout
-    return Promise.race([responsePromise, timeoutPromise]);
+      this.messageCallbacks.set(messageId, { resolve, timeoutId });
+      worker.postMessage(messageWithId);
+    });
   }
 }

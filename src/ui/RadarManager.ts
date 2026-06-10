@@ -8,7 +8,10 @@ import { IskanderMissile } from '../entities/IskanderMissile';
 interface RadarMarker {
   element: HTMLElement;
   type: string;
-  inUse: boolean;
+  usedThisTick: boolean;
+  visible: boolean;
+  lastX: number;
+  lastY: number;
 }
 
 export class RadarManager {
@@ -56,43 +59,90 @@ export class RadarManager {
   }
 
   private initializeMarkerPool(): void {
-    // Pre-create marker elements for object pooling
+    // Pre-create marker elements (attached once, hidden); positioning happens
+    // purely via transform so the browser can composite without layout.
     for (let i = 0; i < this.maxMarkers; i++) {
       const marker = document.createElement('div');
       marker.style.position = 'absolute';
+      marker.style.left = '0';
+      marker.style.top = '0';
       marker.style.width = '4px';
       marker.style.height = '4px';
       marker.style.borderRadius = '50%';
-      marker.style.transform = 'translate(-50%, -50%)';
       marker.style.pointerEvents = 'none';
+      marker.style.display = 'none';
+      this.radarDisplay.appendChild(marker);
 
       this.markerPool.push({
         element: marker,
         type: '',
-        inUse: false,
+        usedThisTick: false,
+        visible: false,
+        lastX: NaN,
+        lastY: NaN,
       });
     }
   }
 
-  private getMarkerFromPool(type: string): RadarMarker | null {
-    // Find an unused marker
+  // Mark-and-sweep diffing: markers are claimed in entity iteration order each tick
+  // (stable between ticks), so the same marker usually tracks the same entity and
+  // style writes only happen on real changes.
+  private acquireMarker(type: string): RadarMarker | null {
     for (const marker of this.markerPool) {
-      if (!marker.inUse) {
-        marker.inUse = true;
-        marker.type = type;
-
-        // Set the appropriate class
-        marker.element.className = `radar-${type}`;
-
+      if (!marker.usedThisTick) {
+        marker.usedThisTick = true;
+        if (marker.type !== type) {
+          marker.type = type;
+          marker.element.className = `radar-${type}`;
+        }
         return marker;
       }
     }
     return null; // No available markers
   }
 
-  private returnMarkerToPool(marker: RadarMarker): void {
-    marker.inUse = false;
-    marker.element.style.display = 'none';
+  private placeMarker(marker: RadarMarker, x: number, y: number): void {
+    if (!(Math.abs(x - marker.lastX) <= 0.5 && Math.abs(y - marker.lastY) <= 0.5)) {
+      marker.element.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`;
+      marker.lastX = x;
+      marker.lastY = y;
+    }
+    if (!marker.visible) {
+      marker.element.style.display = 'block';
+      marker.visible = true;
+    }
+  }
+
+  /** Project a world position onto the radar and claim a marker for it if in range. */
+  private tryPlaceMarker(
+    type: string,
+    worldX: number,
+    worldZ: number,
+    bomberPosition: Vector3,
+    cosY: number,
+    sinY: number,
+  ): boolean {
+    const relX = worldX - bomberPosition.x;
+    const relZ = worldZ - bomberPosition.z;
+
+    // Rotate into the bomber's frame (2D rotation on the X-Z plane)
+    const rotatedX = relX * cosY - relZ * sinY;
+    const rotatedZ = relX * sinY + relZ * cosY;
+
+    const radarX = (rotatedX / this.radarRadius) * this.radarPixelRadius;
+    const radarZ = (rotatedZ / this.radarRadius) * this.radarPixelRadius;
+
+    // Only show if within the radar circle (squared check, no sqrt)
+    if (radarX * radarX + radarZ * radarZ > this.radarPixelRadius * this.radarPixelRadius) {
+      return false;
+    }
+
+    const marker = this.acquireMarker(type);
+    if (!marker) return false;
+
+    // Flip Z for screen coordinates
+    this.placeMarker(marker, this.radarPixelRadius + radarX, this.radarPixelRadius - radarZ);
+    return true;
   }
 
   private createRadarPulseStyles(): void {
@@ -181,12 +231,11 @@ export class RadarManager {
     }
     this.lastUpdateTime = currentTime;
 
-    // Return all markers to pool
-    this.markerPool.forEach((marker) => {
-      if (marker.inUse) {
-        this.returnMarkerToPool(marker);
-      }
-    });
+    // Start a new mark phase; markers not re-claimed this tick are hidden in the
+    // sweep at the end of processRadarUpdate (no DOM writes here).
+    for (const marker of this.markerPool) {
+      marker.usedThisTick = false;
+    }
 
     // Handle radar pulse
     if (currentTime - this.lastPulseTime > this.pulseInterval) {
@@ -199,9 +248,9 @@ export class RadarManager {
       }, 1500); // Remove after animation finishes
     }
 
-    // Get bomber position and orientation
-    const bomberPosition = bomber.getPosition();
-    const bomberRotationY = bomber.getRotation().y;
+    // Get bomber position and orientation (read-only refs; copied below for caching)
+    const bomberPosition = bomber.getPositionRef();
+    const bomberRotationY = bomber.getRotationRef().y;
 
     // Check if we need to recalculate cached data
     const distanceMoved = Vector3.Distance(bomberPosition, this.cachedBomberPosition);
@@ -210,25 +259,11 @@ export class RadarManager {
     if (!this.positionCacheValid || distanceMoved > this.positionCacheThreshold || rotationChanged) {
       this.cachedBomberPosition.copyFrom(bomberPosition);
       this.cachedBomberRotation = bomberRotationY;
-
-      // Use promise-based callbacks instead of async/await
-      terrainManager
-        .getBuildingsInRadius(bomberPosition, this.radarRadius)
-        .then((buildings) => {
-          this.cachedBuildings = buildings;
-          this.positionCacheValid = true;
-          this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles, defenseMissiles);
-        })
-        .catch(() => {
-          // Silent error handling - use empty array if worker fails
-          this.cachedBuildings = [];
-          this.positionCacheValid = true;
-          this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles, defenseMissiles);
-        });
-    } else {
-      // Use cached data
-      this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles, defenseMissiles);
+      this.cachedBuildings = terrainManager.getBuildingsInRadiusSync(bomberPosition, this.radarRadius);
+      this.positionCacheValid = true;
     }
+
+    this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles, defenseMissiles);
   }
 
   private processRadarUpdate(
@@ -242,147 +277,41 @@ export class RadarManager {
     const cosY = Math.cos(bomberRotationY);
     const sinY = Math.sin(bomberRotationY);
 
-    // Add building markers to radar (limited by pool size)
-    let markerCount = 0;
+    // Add building markers to radar (limited by pool size); only targets and
+    // defense launchers are shown
     for (const building of this.cachedBuildings) {
-      if (markerCount >= this.maxMarkers) break;
-
-      // Only show targets and defense launchers on radar
       if (!building.isTarget() && !building.isDefenseLauncher()) {
-        continue; // Skip regular buildings
+        continue;
       }
 
       const buildingPosition = building.getPosition();
-      const relativePosition = buildingPosition.subtract(bomberPosition);
-
-      // Rotate the relative position to be aligned with the bomber's forward direction
-      // This is a 2D rotation on the X-Z plane.
-      const rotatedX = relativePosition.x * cosY - relativePosition.z * sinY;
-      const rotatedZ = relativePosition.x * sinY + relativePosition.z * cosY;
-
-      // Convert to radar coordinates (top-down view)
-      const radarX = (rotatedX / this.radarRadius) * this.radarPixelRadius;
-      const radarZ = (rotatedZ / this.radarRadius) * this.radarPixelRadius;
-
-      // Only show if within radar circle
-      const distance = Math.sqrt(radarX * radarX + radarZ * radarZ);
-      if (distance <= this.radarPixelRadius) {
-        // Determine marker type based on building type
-        let markerType: string;
-        if (building.isTarget()) {
-          markerType = 'target';
-        } else if (building.isDefenseLauncher()) {
-          markerType = 'defense-launcher';
-        } else {
-          // This should never happen due to the filter above, but keeping for safety
-          continue;
-        }
-
-        const marker = this.getMarkerFromPool(markerType);
-        if (marker) {
-          // Position relative to radar center
-          marker.element.style.left = `${this.radarPixelRadius + radarX}px`;
-          marker.element.style.top = `${this.radarPixelRadius - radarZ}px`; // Flip Z for screen coordinates
-          marker.element.style.display = 'block';
-
-          if (!marker.element.parentNode) {
-            this.radarDisplay.appendChild(marker.element);
-          }
-
-          markerCount++;
-        }
-      }
+      const markerType = building.isTarget() ? 'target' : 'defense-launcher';
+      this.tryPlaceMarker(markerType, buildingPosition.x, buildingPosition.z, bomberPosition, cosY, sinY);
     }
 
     // Update active missiles list and add missile markers
     this.activeIskanderMissiles = iskanderMissiles.filter((missile) => missile.isLaunched() && !missile.hasExploded());
-    this.updateMissileMarkers(bomberPosition, bomberRotationY, cosY, sinY, markerCount, defenseMissiles);
+    this.activeMissiles = defenseMissiles.filter((missile) => missile.isLaunched() && !missile.hasExploded());
+
+    for (const missile of this.activeMissiles) {
+      const missilePosition = missile.getPositionRef();
+      this.tryPlaceMarker('missile', missilePosition.x, missilePosition.z, bomberPosition, cosY, sinY);
+    }
+
+    for (const missile of this.activeIskanderMissiles) {
+      const missilePosition = missile.getPositionRef();
+      this.tryPlaceMarker('iskander', missilePosition.x, missilePosition.z, bomberPosition, cosY, sinY);
+    }
+
+    // Sweep: hide only the markers that lost their entity this tick
+    for (const marker of this.markerPool) {
+      if (!marker.usedThisTick && marker.visible) {
+        marker.element.style.display = 'none';
+        marker.visible = false;
+      }
+    }
 
     // Update score display - only targets
     this.targetCountElement.textContent = destroyedTargets.toString();
-  }
-
-  private updateMissileMarkers(
-    bomberPosition: Vector3,
-    bomberRotationY: number,
-    cosY: number,
-    sinY: number,
-    currentMarkerCount: number,
-    defenseMissiles: DefenseMissile[],
-  ): void {
-    // Use defense missiles from Game class
-    this.activeMissiles = defenseMissiles.filter((missile) => missile.isLaunched() && !missile.hasExploded());
-
-    // Add defense missile markers to radar (limited by remaining pool space)
-    let markerCount = currentMarkerCount;
-    for (const missile of this.activeMissiles) {
-      if (markerCount >= this.maxMarkers) break;
-
-      if (!missile.hasExploded()) {
-        const missilePosition = missile.getPosition();
-        const relativePosition = missilePosition.subtract(bomberPosition);
-
-        // Rotate the relative position
-        const rotatedX = relativePosition.x * cosY - relativePosition.z * sinY;
-        const rotatedZ = relativePosition.x * sinY + relativePosition.z * cosY;
-
-        // Convert to radar coordinates
-        const radarX = (rotatedX / this.radarRadius) * this.radarPixelRadius;
-        const radarZ = (rotatedZ / this.radarRadius) * this.radarPixelRadius;
-
-        // Only show if within radar circle
-        const distance = Math.sqrt(radarX * radarX + radarZ * radarZ);
-        if (distance <= this.radarPixelRadius) {
-          const marker = this.getMarkerFromPool('missile');
-          if (marker) {
-            // Position relative to radar center
-            marker.element.style.left = `${this.radarPixelRadius + radarX}px`;
-            marker.element.style.top = `${this.radarPixelRadius - radarZ}px`;
-            marker.element.style.display = 'block';
-
-            if (!marker.element.parentNode) {
-              this.radarDisplay.appendChild(marker.element);
-            }
-
-            markerCount++;
-          }
-        }
-      }
-    }
-
-    // Add Iskander missile markers with special treatment
-    for (const missile of this.activeIskanderMissiles) {
-      if (markerCount >= this.maxMarkers) break;
-
-      const missilePosition = missile.getPosition();
-      const relativePosition = missilePosition.subtract(bomberPosition);
-
-      // Rotate the relative position
-      const rotatedX = relativePosition.x * cosY - relativePosition.z * sinY;
-      const rotatedZ = relativePosition.x * sinY + relativePosition.z * cosY;
-
-      // Convert to radar coordinates
-      const radarX = (rotatedX / this.radarRadius) * this.radarPixelRadius;
-      const radarZ = (rotatedZ / this.radarRadius) * this.radarPixelRadius;
-
-      // Only show if within radar circle
-      const distance = Math.sqrt(radarX * radarX + radarZ * radarZ);
-      if (distance <= this.radarPixelRadius) {
-        // Use single marker type for Iskander missiles
-        const marker = this.getMarkerFromPool('iskander');
-        if (marker) {
-          // Position relative to radar center
-          marker.element.style.left = `${this.radarPixelRadius + radarX}px`;
-          marker.element.style.top = `${this.radarPixelRadius - radarZ}px`;
-          marker.element.style.display = 'block';
-
-          if (!marker.element.parentNode) {
-            this.radarDisplay.appendChild(marker.element);
-          }
-
-          markerCount++;
-        }
-      }
-    }
   }
 }

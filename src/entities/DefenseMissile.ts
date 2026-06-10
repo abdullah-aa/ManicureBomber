@@ -6,13 +6,13 @@ import {
   StandardMaterial,
   Color3,
   ParticleSystem,
-  Texture,
   Color4,
-  PointLight,
   TransformNode,
-  DynamicTexture,
 } from '@babylonjs/core';
 import { WorkerManager } from '../managers/WorkerManager';
+import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
+import { EffectTextures } from '../effects/EffectTextures';
+import { ExplosionPool } from '../effects/ExplosionPool';
 
 export class DefenseMissile {
   private scene: Scene;
@@ -27,7 +27,7 @@ export class DefenseMissile {
   private launched: boolean = false;
   private exploded: boolean = false;
   private exhaustParticles!: ParticleSystem;
-  private light!: PointLight;
+  private lightHandle: LightHandle = LightHandle.inert();
   private targetSet: boolean = false; // Performance optimization flag
   private maxAltitude: number = 120 + Math.random() * 80; // Maximum altitude before detonation
 
@@ -65,6 +65,7 @@ export class DefenseMissile {
 
     this.createMissileModel();
     this.setupParticleEffects();
+    this.missileGroup.getChildMeshes().forEach((m) => (m.isPickable = false));
   }
 
   private createMissileModel(): void {
@@ -138,21 +139,18 @@ export class DefenseMissile {
     });
 
     // Add missile light
-    this.light = new PointLight('defenseMissileLight', new Vector3(0, 0, 0), this.scene);
-    this.light.diffuse = new Color3(1, 0.8, 0.4);
-    this.light.specular = new Color3(1, 0.8, 0.4);
-    this.light.intensity = 1.5;
-    this.light.range = 30;
-    this.light.parent = this.missileGroup;
+    // Pooled missile light; follows the missile in world space (never parented)
+    this.lightHandle = LightManager.get(this.scene).acquire(LightPriority.MEDIUM);
+    this.lightHandle.setColor(1, 0.8, 0.4);
+    this.lightHandle.setIntensity(1.5);
+    this.lightHandle.setRange(30);
+    this.lightHandle.setPosition(this.position);
   }
 
   private setupParticleEffects(): void {
     // Engine exhaust particles
     this.exhaustParticles = new ParticleSystem('defenseMissileExhaust', 50, this.scene);
-    this.exhaustParticles.particleTexture = new Texture(
-      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
-      this.scene,
-    );
+    this.exhaustParticles.particleTexture = EffectTextures.get(this.scene).getPixelTexture();
 
     // Create emitter at rear of missile
     const emitterMesh = MeshBuilder.CreateSphere('defenseMissileEmitter', { diameter: 0.05 }, this.scene);
@@ -192,6 +190,8 @@ export class DefenseMissile {
 
   public update(deltaTime: number): void {
     if (!this.launched || this.exploded) return;
+
+    this.lightHandle.setPosition(this.position);
 
     // Calculate trajectory only once when launched
     if (!this.trajectoryCalculated && !this.pendingTrajectoryCalculation) {
@@ -268,65 +268,22 @@ export class DefenseMissile {
     this.exploded = true;
     this.exhaustParticles.stop();
 
-    // Create procedural explosion texture
-    const explosionTexture = new DynamicTexture(
-      'defenseMissileExplosionTexture',
-      { width: 64, height: 64 },
-      this.scene,
-    );
-    const explosionContext = explosionTexture.getContext();
-
-    // Create explosion effect with bright center and fading edges
-    const explosionGradient = explosionContext.createRadialGradient(32, 32, 0, 32, 32, 32);
-    explosionGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    explosionGradient.addColorStop(0.2, 'rgba(255, 255, 0, 0.9)');
-    explosionGradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.6)');
-    explosionGradient.addColorStop(0.8, 'rgba(255, 50, 0, 0.3)');
-    explosionGradient.addColorStop(1, 'rgba(200, 0, 0, 0)');
-
-    explosionContext.fillStyle = explosionGradient;
-    explosionContext.fillRect(0, 0, 64, 64);
-    explosionTexture.update();
-
-    // Create explosion effect
-    const explosionParticles = new ParticleSystem('defenseMissileExplosion', 350, this.scene);
-    explosionParticles.particleTexture = explosionTexture;
-    explosionParticles.emitter = this.position;
-    explosionParticles.minEmitBox = new Vector3(-0.8, -0.8, -0.8);
-    explosionParticles.maxEmitBox = new Vector3(0.8, 0.8, 0.8);
-
-    explosionParticles.color1 = new Color4(1, 0.9, 0.1, 1.0);
-    explosionParticles.color2 = new Color4(1, 0.4, 0, 1.0);
-    explosionParticles.colorDead = new Color4(0.3, 0.1, 0, 0.0);
-
-    explosionParticles.minSize = 0.8;
-    explosionParticles.maxSize = 3.0;
-    explosionParticles.minLifeTime = 0.4;
-    explosionParticles.maxLifeTime = 1.2;
-    explosionParticles.emitRate = 700;
-    explosionParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-    explosionParticles.gravity = new Vector3(0, -9.81, 0);
-    explosionParticles.direction1 = new Vector3(-4, 2, -4);
-    explosionParticles.direction2 = new Vector3(4, 6, 4);
-    explosionParticles.minEmitPower = 4;
-    explosionParticles.maxEmitPower = 10;
-
-    explosionParticles.start();
-
-    // Stop particles after a short time
-    setTimeout(() => {
-      explosionParticles.stop();
-      setTimeout(() => {
-        explosionParticles.dispose();
-      }, 2000);
-    }, 100);
+    // Small airburst flash: fire only, no lingering smoke/shockwave (matches the
+    // old single 350-particle explosion at this size)
+    ExplosionPool.get(this.scene).explode(this.position, 0.45, { smoke: false, shockwave: false, sparks: false });
 
     // Hide the missile mesh
     this.missileGroup.setEnabled(false);
+    this.lightHandle.release();
   }
 
   public getPosition(): Vector3 {
     return this.position.clone();
+  }
+
+  /** Read-only reference to the internal position — callers must not mutate it. */
+  public getPositionRef(): Vector3 {
+    return this.position;
   }
 
   public isLaunched(): boolean {
@@ -339,11 +296,11 @@ export class DefenseMissile {
 
   public dispose(): void {
     if (this.exhaustParticles) {
-      this.exhaustParticles.dispose();
+      // The pixel exhaust texture is shared via EffectTextures — keep it
+      this.exhaustParticles.dispose(false);
     }
-    if (this.light) {
-      this.light.dispose();
-    }
-    this.missileGroup.dispose();
+    this.lightHandle.release();
+    // Dispose part materials with the hierarchy (they are per-missile instances)
+    this.missileGroup.dispose(false, true);
   }
 }

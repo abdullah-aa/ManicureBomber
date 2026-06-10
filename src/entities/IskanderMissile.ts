@@ -6,14 +6,15 @@ import {
   StandardMaterial,
   Color3,
   ParticleSystem,
-  Texture,
   Color4,
-  PointLight,
   TransformNode,
-  DynamicTexture,
 } from '@babylonjs/core';
 import { Bomber } from './Bomber';
 import { WorkerManager } from '../managers/WorkerManager';
+import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
+import { EffectTextures } from '../effects/EffectTextures';
+import { ExplosionPool } from '../effects/ExplosionPool';
+import { updateIskanderMissilePhysics } from '../managers/MissileGuidance';
 
 export class IskanderMissile {
   private scene: Scene;
@@ -31,11 +32,7 @@ export class IskanderMissile {
   private exhaustParticles!: ParticleSystem;
   private trailParticles!: ParticleSystem;
   private flightSmokeParticles!: ParticleSystem;
-  private fireParticles!: ParticleSystem;
-  private explosionSmokeParticles!: ParticleSystem;
-  private shockwaveParticles!: ParticleSystem;
-  private sparkParticles!: ParticleSystem;
-  private light!: PointLight;
+  private lightHandle: LightHandle = LightHandle.inert();
 
   // Curved path navigation properties (like Tomahawk)
   private pathTime: number = 0;
@@ -65,9 +62,8 @@ export class IskanderMissile {
   // Lock establishment callback
   private onLockEstablishedCallback: (() => void) | null = null;
 
-  // Worker integration
+  // Worker integration (kept for API stability; per-frame guidance is main-thread now)
   private workerManager: WorkerManager;
-  private pendingPhysicsUpdate: boolean = false;
 
   constructor(scene: Scene, launchPosition: Vector3, bomber: Bomber, workerManager: WorkerManager) {
     this.scene = scene;
@@ -85,8 +81,8 @@ export class IskanderMissile {
 
     this.createMissileModel();
     this.setupParticleEffects();
-    this.setupExplosionEffects();
     this.generateCurvedPath();
+    this.missileGroup.getChildMeshes().forEach((m) => (m.isPickable = false));
   }
 
   private generateCurvedPath(): void {
@@ -160,12 +156,12 @@ export class IskanderMissile {
     engineNozzle.material = engineMaterial;
 
     // Add missile light with red tint
-    this.light = new PointLight('iskanderLight', new Vector3(0, 0, 0), this.scene);
-    this.light.diffuse = new Color3(1, 0.2, 0.1);
-    this.light.specular = new Color3(1, 0.2, 0.1);
-    this.light.intensity = 4;
-    this.light.range = 60;
-    this.light.parent = this.missileGroup;
+    // Pooled missile light; follows the missile in world space (never parented)
+    this.lightHandle = LightManager.get(this.scene).acquire(LightPriority.HIGH);
+    this.lightHandle.setColor(1, 0.2, 0.1);
+    this.lightHandle.setIntensity(4);
+    this.lightHandle.setRange(60);
+    this.lightHandle.setPosition(this.position);
   }
 
   private createControlFins(): void {
@@ -202,10 +198,7 @@ export class IskanderMissile {
   private setupParticleEffects(): void {
     // Engine exhaust particles
     this.exhaustParticles = new ParticleSystem('iskanderExhaust', 100, this.scene);
-    this.exhaustParticles.particleTexture = new Texture(
-      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
-      this.scene,
-    );
+    this.exhaustParticles.particleTexture = EffectTextures.get(this.scene).getPixelTexture();
 
     // Create emitter at rear of missile
     const emitterMesh = MeshBuilder.CreateSphere('iskanderEmitter', { diameter: 0.1 }, this.scene);
@@ -236,23 +229,9 @@ export class IskanderMissile {
     this.exhaustParticles.gravity = new Vector3(0, 0, 0);
     this.exhaustParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
 
-    // Create procedural trail texture
-    const trailTexture = new DynamicTexture('iskanderTrailTexture', { width: 64, height: 64 }, this.scene);
-    const trailContext = trailTexture.getContext();
-
-    // Create a red-tinted trail pattern
-    const trailGradient = trailContext.createRadialGradient(32, 32, 0, 32, 32, 32);
-    trailGradient.addColorStop(0, 'rgba(255, 100, 100, 1)');
-    trailGradient.addColorStop(0.5, 'rgba(200, 50, 50, 0.5)');
-    trailGradient.addColorStop(1, 'rgba(100, 25, 25, 0)');
-
-    trailContext.fillStyle = trailGradient;
-    trailContext.fillRect(0, 0, 64, 64);
-    trailTexture.update();
-
     // Vapor trail particles
     this.trailParticles = new ParticleSystem('iskanderTrail', 200, this.scene);
-    this.trailParticles.particleTexture = trailTexture;
+    this.trailParticles.particleTexture = EffectTextures.get(this.scene).getRedTrailTexture();
     this.trailParticles.emitter = emitterMesh;
     this.trailParticles.minEmitBox = new Vector3(0, 0, 0);
     this.trailParticles.maxEmitBox = new Vector3(0, 0, 0);
@@ -276,34 +255,8 @@ export class IskanderMissile {
     this.trailParticles.gravity = new Vector3(0, -1, 0);
     this.trailParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
 
-    // Smoke trail
-    const smokeTexture = new DynamicTexture('iskanderSmokeTexture', { width: 64, height: 64 }, this.scene);
-    const smokeContext = smokeTexture.getContext();
-
-    // Create smoke effect with noise
-    smokeContext.fillStyle = 'rgba(0, 0, 0, 0)';
-    smokeContext.fillRect(0, 0, 64, 64);
-
-    // Add several overlapping circles for smoke effect
-    for (let i = 0; i < 8; i++) {
-      const x = 32 + (Math.random() - 0.5) * 40;
-      const y = 32 + (Math.random() - 0.5) * 40;
-      const radius = 15 + Math.random() * 15;
-      const alpha = 0.1 + Math.random() * 0.3;
-
-      const gradient = smokeContext.createRadialGradient(x, y, 0, x, y, radius);
-      gradient.addColorStop(0, `rgba(80, 80, 80, ${alpha})`);
-      gradient.addColorStop(1, 'rgba(40, 40, 40, 0)');
-
-      smokeContext.fillStyle = gradient;
-      smokeContext.beginPath();
-      smokeContext.arc(x, y, radius, 0, 2 * Math.PI);
-      smokeContext.fill();
-    }
-    smokeTexture.update();
-
     this.flightSmokeParticles = new ParticleSystem('iskanderSmoke', 80, this.scene);
-    this.flightSmokeParticles.particleTexture = smokeTexture;
+    this.flightSmokeParticles.particleTexture = EffectTextures.get(this.scene).getSmokeTexture();
     this.flightSmokeParticles.emitter = emitterMesh;
     this.flightSmokeParticles.minEmitBox = new Vector3(0, 0, 0);
     this.flightSmokeParticles.maxEmitBox = new Vector3(0, 0, 0);
@@ -325,188 +278,6 @@ export class IskanderMissile {
     this.flightSmokeParticles.direction2 = new Vector3(0, 0, 0.2);
     this.flightSmokeParticles.gravity = new Vector3(0, -0.8, 0);
     this.flightSmokeParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
-  }
-
-  private setupExplosionEffects(): void {
-    // Create procedural fire explosion texture
-    const fireExplosionTexture = new DynamicTexture(
-      'iskanderFireExplosionTexture',
-      { width: 64, height: 64 },
-      this.scene,
-    );
-    const fireExplosionContext = fireExplosionTexture.getContext();
-
-    // Create fire explosion effect with bright center and fading edges
-    const fireExplosionGradient = fireExplosionContext.createRadialGradient(32, 32, 0, 32, 32, 32);
-    fireExplosionGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    fireExplosionGradient.addColorStop(0.2, 'rgba(255, 255, 0, 0.9)');
-    fireExplosionGradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.6)');
-    fireExplosionGradient.addColorStop(0.8, 'rgba(255, 50, 0, 0.3)');
-    fireExplosionGradient.addColorStop(1, 'rgba(200, 0, 0, 0)');
-
-    fireExplosionContext.fillStyle = fireExplosionGradient;
-    fireExplosionContext.fillRect(0, 0, 64, 64);
-    fireExplosionTexture.update();
-
-    // Fire explosion particles
-    this.fireParticles = new ParticleSystem('iskanderExplosionFire', 600, this.scene);
-    this.fireParticles.particleTexture = fireExplosionTexture;
-    this.fireParticles.emitter = this.position;
-    this.fireParticles.minEmitBox = new Vector3(-1.2, 0, -1.2);
-    this.fireParticles.maxEmitBox = new Vector3(1.2, 0, 1.2);
-
-    this.fireParticles.color1 = new Color4(1, 0.9, 0.1, 1.0);
-    this.fireParticles.color2 = new Color4(1, 0.4, 0, 1.0);
-    this.fireParticles.colorDead = new Color4(0.3, 0.1, 0, 0.0);
-
-    this.fireParticles.minSize = 2.0;
-    this.fireParticles.maxSize = 5.0;
-    this.fireParticles.minLifeTime = 0.3;
-    this.fireParticles.maxLifeTime = 0.6;
-    this.fireParticles.emitRate = 600;
-    this.fireParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-    this.fireParticles.gravity = new Vector3(0, -5, 0);
-    this.fireParticles.direction1 = new Vector3(-8, 6, -8);
-    this.fireParticles.direction2 = new Vector3(8, 10, 8);
-    this.fireParticles.minEmitPower = 5;
-    this.fireParticles.maxEmitPower = 12;
-    this.fireParticles.updateSpeed = 0.005;
-    this.fireParticles.manualEmitCount = 600;
-    this.fireParticles.stop();
-
-    // Create procedural explosion smoke texture
-    const explosionSmokeTexture = new DynamicTexture(
-      'iskanderExplosionSmokeTexture',
-      { width: 64, height: 64 },
-      this.scene,
-    );
-    const explosionSmokeContext = explosionSmokeTexture.getContext();
-
-    // Create explosion smoke effect with noise
-    explosionSmokeContext.fillStyle = 'rgba(0, 0, 0, 0)';
-    explosionSmokeContext.fillRect(0, 0, 64, 64);
-
-    // Add several overlapping circles for smoke effect
-    for (let i = 0; i < 8; i++) {
-      const x = 32 + (Math.random() - 0.5) * 40;
-      const y = 32 + (Math.random() - 0.5) * 40;
-      const radius = 15 + Math.random() * 15;
-      const alpha = 0.1 + Math.random() * 0.3;
-
-      const gradient = explosionSmokeContext.createRadialGradient(x, y, 0, x, y, radius);
-      gradient.addColorStop(0, `rgba(100, 100, 100, ${alpha})`);
-      gradient.addColorStop(1, 'rgba(50, 50, 50, 0)');
-
-      explosionSmokeContext.fillStyle = gradient;
-      explosionSmokeContext.beginPath();
-      explosionSmokeContext.arc(x, y, radius, 0, 2 * Math.PI);
-      explosionSmokeContext.fill();
-    }
-    explosionSmokeTexture.update();
-
-    // Explosion smoke particles
-    this.explosionSmokeParticles = new ParticleSystem('iskanderExplosionSmoke', 300, this.scene);
-    this.explosionSmokeParticles.particleTexture = explosionSmokeTexture;
-    this.explosionSmokeParticles.emitter = this.position;
-    this.explosionSmokeParticles.minEmitBox = new Vector3(-1.5, 0, -1.5);
-    this.explosionSmokeParticles.maxEmitBox = new Vector3(1.5, 0, 1.5);
-
-    this.explosionSmokeParticles.color1 = new Color4(0.3, 0.3, 0.3, 0.9);
-    this.explosionSmokeParticles.color2 = new Color4(0.5, 0.5, 0.5, 0.7);
-    this.explosionSmokeParticles.colorDead = new Color4(0.2, 0.2, 0.2, 0.0);
-
-    this.explosionSmokeParticles.minSize = 3.0;
-    this.explosionSmokeParticles.maxSize = 8.0;
-    this.explosionSmokeParticles.minLifeTime = 2.0;
-    this.explosionSmokeParticles.maxLifeTime = 4.0;
-    this.explosionSmokeParticles.emitRate = 300;
-    this.explosionSmokeParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
-    this.explosionSmokeParticles.gravity = new Vector3(0, -1, 0);
-    this.explosionSmokeParticles.direction1 = new Vector3(-1, 3, -1);
-    this.explosionSmokeParticles.direction2 = new Vector3(1, 5, 1);
-    this.explosionSmokeParticles.minEmitPower = 1;
-    this.explosionSmokeParticles.maxEmitPower = 3;
-    this.explosionSmokeParticles.updateSpeed = 0.01;
-    this.explosionSmokeParticles.manualEmitCount = 300;
-    this.explosionSmokeParticles.stop();
-
-    // Create shockwave effect
-    const shockwaveTexture = new DynamicTexture('iskanderShockwaveTexture', { width: 64, height: 64 }, this.scene);
-    const shockwaveContext = shockwaveTexture.getContext();
-
-    // Create expanding ring effect
-    const shockwaveGradient = shockwaveContext.createRadialGradient(32, 32, 0, 32, 32, 32);
-    shockwaveGradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
-    shockwaveGradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.8)');
-    shockwaveGradient.addColorStop(0.7, 'rgba(255, 200, 100, 0.4)');
-    shockwaveGradient.addColorStop(1, 'rgba(255, 150, 50, 0)');
-
-    shockwaveContext.fillStyle = shockwaveGradient;
-    shockwaveContext.fillRect(0, 0, 64, 64);
-    shockwaveTexture.update();
-
-    this.shockwaveParticles = new ParticleSystem('iskanderShockwave', 150, this.scene);
-    this.shockwaveParticles.particleTexture = shockwaveTexture;
-    this.shockwaveParticles.emitter = this.position;
-    this.shockwaveParticles.minEmitBox = new Vector3(0, 0, 0);
-    this.shockwaveParticles.maxEmitBox = new Vector3(0, 0, 0);
-
-    this.shockwaveParticles.color1 = new Color4(1, 1, 1, 0.8);
-    this.shockwaveParticles.color2 = new Color4(1, 0.8, 0.4, 0.6);
-    this.shockwaveParticles.colorDead = new Color4(1, 0.6, 0.2, 0.0);
-
-    this.shockwaveParticles.minSize = 6.0;
-    this.shockwaveParticles.maxSize = 12.0;
-    this.shockwaveParticles.minLifeTime = 0.6;
-    this.shockwaveParticles.maxLifeTime = 1.0;
-    this.shockwaveParticles.emitRate = 150;
-    this.shockwaveParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-    this.shockwaveParticles.gravity = new Vector3(0, 0, 0);
-    this.shockwaveParticles.direction1 = new Vector3(-0.5, 0, -0.5);
-    this.shockwaveParticles.direction2 = new Vector3(0.5, 0, 0.5);
-    this.shockwaveParticles.minEmitPower = 15;
-    this.shockwaveParticles.maxEmitPower = 25;
-    this.shockwaveParticles.manualEmitCount = 150;
-    this.shockwaveParticles.stop();
-
-    // Create spark effect
-    const sparkTexture = new DynamicTexture('iskanderSparkTexture', { width: 32, height: 32 }, this.scene);
-    const sparkContext = sparkTexture.getContext();
-
-    // Create bright spark effect
-    const sparkGradient = sparkContext.createRadialGradient(16, 16, 0, 16, 16, 16);
-    sparkGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    sparkGradient.addColorStop(0.3, 'rgba(255, 255, 200, 0.8)');
-    sparkGradient.addColorStop(0.7, 'rgba(255, 200, 100, 0.4)');
-    sparkGradient.addColorStop(1, 'rgba(255, 150, 50, 0)');
-
-    sparkContext.fillStyle = sparkGradient;
-    sparkContext.fillRect(0, 0, 32, 32);
-    sparkTexture.update();
-
-    this.sparkParticles = new ParticleSystem('iskanderSparks', 100, this.scene);
-    this.sparkParticles.particleTexture = sparkTexture;
-    this.sparkParticles.emitter = this.position;
-    this.sparkParticles.minEmitBox = new Vector3(-0.5, 0, -0.5);
-    this.sparkParticles.maxEmitBox = new Vector3(0.5, 0, 0.5);
-
-    this.sparkParticles.color1 = new Color4(1, 1, 0.8, 1.0);
-    this.sparkParticles.color2 = new Color4(1, 0.8, 0.4, 0.8);
-    this.sparkParticles.colorDead = new Color4(1, 0.6, 0.2, 0.0);
-
-    this.sparkParticles.minSize = 0.5;
-    this.sparkParticles.maxSize = 1.5;
-    this.sparkParticles.minLifeTime = 0.5;
-    this.sparkParticles.maxLifeTime = 1.0;
-    this.sparkParticles.emitRate = 100;
-    this.sparkParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-    this.sparkParticles.gravity = new Vector3(0, -10, 0);
-    this.sparkParticles.direction1 = new Vector3(-8, 5, -8);
-    this.sparkParticles.direction2 = new Vector3(8, 8, 8);
-    this.sparkParticles.minEmitPower = 10;
-    this.sparkParticles.maxEmitPower = 20;
-    this.sparkParticles.manualEmitCount = 100;
-    this.sparkParticles.stop();
   }
 
   public launch(): void {
@@ -553,13 +324,17 @@ export class IskanderMissile {
   }
 
   public updateFlareTargets(activeFlares: Vector3[]): void {
-    // Replace old flare targets with current active flares
-    // This prevents accumulation of stale flare positions
-    this.flareTargets = activeFlares.map(flare => flare.clone());
+    // Store the (read-only) array reference. It is only ever read here — serialized
+    // to plain {x,y,z} objects in updatePhysicsWorker — so no per-frame cloning of
+    // every flare for every missile is needed. The bomber rebuilds the array when
+    // flares are added/removed, which also prevents stale-position accumulation.
+    this.flareTargets = activeFlares;
   }
 
   public update(deltaTime: number): void {
     if (!this.launched || this.exploded) return;
+
+    this.lightHandle.setPosition(this.position);
 
     // Performance optimization: limit update frequency
     const currentTime = performance.now() / 1000;
@@ -571,7 +346,7 @@ export class IskanderMissile {
     // Update target position periodically for better performance
     if (currentTime - this.lastTargetUpdateTime > this.targetUpdateInterval) {
       if (!this.isTargetingFlare) {
-        this.targetPosition = this.bomber.getPosition().clone();
+        this.targetPosition = this.bomber.getPosition();
         this.originalTargetPosition = this.targetPosition.clone();
         // Update waypoints when target changes
         this.waypoints = [this.position.clone(), this.targetPosition.clone()];
@@ -579,18 +354,9 @@ export class IskanderMissile {
       this.lastTargetUpdateTime = currentTime;
     }
 
-    // Use worker for physics calculations
-    this.updatePhysicsWorker(deltaTime, currentTime);
-  }
-
-  private updatePhysicsWorker(deltaTime: number, currentTime: number): void {
-    // Skip if already pending physics update
-    if (this.pendingPhysicsUpdate) {
-      return;
-    }
-
-    // Prepare physics data for worker
-    const physicsData = {
+    // Per-frame guidance runs on the main thread (no round-trip latency — flare
+    // diversion and lock-on react within the same frame).
+    const result = updateIskanderMissilePhysics({
       position: { x: this.position.x, y: this.position.y, z: this.position.z },
       velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
       rotation: { x: this.rotation.x, y: this.rotation.y, z: this.rotation.z },
@@ -600,19 +366,17 @@ export class IskanderMissile {
       deltaTime: deltaTime,
       pathTime: this.pathTime,
       pathSpeed: this.pathSpeed,
-      waypoints: this.waypoints.map((wp) => ({ x: wp.x, y: wp.y, z: wp.z })),
+      waypoints: this.waypoints,
       launched: this.launched,
       exploded: this.exploded,
       currentTime: currentTime,
 
-      // Iskander-specific properties
-      flareTargets: this.flareTargets.map((ft) => ({ x: ft.x, y: ft.y, z: ft.z })),
+      // Iskander-specific properties. flareTargets is the bomber's live array
+      // (read-only contract) — the guidance code only reads x/y/z and returns a
+      // filtered copy, never mutating the input.
+      flareTargets: this.flareTargets,
       flareDetectionRange: this.flareDetectionRange,
-      originalTargetPosition: {
-        x: this.originalTargetPosition.x,
-        y: this.originalTargetPosition.y,
-        z: this.originalTargetPosition.z,
-      },
+      originalTargetPosition: this.originalTargetPosition,
       isTargetingFlare: this.isTargetingFlare,
       lockOnRange: this.lockOnRange,
       isLockedOn: this.isLockedOn,
@@ -620,19 +384,8 @@ export class IskanderMissile {
       lockOnDuration: this.lockOnDuration,
       guidanceStrength: this.guidanceStrength,
       maxTurnRate: this.maxTurnRate,
-    };
-
-    // Send to worker
-    this.pendingPhysicsUpdate = true;
-    this.workerManager
-      .updateIskanderMissile(physicsData)
-      .then((result) => {
-        this.pendingPhysicsUpdate = false;
-        this.applyPhysicsResult(result);
-      })
-      .catch(() => {
-        this.pendingPhysicsUpdate = false;
-      });
+    });
+    this.applyPhysicsResult(result);
   }
 
   private applyPhysicsResult(result: any): void {
@@ -674,18 +427,9 @@ export class IskanderMissile {
     this.exhaustParticles.stop();
     this.trailParticles.stop();
     this.flightSmokeParticles.stop();
-    this.light.setEnabled(false);
+    this.lightHandle.release();
 
-    // Start explosion effects
-    this.fireParticles.emitter = this.position;
-    this.explosionSmokeParticles.emitter = this.position;
-    this.shockwaveParticles.emitter = this.position;
-    this.sparkParticles.emitter = this.position;
-
-    this.fireParticles.start();
-    this.explosionSmokeParticles.start();
-    this.shockwaveParticles.start();
-    this.sparkParticles.start();
+    ExplosionPool.get(this.scene).explode(this.position, 0.85);
 
     // Deal damage to bomber if close enough
     const bomberPosition = this.bomber.getPosition();
@@ -695,30 +439,18 @@ export class IskanderMissile {
       this.bomber.takeDamage(damage);
     }
 
-    // Hide missile model
+    // Hide missile model; Game's exploded-missile sweep calls dispose() ~2s later,
+    // which removes the group and the stopped flight particle systems.
     this.missileGroup.setEnabled(false);
-
-    // Clean up after explosion
-    setTimeout(() => {
-      this.fireParticles.dispose();
-      this.trailParticles.dispose();
-      this.exhaustParticles.dispose();
-      this.shockwaveParticles.dispose();
-      this.sparkParticles.dispose();
-
-      // Dispose of the entire missile group to remove all visual components
-      if (this.missileGroup) {
-        this.missileGroup.dispose();
-      }
-    }, 1000);
-
-    setTimeout(() => {
-      this.explosionSmokeParticles.dispose();
-    }, 6000);
   }
 
   public getPosition(): Vector3 {
     return this.position.clone();
+  }
+
+  /** Read-only reference to the internal position — callers must not mutate it. */
+  public getPositionRef(): Vector3 {
+    return this.position;
   }
 
   public isLaunched(): boolean {
@@ -738,13 +470,11 @@ export class IskanderMissile {
   }
 
   public dispose(): void {
-    if (this.missileGroup) this.missileGroup.dispose();
-    if (this.fireParticles) this.fireParticles.dispose();
-    if (this.explosionSmokeParticles) this.explosionSmokeParticles.dispose();
-    if (this.trailParticles) this.trailParticles.dispose();
-    if (this.exhaustParticles) this.exhaustParticles.dispose();
-    if (this.shockwaveParticles) this.shockwaveParticles.dispose();
-    if (this.sparkParticles) this.sparkParticles.dispose();
-    if (this.light) this.light.dispose();
+    // Flight particle textures are shared via EffectTextures — dispose(false).
+    if (this.missileGroup) this.missileGroup.dispose(false, true);
+    if (this.trailParticles) this.trailParticles.dispose(false);
+    if (this.exhaustParticles) this.exhaustParticles.dispose(false);
+    if (this.flightSmokeParticles) this.flightSmokeParticles.dispose(false);
+    this.lightHandle.release();
   }
 }

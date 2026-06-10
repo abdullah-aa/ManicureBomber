@@ -30,7 +30,7 @@ export class UIManager {
   // Performance optimization: cache target status
   private cachedHasValidTarget: boolean = false;
   private lastTargetCheckTime: number = 0;
-  private targetCheckInterval: number = 0.2; // Check every 200ms instead of every frame
+  private targetCheckInterval: number = 200; // ms — compared against Date.now() deltas
 
   // Performance optimization: change detection and batching
   private lastBombCooldown: number = -1;
@@ -41,8 +41,7 @@ export class UIManager {
   private lastHealth: number = -1;
   private lastAIEnabled: boolean = false;
   private lastAISuspended: boolean = false;
-  private updateBatchTimeout: ReturnType<typeof setTimeout> | null = null;
-  private pendingUpdates: Set<string> = new Set();
+  private lastHasIskander: boolean = false;
 
   // Alert system
   private alertContainer!: HTMLElement;
@@ -816,54 +815,18 @@ export class UIManager {
     document.head.appendChild(mobileStyle);
   }
 
+  // Called every uiUpdateInterval (50ms) from the game loop. Every widget already
+  // does its own change detection, so update directly — the old setTimeout batching
+  // added 7 timer create/clear cycles per tick for nothing.
   public update(): void {
-    // Schedule updates for batching
-    this.scheduleUpdate('bomb');
-    this.scheduleUpdate('missile');
-    this.scheduleUpdate('countermeasure');
-    this.scheduleUpdate('camera');
-    this.scheduleUpdate('ai');
-    this.scheduleUpdate('health');
-    this.scheduleUpdate('iskander-alert');
-  }
-
-  private scheduleUpdate(type: string): void {
-    this.pendingUpdates.add(type);
-
-    if (this.updateBatchTimeout) {
-      clearTimeout(this.updateBatchTimeout);
-    }
-
-    this.updateBatchTimeout = setTimeout(() => {
-      this.processBatchedUpdates();
-    }, 16); // 60fps update rate
-  }
-
-  private processBatchedUpdates(): void {
-    if (this.pendingUpdates.has('bomb')) {
-      this.updateBombButton();
-    }
-    if (this.pendingUpdates.has('missile')) {
-      this.updateMissileButton();
-    }
-    if (this.pendingUpdates.has('countermeasure')) {
-      this.updateCountermeasureButton();
-    }
-    if (this.pendingUpdates.has('camera')) {
-      this.updateCameraButton();
-      this.updateTouchCameraToggleIcon();
-    }
-    if (this.pendingUpdates.has('ai')) {
-      this.updateAIToggleButton();
-    }
-    if (this.pendingUpdates.has('health')) {
-      this.updateHealthBar();
-    }
-    if (this.pendingUpdates.has('iskander-alert')) {
-      this.updateIskanderAlert();
-    }
-
-    this.pendingUpdates.clear();
+    this.updateBombButton();
+    this.updateMissileButton();
+    this.updateCountermeasureButton();
+    this.updateCameraButton();
+    this.updateTouchCameraToggleIcon();
+    this.updateAIToggleButton();
+    this.updateHealthBar();
+    this.updateIskanderAlert();
   }
 
   private updateBombButton(): void {
@@ -982,12 +945,12 @@ export class UIManager {
 
     // Check if there are Iskander missiles with lock detected to enable countermeasures
     // Use the same conditions as the alert system - missiles that are locked on OR have started locking
-    const hasIskanderLockDetected = this.game.hasIskanderMissilesForAlert();
+    const hasIskander = countermeasureCooldownStatus >= 1 && this.game.hasIskanderMissilesForAlert();
 
-    if (countermeasureCooldownStatus >= 1 && hasIskanderLockDetected) {
-      this.countermeasureButton.classList.add('has-iskander');
-    } else {
-      this.countermeasureButton.classList.remove('has-iskander');
+    // Only touch the DOM on change
+    if (hasIskander !== this.lastHasIskander) {
+      this.countermeasureButton.classList.toggle('has-iskander', hasIskander);
+      this.lastHasIskander = hasIskander;
     }
   }
 

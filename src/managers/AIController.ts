@@ -29,7 +29,6 @@ export class AIController {
   private state: AIState = AIState.SEARCH;
   private currentTarget: Building | null = null;
   private lastTargetScanTime: number = -Infinity;
-  private targetScanPending: boolean = false;
   private manualOverrideUntil: number = -Infinity;
   private weavePhase: number = 0;
   private sawRunActive: boolean = false;
@@ -146,35 +145,27 @@ export class AIController {
       }
     }
 
-    if (this.targetScanPending || currentTime - this.lastTargetScanTime < this.targetScanInterval) {
+    if (currentTime - this.lastTargetScanTime < this.targetScanInterval) {
       return;
     }
     this.lastTargetScanTime = currentTime;
-    this.targetScanPending = true;
 
-    const bomberPosition = this.bomber.getPosition().clone();
-    this.terrainManager
-      .getBuildingsInRadius(bomberPosition, this.targetScanRadius)
-      .then((buildings) => {
-        this.targetScanPending = false;
-        let nearest: Building | null = null;
-        let nearestDistance = Infinity;
-        for (const building of buildings) {
-          if (building.isTarget() && !building.getIsDestroyed()) {
-            const distance = Vector3.Distance(bomberPosition, building.getPosition());
-            if (distance < nearestDistance) {
-              nearestDistance = distance;
-              nearest = building;
-            }
-          }
+    const bomberPosition = this.bomber.getPositionRef();
+    const buildings = this.terrainManager.getBuildingsInRadiusSync(bomberPosition, this.targetScanRadius);
+    let nearest: Building | null = null;
+    let nearestDistanceSq = Infinity;
+    for (const building of buildings) {
+      if (building.isTarget() && !building.getIsDestroyed()) {
+        const distanceSq = Vector3.DistanceSquared(bomberPosition, building.getPosition());
+        if (distanceSq < nearestDistanceSq) {
+          nearestDistanceSq = distanceSq;
+          nearest = building;
         }
-        if (nearest) {
-          this.currentTarget = nearest;
-        }
-      })
-      .catch(() => {
-        this.targetScanPending = false;
-      });
+      }
+    }
+    if (nearest) {
+      this.currentTarget = nearest;
+    }
   }
 
   private handleTomahawk(): void {
@@ -190,7 +181,7 @@ export class AIController {
   }
 
   private holdAltitude(): void {
-    const altitudeError = this.bomber.getPosition().y - this.cruiseAltitude;
+    const altitudeError = this.bomber.getPositionRef().y - this.cruiseAltitude;
     if (altitudeError < -this.altitudeDeadband) {
       this.inputManager.setAIControl('altitudeUp', true);
     } else if (altitudeError > this.altitudeDeadband) {
@@ -250,14 +241,14 @@ export class AIController {
   }
 
   private headingToTarget(): number {
-    const position = this.bomber.getPosition();
+    const position = this.bomber.getPositionRef();
     const targetPosition = this.currentTarget!.getPosition();
     // Heading convention matches Bomber velocity: yaw measured from +Z
     return Math.atan2(targetPosition.x - position.x, targetPosition.z - position.z);
   }
 
   private distanceToTarget(): number {
-    const position = this.bomber.getPosition();
+    const position = this.bomber.getPositionRef();
     const targetPosition = this.currentTarget!.getPosition();
     const dx = targetPosition.x - position.x;
     const dz = targetPosition.z - position.z;
@@ -266,7 +257,7 @@ export class AIController {
 
   /** Presses turn controls toward the desired heading; returns the wrapped heading error. */
   private steerToward(desiredHeading: number): number {
-    let error = desiredHeading - this.bomber.getRotation().y;
+    let error = desiredHeading - this.bomber.getRotationRef().y;
     error = ((((error + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI;
     if (error > this.headingDeadband) {
       this.inputManager.setAIControl('turnRight', true);

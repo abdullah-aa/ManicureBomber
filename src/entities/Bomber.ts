@@ -17,6 +17,8 @@ import { TomahawkMissile } from './TomahawkMissile';
 import { TerrainManager } from '../managers/TerrainManager';
 import { WorkerManager } from '../managers/WorkerManager';
 import { Building } from './Building';
+import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
+import { EffectTextures } from '../effects/EffectTextures';
 
 export class Bomber {
   private scene: Scene;
@@ -39,9 +41,14 @@ export class Bomber {
   private bombBayOpenProgress: number = 0; // 0 = closed, 1 = fully open
   private bombBayOpenTime: number = 1.0; // Time in seconds for doors to fully open
   private bombBayOpenStartTime: number = 0;
-  private bombBayLights: PointLight[] = [];
+  // Single pooled bay light replaces the former 3 permanent PointLights; pooled
+  // lights are never parented, so its world position is recomputed each frame.
+  private bombBayLightHandle: LightHandle = LightHandle.inert();
+  private static readonly bayLightLocalOffset = new Vector3(0, -2, -5);
+  private readonly bayLightWorldPos = new Vector3();
   private bombBayParticles: ParticleSystem[] = [];
   private bombBayGlowMaterial: StandardMaterial | null = null;
+  private bombBayBaseMaterial: StandardMaterial | null = null;
   private missileLaunchPending: boolean = false; // Track if missile launch is waiting for bomb bay to open
 
   // Banking/roll properties for realistic turning
@@ -55,16 +62,12 @@ export class Bomber {
 
   // Tomahawk missile system
   private missiles: TomahawkMissile[] = [];
+  private missileExplodedAt: Map<TomahawkMissile, number> = new Map();
   private lastMissileLaunchTime: number = -Infinity;
   private missileCooldownTime: number = 10; // 10 seconds cooldown
   private terrainManager: TerrainManager | null = null; // Reference to terrain manager for targeting
 
   // Target detection caching for performance
-  private cachedTarget: Building | null = null;
-  private lastTargetCheckTime: number = 0;
-  private targetCheckInterval: number = 0.5; // Check for targets every 0.5 seconds instead of every frame
-  private lastTargetCheckPosition: Vector3 = new Vector3();
-  private targetCheckPositionThreshold: number = 50; // Recheck if moved more than 50 units
 
   // Performance optimizations: cache trigonometric calculations
   private lastRotationY: number = 0;
@@ -95,12 +98,21 @@ export class Bomber {
     lifetime: number;
     maxLifetime: number;
     mesh: Mesh;
-    light: PointLight;
     particles: ParticleSystem;
   }> = [];
+  // One pooled light per flare volley, positioned at the centroid of active flares
+  private flareVolleyLightHandle: LightHandle = LightHandle.inert();
   private flareLifetime: number = 5; // Flares last 5 seconds
   private flareParticleSystems: ParticleSystem[] = []; // Visual effects for flares
   private flareMeshes: Mesh[] = []; // Visual flare meshes
+  // Shared by every flare for the bomber's lifetime (flares are frequent and identical)
+  private flareMaterial: StandardMaterial | null = null;
+  // Reusable {mesh, particles} pairs — one volley is 8 flares, and the 8s cooldown
+  // exceeds the 5s flare lifetime, so the pool fully recycles between volleys.
+  // Built lazily on first deployFlare.
+  private flarePool: Array<{ mesh: Mesh; particles: ParticleSystem }> = [];
+  private flarePoolBuilt: boolean = false;
+  private static readonly FLARE_POOL_SIZE = 8;
 
   // Target destruction callback
   private onTargetDestroyedCallback: ((building: Building) => void) | null = null;
@@ -126,6 +138,13 @@ export class Bomber {
     this.createCockpit();
     this.createEngines();
     this.createBombBay();
+
+    // The player's plane is always near the camera: never pointer-picked, and
+    // never worth frustum-testing mesh by mesh.
+    for (const childMesh of this.bomberGroup.getChildMeshes()) {
+      childMesh.isPickable = false;
+      childMesh.alwaysSelectAsActiveMesh = true;
+    }
   }
 
   private createFuselage(): void {
@@ -295,7 +314,10 @@ export class Bomber {
   }
 
   private createBombBay(): void {
-    const bayMaterial = new StandardMaterial('bayMaterial', this.scene);
+    // Kept for the bay's whole lifetime so closing the bay swaps back to this
+    // exact instance instead of allocating a replacement material per close
+    this.bombBayBaseMaterial = new StandardMaterial('bayMaterial', this.scene);
+    const bayMaterial = this.bombBayBaseMaterial;
     bayMaterial.diffuseColor = new Color3(0.1, 0.1, 0.12);
     bayMaterial.specularColor = new Color3(0.3, 0.3, 0.4);
     bayMaterial.emissiveColor = new Color3(0.02, 0.02, 0.03);
@@ -317,29 +339,11 @@ export class Bomber {
     // Set pivot point for rotation (right edge of door)
     this.bombBayRight.rotation.z = 0; // Will rotate around Z axis for outward swing
 
-    // Create bomb bay interior lighting
-    this.createBombBayLighting();
-
     // Create bomb bay particle effects
     this.createBombBayParticles();
 
     // Create glow material for when bay is open
     this.createBombBayGlowMaterial();
-  }
-
-  private createBombBayLighting(): void {
-    // Create multiple lights inside the bomb bay for dramatic effect
-    const lightPositions = [new Vector3(0, -2, -1), new Vector3(0, -2, -5), new Vector3(0, -2, -9)];
-
-    lightPositions.forEach((pos, index) => {
-      const light = new PointLight(`bombBayLight${index}`, pos, this.scene);
-      light.diffuse = new Color3(1, 0.8, 0.6); // Warm orange light
-      light.specular = new Color3(1, 0.8, 0.6);
-      light.intensity = 0; // Start off
-      light.range = 15;
-      light.parent = this.bomberGroup;
-      this.bombBayLights.push(light);
-    });
   }
 
   private createBombBayParticles(): void {
@@ -621,6 +625,21 @@ export class Bomber {
     this.updateFlares(deltaTime);
   }
 
+  // Read-only references to the internal vectors for per-frame callers — no
+  // allocation. Callers must NOT mutate the returned vector; use the cloning
+  // accessors below when a mutable copy is needed.
+  public getPositionRef(): Vector3 {
+    return this.position;
+  }
+
+  public getRotationRef(): Vector3 {
+    return this.rotation;
+  }
+
+  public getVelocityRef(): Vector3 {
+    return this.velocity;
+  }
+
   public getPosition(): Vector3 {
     return this.position.clone();
   }
@@ -669,6 +688,16 @@ export class Bomber {
   public updateBombBay(deltaTime: number): void {
     const currentTime = performance.now() / 1000;
 
+    // Keep the pooled bay light tracking the (unparented) bay position
+    if (this.bombBayLightHandle.isActive()) {
+      Vector3.TransformCoordinatesToRef(
+        Bomber.bayLightLocalOffset,
+        this.bomberGroup.getWorldMatrix(),
+        this.bayLightWorldPos,
+      );
+      this.bombBayLightHandle.setPosition(this.bayLightWorldPos);
+    }
+
     if (this.bombBayState === 'opening') {
       const elapsed = currentTime - this.bombBayOpenStartTime;
       this.bombBayOpenProgress = Math.min(elapsed / this.bombBayOpenTime, 1);
@@ -716,10 +745,13 @@ export class Bomber {
       particles.start();
     });
 
-    // Start lights
-    this.bombBayLights.forEach((light) => {
-      light.intensity = 2;
-    });
+    // Acquire the pooled bay light for the open/close cycle
+    if (!this.bombBayLightHandle.isActive()) {
+      this.bombBayLightHandle = LightManager.get(this.scene).acquire(LightPriority.MEDIUM);
+      this.bombBayLightHandle.setColor(1, 0.8, 0.6); // Warm orange light
+      this.bombBayLightHandle.setRange(18);
+    }
+    this.bombBayLightHandle.setIntensity(2);
 
     // Apply glow material to doors
     if (this.bombBayGlowMaterial) {
@@ -734,23 +766,15 @@ export class Bomber {
       particles.stop();
     });
 
-    // Stop lights
-    this.bombBayLights.forEach((light) => {
-      light.intensity = 0;
-    });
+    // Return the pooled bay light
+    this.bombBayLightHandle.release();
 
-    // Restore original material - create new instance to avoid reference issues
-    const originalMaterial = new StandardMaterial('bayMaterial', this.scene);
-    originalMaterial.diffuseColor = new Color3(0.1, 0.1, 0.12);
-    originalMaterial.specularColor = new Color3(0.3, 0.3, 0.4);
-    originalMaterial.emissiveColor = new Color3(0.02, 0.02, 0.03);
-
-    // Apply to both doors
-    if (this.bombBayLeft) {
-      this.bombBayLeft.material = originalMaterial;
+    // Restore the original door material (kept since construction)
+    if (this.bombBayLeft && this.bombBayBaseMaterial) {
+      this.bombBayLeft.material = this.bombBayBaseMaterial;
     }
-    if (this.bombBayRight) {
-      this.bombBayRight.material = originalMaterial;
+    if (this.bombBayRight && this.bombBayBaseMaterial) {
+      this.bombBayRight.material = this.bombBayBaseMaterial;
     }
 
     // Reset glow material emissive to prevent lingering effects
@@ -761,9 +785,7 @@ export class Bomber {
 
   private updateBombBayEffects(intensity: number): void {
     // Update light intensity
-    this.bombBayLights.forEach((light) => {
-      light.intensity = intensity * 2;
-    });
+    this.bombBayLightHandle.setIntensity(intensity * 2);
 
     // Update particle emission rate
     this.bombBayParticles.forEach((particles) => {
@@ -821,143 +843,127 @@ export class Bomber {
     return Math.min(timeSinceLastLaunch / this.missileCooldownTime, 1);
   }
 
-  public findClosestDefenseBuilding(): Promise<Building | null> {
-    const currentTime = performance.now() / 1000;
+  // Tomahawk acquisition range — reaches near the outer radar ring (radar range is 500).
+  // Deliberately larger than the defense launchers' own radarScanRange (300, Building.ts), so
+  // the bomber can strike launchers as counter-battery from beyond their return-fire range.
+  private readonly defenseAcquisitionRange = 450;
 
-    // Use cached result if recent enough and position hasn't changed significantly
-    if (
-      this.cachedTarget &&
-      currentTime - this.lastTargetCheckTime < this.targetCheckInterval &&
-      Vector3.Distance(this.position, this.lastTargetCheckPosition) < this.targetCheckPositionThreshold
-    ) {
-      return Promise.resolve(this.cachedTarget);
-    }
+  public findClosestDefenseBuildingSync(): Building | null {
+    if (!this.terrainManager) return null;
 
-    // Update cache timing and position
-    this.lastTargetCheckTime = currentTime;
-    this.lastTargetCheckPosition.copyFrom(this.position);
+    // Synchronous chunk-indexed query — cheap enough that no caching is needed,
+    // and results are always fresh (no stale-target window after a launcher dies)
+    const nearbyBuildings = this.terrainManager.getBuildingsInRadiusSync(this.position, this.defenseAcquisitionRange);
 
-    // Tomahawk acquisition range — reaches near the outer radar ring (radar range is 500).
-    // Deliberately larger than the defense launchers' own radarScanRange (300, Building.ts), so
-    // the bomber can strike launchers as counter-battery from beyond their return-fire range.
-    const defenseRange = 450;
-
-    return this.terrainManager!.getBuildingsInRadius(this.position, defenseRange)
-      .then((nearbyBuildings) => {
-        let closestBuilding: Building | null = null;
-        let closestDistance = Infinity;
-
-        for (const building of nearbyBuildings) {
-          if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
-            const distance = Vector3.Distance(this.position, building.getPosition());
-            if (distance < closestDistance) {
-              closestDistance = distance;
-              closestBuilding = building;
-            }
-          }
+    let closestBuilding: Building | null = null;
+    let closestDistanceSq = Infinity;
+    for (const building of nearbyBuildings) {
+      if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
+        const distanceSq = Vector3.DistanceSquared(this.position, building.getPosition());
+        if (distanceSq < closestDistanceSq) {
+          closestDistanceSq = distanceSq;
+          closestBuilding = building;
         }
+      }
+    }
+    return closestBuilding;
+  }
 
-        this.cachedTarget = closestBuilding;
-        return closestBuilding;
-      })
-      .catch(() => {
-        // Silent error handling - return null if worker fails
-        return null;
-      });
+  /** Promise wrapper kept for callers written against the old async API. */
+  public findClosestDefenseBuilding(): Promise<Building | null> {
+    return Promise.resolve(this.findClosestDefenseBuildingSync());
   }
 
   public hasValidTarget(): Promise<boolean> {
-    return this.findClosestDefenseBuilding().then((building) => building !== null);
-  }
-
-  public invalidateTargetCache(): void {
-    this.cachedTarget = null;
-    this.lastTargetCheckTime = 0;
+    return Promise.resolve(this.findClosestDefenseBuildingSync() !== null);
   }
 
   public launchMissile(): Promise<boolean> {
     if (!this.canLaunchMissile()) return Promise.resolve(false);
 
-    // Use promise-based callbacks instead of async/await
-    return this.findClosestDefenseBuilding().then((targetBuilding) => {
-      if (!targetBuilding) return false; // No valid target in range
+    const targetBuilding = this.findClosestDefenseBuildingSync();
+    if (!targetBuilding) return Promise.resolve(false); // No valid target in range
 
-      // Check if bomb bay is ready for launch
-      if (this.bombBayState === 'closed') {
-        // Open bomb bay first, then launch missile when fully open
-        this.missileLaunchPending = true;
-        this.openBombBay();
-        return true; // Return true to indicate launch sequence started
-      } else if (this.bombBayState === 'opening') {
-        // Still opening, wait for it to complete
-        this.missileLaunchPending = true;
-        return true; // Return true to indicate launch sequence in progress
-      } else if (this.bombBayState === 'closing') {
-        // Doors are closing, can't launch
-        return false;
-      }
+    // Check if bomb bay is ready for launch
+    if (this.bombBayState === 'closed') {
+      // Open bomb bay first, then launch missile when fully open
+      this.missileLaunchPending = true;
+      this.openBombBay();
+      return Promise.resolve(true); // Launch sequence started
+    } else if (this.bombBayState === 'opening') {
+      // Still opening, wait for it to complete
+      this.missileLaunchPending = true;
+      return Promise.resolve(true); // Launch sequence in progress
+    } else if (this.bombBayState === 'closing') {
+      // Doors are closing, can't launch
+      return Promise.resolve(false);
+    }
 
-      // Bomb bay is open, proceed with launch
-      this.executeMissileLaunch();
-      return true;
-    });
+    // Bomb bay is open, proceed with launch
+    this.executeMissileLaunch();
+    return Promise.resolve(true);
   }
 
   private executeMissileLaunch(): void {
-    // Use promise-based callbacks instead of async/await
-    this.findClosestDefenseBuilding().then((targetBuilding) => {
-      if (!targetBuilding) return; // No valid target in range
-
-      const currentTime = performance.now() / 1000;
-      this.lastMissileLaunchTime = currentTime;
-
-      // Launch position from bomb bay
-      const launcherPosition = this.bomberGroup.position.add(new Vector3(0, -2, -1));
-
-      // Create and launch missile targeting the defense building
-      const missile = new TomahawkMissile(
-        this.scene,
-        launcherPosition,
-        targetBuilding,
-        this.rotation.clone(),
-        this.workerManager,
-        this.velocity.clone(), // Pass bomber velocity so missile moves with bomber during launch animation
-      );
-
-      // Set up target destruction callback
-      missile.setOnTargetDestroyedCallback((building: Building) => {
-        if (this.onTargetDestroyedCallback) {
-          this.onTargetDestroyedCallback(building);
-        }
-      });
-
-      this.missiles.push(missile);
-      missile.launch();
-
-      // Immediately start closing bomb bay after launch
-      this.closeBombBay();
-
-      // Ensure missile launch pending is reset
+    // Re-resolve the target at the moment of launch — it may have been destroyed
+    // while the bomb bay was opening. The query is synchronous and cheap.
+    const targetBuilding = this.findClosestDefenseBuildingSync();
+    if (!targetBuilding) {
       this.missileLaunchPending = false;
+      return;
+    }
+
+    const currentTime = performance.now() / 1000;
+    this.lastMissileLaunchTime = currentTime;
+
+    // Launch position from bomb bay
+    const launcherPosition = this.bomberGroup.position.add(new Vector3(0, -2, -1));
+
+    // Create and launch missile targeting the defense building
+    const missile = new TomahawkMissile(
+      this.scene,
+      launcherPosition,
+      targetBuilding,
+      this.rotation.clone(),
+      this.workerManager,
+      this.velocity.clone(), // Pass bomber velocity so missile moves with bomber during launch animation
+    );
+
+    // Set up target destruction callback
+    missile.setOnTargetDestroyedCallback((building: Building) => {
+      if (this.onTargetDestroyedCallback) {
+        this.onTargetDestroyedCallback(building);
+      }
     });
+
+    this.missiles.push(missile);
+    missile.launch();
+
+    // Immediately start closing bomb bay after launch
+    this.closeBombBay();
+
+    // Ensure missile launch pending is reset
+    this.missileLaunchPending = false;
   }
 
   private updateMissiles(deltaTime: number): void {
-    // Update all missiles
+    const currentTime = performance.now() / 1000;
+
+    // Update all missiles; sweep exploded ones 10s after explosion so their
+    // lingering smoke finishes (no per-frame timers)
     for (let i = this.missiles.length - 1; i >= 0; i--) {
       const missile = this.missiles[i];
       missile.update(deltaTime);
 
-      // Remove missiles that have exploded and finished their effects
       if (missile.hasExploded()) {
-        // Remove missile after explosion effects are done
-        setTimeout(() => {
+        const explodedAt = this.missileExplodedAt.get(missile);
+        if (explodedAt === undefined) {
+          this.missileExplodedAt.set(missile, currentTime);
+        } else if (currentTime - explodedAt > 10) {
           missile.dispose();
-          const index = this.missiles.indexOf(missile);
-          if (index > -1) {
-            this.missiles.splice(index, 1);
-          }
-        }, 10000); // 10 seconds after explosion
+          this.missileExplodedAt.delete(missile);
+          this.missiles.splice(i, 1);
+        }
       }
     }
   }
@@ -1222,26 +1228,31 @@ export class Bomber {
     flareVelocity.y = -5; // Initial downward velocity
     flareVelocity.z += offset.z * 0.3; // Slight backward spread
 
-    // Create flare mesh
-    const timestamp = Date.now();
-    const flareMesh = MeshBuilder.CreateSphere(`flare${timestamp}`, { diameter: 0.8 }, this.scene);
-    flareMesh.position = flarePos.clone();
+    // Rent a {mesh, particles} pair; with the pool exhausted (shouldn't happen —
+    // cooldown outlasts flare lifetime), force-expire the oldest active flare
+    if (!this.flarePoolBuilt) this.buildFlarePool();
+    if (this.flarePool.length === 0 && this.activeFlares.length > 0) {
+      this.releaseFlare(this.activeFlares.shift()!);
+      this.activeFlarePositionsDirty = true;
+    }
+    const pair = this.flarePool.pop();
+    if (!pair) return;
 
-    const flareMaterial = new StandardMaterial(`flareMaterial${timestamp}`, this.scene);
-    flareMaterial.diffuseColor = new Color3(1, 0.8, 0.2); // Bright orange-yellow
-    flareMaterial.emissiveColor = new Color3(1, 0.6, 0.1); // Glowing effect
-    flareMaterial.specularColor = new Color3(1, 1, 1);
-    flareMesh.material = flareMaterial;
+    pair.mesh.position.copyFrom(flarePos);
+    pair.mesh.setEnabled(true);
+    (pair.particles.emitter as Vector3).copyFrom(flarePos);
+    pair.particles.emitRate = 100;
+    pair.particles.start();
 
-    // Add point light to flare
-    const flareLight = new PointLight(`flareLight${timestamp}`, flarePos.clone(), this.scene);
-    flareLight.diffuse = new Color3(1, 0.8, 0.2);
-    flareLight.specular = new Color3(1, 0.8, 0.2);
-    flareLight.intensity = 4;
-    flareLight.range = 25;
-
-    // Create flare particle system
-    const flareParticles = this.createFlareParticleSystem(flarePos.clone(), timestamp);
+    // One pooled light covers the whole volley (positioned at the flare centroid
+    // in updateFlares); per-flare brightness comes from the particle systems
+    if (!this.flareVolleyLightHandle.isActive()) {
+      this.flareVolleyLightHandle = LightManager.get(this.scene).acquire(LightPriority.HIGH);
+      this.flareVolleyLightHandle.setColor(1, 0.8, 0.2);
+      this.flareVolleyLightHandle.setRange(40);
+      this.flareVolleyLightHandle.setIntensity(4);
+      this.flareVolleyLightHandle.setPosition(flarePos);
+    }
 
     // Add to active flares with physics data
     this.activeFlares.push({
@@ -1249,13 +1260,37 @@ export class Bomber {
       velocity: flareVelocity,
       lifetime: this.flareLifetime,
       maxLifetime: this.flareLifetime,
-      mesh: flareMesh,
-      light: flareLight,
-      particles: flareParticles,
+      mesh: pair.mesh,
+      particles: pair.particles,
     });
+    this.activeFlarePositionsDirty = true;
+  }
+
+  private buildFlarePool(): void {
+    this.flarePoolBuilt = true;
+    for (let i = 0; i < Bomber.FLARE_POOL_SIZE; i++) {
+      const mesh = MeshBuilder.CreateSphere(`flare${i}`, { diameter: 0.8 }, this.scene);
+      mesh.material = this.getFlareMaterial();
+      mesh.isPickable = false;
+      mesh.setEnabled(false);
+      this.flarePool.push({ mesh, particles: this.createFlareParticleSystem(i) });
+    }
+  }
+
+  /** Return a flare's mesh/particles pair to the pool. Emission stops; particles already in the air fade out. */
+  private releaseFlare(flare: { mesh: Mesh; particles: ParticleSystem }): void {
+    flare.mesh.setEnabled(false);
+    flare.particles.stop();
+    this.flarePool.push({ mesh: flare.mesh, particles: flare.particles });
   }
 
   private updateFlares(deltaTime: number): void {
+    // Centroid + average lifetime ratio drive the single pooled volley light
+    let centroidX = 0;
+    let centroidY = 0;
+    let centroidZ = 0;
+    let ratioSum = 0;
+
     // Update each active flare's physics and visual effects
     for (let i = this.activeFlares.length - 1; i >= 0; i--) {
       const flare = this.activeFlares[i];
@@ -1263,12 +1298,11 @@ export class Bomber {
       // Update lifetime
       flare.lifetime -= deltaTime;
 
-      // Remove expired flares
+      // Expired flares go back to the pool for the next volley
       if (flare.lifetime <= 0) {
-        flare.mesh.dispose();
-        flare.light.dispose();
-        flare.particles.dispose();
+        this.releaseFlare(flare);
         this.activeFlares.splice(i, 1);
+        this.activeFlarePositionsDirty = true;
         continue;
       }
 
@@ -1292,44 +1326,50 @@ export class Bomber {
         flare.velocity.z *= 0.5;
       }
 
-      // Update mesh and light positions
+      // Update mesh position
       flare.mesh.position.copyFrom(flare.position);
-      flare.light.position.copyFrom(flare.position);
 
       // Update particle emitter position
       if (flare.particles.emitter instanceof Vector3) {
         flare.particles.emitter.copyFrom(flare.position);
       }
 
-      // Fade out light intensity as flare ages
-      const lifetimeRatio = flare.lifetime / flare.maxLifetime;
-      flare.light.intensity = 4 * lifetimeRatio;
-
       // Adjust particle emission rate based on lifetime
+      const lifetimeRatio = flare.lifetime / flare.maxLifetime;
       flare.particles.emitRate = 100 * lifetimeRatio;
+
+      centroidX += flare.position.x;
+      centroidY += flare.position.y;
+      centroidZ += flare.position.z;
+      ratioSum += lifetimeRatio;
+    }
+
+    const flareCount = this.activeFlares.length;
+    if (flareCount > 0) {
+      this.flareVolleyLightHandle.setPositionXYZ(centroidX / flareCount, centroidY / flareCount, centroidZ / flareCount);
+      this.flareVolleyLightHandle.setIntensity(4 * (ratioSum / flareCount));
+    } else {
+      this.flareVolleyLightHandle.release();
     }
   }
 
-  private createFlareParticleSystem(flarePosition: Vector3, index: number): ParticleSystem {
-    // Create procedural flare texture
-    const flareTexture = new DynamicTexture(`flareTexture${index}`, { width: 32, height: 32 }, this.scene);
-    const flareContext = flareTexture.getContext();
+  private getFlareMaterial(): StandardMaterial {
+    if (!this.flareMaterial) {
+      this.flareMaterial = new StandardMaterial('flareMaterial', this.scene);
+      this.flareMaterial.diffuseColor = new Color3(1, 0.8, 0.2); // Bright orange-yellow
+      this.flareMaterial.emissiveColor = new Color3(1, 0.6, 0.1); // Glowing effect
+      this.flareMaterial.specularColor = new Color3(1, 1, 1);
+    }
+    return this.flareMaterial;
+  }
 
-    // Create bright flare effect
-    const flareGradient = flareContext.createRadialGradient(16, 16, 0, 16, 16, 16);
-    flareGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    flareGradient.addColorStop(0.3, 'rgba(255, 255, 200, 0.9)');
-    flareGradient.addColorStop(0.7, 'rgba(255, 200, 100, 0.6)');
-    flareGradient.addColorStop(1, 'rgba(255, 150, 50, 0)');
-
-    flareContext.fillStyle = flareGradient;
-    flareContext.fillRect(0, 0, 32, 32);
-    flareTexture.update();
-
-    // Create flare particle system
+  private createFlareParticleSystem(index: number): ParticleSystem {
+    // Pooled flare particle system: built once, started/stopped per rent. The
+    // texture is shared scene-wide via EffectTextures; the emitter is its own
+    // Vector3, copyFrom'd to the flare position on rent and each frame after.
     const flareParticles = new ParticleSystem(`flareParticles${index}`, 100, this.scene);
-    flareParticles.particleTexture = flareTexture;
-    flareParticles.emitter = flarePosition;
+    flareParticles.particleTexture = EffectTextures.get(this.scene).getFlareTexture();
+    flareParticles.emitter = new Vector3(0, -10000, 0);
     flareParticles.minEmitBox = new Vector3(-0.2, -0.2, -0.2);
     flareParticles.maxEmitBox = new Vector3(0.2, 0.2, 0.2);
 
@@ -1351,13 +1391,24 @@ export class Bomber {
     flareParticles.maxEmitPower = 5;
     flareParticles.updateSpeed = 0.01;
 
-    flareParticles.start();
-
     return flareParticles;
   }
 
+  // Persistent array of references to flare position vectors (updated in place by
+  // updateFlares); rebuilt only when a flare is added or removed. Callers treat it
+  // as read-only and must not retain it across frames for snapshot purposes.
+  private activeFlarePositions: Vector3[] = [];
+  private activeFlarePositionsDirty: boolean = true;
+
   public getActiveFlares(): Vector3[] {
-    return this.activeFlares.map((flare) => flare.position.clone());
+    if (this.activeFlarePositionsDirty) {
+      this.activeFlarePositions.length = 0;
+      for (const flare of this.activeFlares) {
+        this.activeFlarePositions.push(flare.position);
+      }
+      this.activeFlarePositionsDirty = false;
+    }
+    return this.activeFlarePositions;
   }
 
   public hasActiveFlares(): boolean {
@@ -1368,13 +1419,9 @@ export class Bomber {
     // Force close bomb bay and clean up all effects
     this.forceCloseBombBay();
 
-    // Clean up bomb bay resources
-    this.bombBayLights.forEach((light) => {
-      if (light) {
-        light.dispose();
-      }
-    });
-    this.bombBayLights = [];
+    // Return pooled lights
+    this.bombBayLightHandle.release();
+    this.flareVolleyLightHandle.release();
 
     this.bombBayParticles.forEach((particles) => {
       if (particles) {
@@ -1388,19 +1435,27 @@ export class Bomber {
       this.bombBayGlowMaterial = null;
     }
 
-    // Clean up active flare resources
-    this.activeFlares.forEach((flare) => {
-      if (flare.mesh) {
-        flare.mesh.dispose();
-      }
-      if (flare.light) {
-        flare.light.dispose();
-      }
-      if (flare.particles) {
-        flare.particles.dispose();
-      }
-    });
+    if (this.bombBayBaseMaterial) {
+      this.bombBayBaseMaterial.dispose();
+      this.bombBayBaseMaterial = null;
+    }
+
+    // Clean up the flare pool (active flares' mesh/particles pairs are pool
+    // members too). dispose(false) keeps the scene-shared flare texture.
+    this.activeFlares.forEach((flare) => this.releaseFlare(flare));
     this.activeFlares = [];
+    this.activeFlarePositionsDirty = true;
+    this.flarePool.forEach((pair) => {
+      pair.mesh.dispose();
+      pair.particles.dispose(false);
+    });
+    this.flarePool = [];
+    this.flarePoolBuilt = false;
+
+    if (this.flareMaterial) {
+      this.flareMaterial.dispose();
+      this.flareMaterial = null;
+    }
 
     // Clean up legacy flare arrays (kept for compatibility)
     this.flareMeshes.forEach((mesh) => {

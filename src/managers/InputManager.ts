@@ -24,6 +24,9 @@ export class InputManager {
     { name: 'bomb', currentKey: 'KeyX' },
   ];
 
+  // Name -> keybind lookup so per-frame accessors avoid linear find() scans
+  private keybindByName: Map<string, Keybind> = new Map(this.keybinds.map((k) => [k.name, k]));
+
   // Mouse controls
   private isMouseDragging: boolean = false;
   private mouseDeltaX: number = 0;
@@ -43,6 +46,7 @@ export class InputManager {
   // Touch-to-key simulation
   private touchStartPosition: { x: number; y: number } | null = null;
   private touchSimulatedKeys: { [key: string]: boolean } = {};
+  private hasTouchSimulatedKeys: boolean = false;
   private touchDeadZone: number = 20; // pixels before movement is registered
 
   // AI virtual controls — keyed by action name ('turnLeft', 'bomb', ...), set each
@@ -249,21 +253,27 @@ export class InputManager {
   }
 
   public clearAIControls(): void {
-    this.aiControls = {};
+    // Reset in place — this runs every frame, so avoid reallocating the object
+    for (const action in this.aiControls) {
+      this.aiControls[action] = false;
+    }
   }
+
+  // Flight keybinds resolved once — checked every frame by isManualFlightInputActive
+  private flightKeybinds: Keybind[] = ['altitudeUp', 'altitudeDown', 'turnLeft', 'turnRight'].map(
+    (name) => this.keybindByName.get(name)!,
+  );
 
   // True when the player is actively flying: a real flight key is down, touch-to-key
   // simulation is producing flight keys, or a single-finger bomber-steering touch is
   // in progress. Ignores aiControls so the AI never trips its own override detector.
   public isManualFlightInputActive(): boolean {
-    const flightActions = ['altitudeUp', 'altitudeDown', 'turnLeft', 'turnRight'];
-    for (const action of flightActions) {
-      const keybind = this.keybinds.find((k) => k.name === action);
-      if (keybind && this.keys[keybind.currentKey]) {
+    for (const keybind of this.flightKeybinds) {
+      if (this.keys[keybind.currentKey]) {
         return true;
       }
     }
-    if (Object.keys(this.touchSimulatedKeys).length > 0) {
+    if (this.hasTouchSimulatedKeys) {
       return true;
     }
     return this.getIsTouchActive() && !this.isTouchCameraMode;
@@ -271,24 +281,24 @@ export class InputManager {
 
   public isBombKeyPressed(): boolean {
     if (this.aiControls['bomb']) return true;
-    const keybind = this.keybinds.find((k) => k.name === 'bomb');
+    const keybind = this.keybindByName.get('bomb');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isMissileKeyPressed(): boolean {
     if (this.aiControls['missile']) return true;
-    const keybind = this.keybinds.find((k) => k.name === 'missile');
+    const keybind = this.keybindByName.get('missile');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isCountermeasureKeyPressed(): boolean {
     if (this.aiControls['countermeasure']) return true;
-    const keybind = this.keybinds.find((k) => k.name === 'countermeasure');
+    const keybind = this.keybindByName.get('countermeasure');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public triggerBombKeyPress(): void {
-    const keybind = this.keybinds.find((k) => k.name === 'bomb');
+    const keybind = this.keybindByName.get('bomb');
     if (keybind) {
       this.keys[keybind.currentKey] = true;
       setTimeout(() => {
@@ -298,7 +308,7 @@ export class InputManager {
   }
 
   public triggerMissileKeyPress(): void {
-    const keybind = this.keybinds.find((k) => k.name === 'missile');
+    const keybind = this.keybindByName.get('missile');
     if (keybind) {
       this.keys[keybind.currentKey] = true;
       setTimeout(() => {
@@ -308,7 +318,7 @@ export class InputManager {
   }
 
   public triggerCountermeasureKeyPress(): void {
-    const keybind = this.keybinds.find((k) => k.name === 'countermeasure');
+    const keybind = this.keybindByName.get('countermeasure');
     if (keybind) {
       this.keys[keybind.currentKey] = true;
       setTimeout(() => {
@@ -320,25 +330,25 @@ export class InputManager {
   // Bomber movement controls
   public isAltitudeUpPressed(): boolean {
     if (this.aiControls['altitudeUp']) return true;
-    const keybind = this.keybinds.find((k) => k.name === 'altitudeUp');
+    const keybind = this.keybindByName.get('altitudeUp');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public isAltitudeDownPressed(): boolean {
     if (this.aiControls['altitudeDown']) return true;
-    const keybind = this.keybinds.find((k) => k.name === 'altitudeDown');
+    const keybind = this.keybindByName.get('altitudeDown');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public getTurnLeftPressed(): boolean {
     if (this.aiControls['turnLeft']) return true;
-    const keybind = this.keybinds.find((k) => k.name === 'turnLeft');
+    const keybind = this.keybindByName.get('turnLeft');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
   public getTurnRightPressed(): boolean {
     if (this.aiControls['turnRight']) return true;
-    const keybind = this.keybinds.find((k) => k.name === 'turnRight');
+    const keybind = this.keybindByName.get('turnRight');
     return keybind ? this.isKeyPressed(keybind.currentKey) : false;
   }
 
@@ -393,18 +403,20 @@ export class InputManager {
 
     // Clear all touch-simulated keys but preserve touch start position
     this.touchSimulatedKeys = {};
+    this.hasTouchSimulatedKeys = false;
 
     // Check if movement is beyond dead zone
     const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
     if (distance < this.touchDeadZone) {
       return;
     }
+    this.hasTouchSimulatedKeys = true;
 
     // Simulate key presses based on touch direction
-    const altitudeKeybind = this.keybinds.find((k) => k.name === 'altitudeUp');
-    const altitudeDownKeybind = this.keybinds.find((k) => k.name === 'altitudeDown');
-    const turnLeftKeybind = this.keybinds.find((k) => k.name === 'turnLeft');
-    const turnRightKeybind = this.keybinds.find((k) => k.name === 'turnRight');
+    const altitudeKeybind = this.keybindByName.get('altitudeUp');
+    const altitudeDownKeybind = this.keybindByName.get('altitudeDown');
+    const turnLeftKeybind = this.keybindByName.get('turnLeft');
+    const turnRightKeybind = this.keybindByName.get('turnRight');
 
     // Vertical movement (altitude)
     if (Math.abs(deltaY) > Math.abs(deltaX)) {
@@ -429,6 +441,7 @@ export class InputManager {
 
   private clearTouchSimulation(): void {
     this.touchSimulatedKeys = {};
+    this.hasTouchSimulatedKeys = false;
     this.touchStartPosition = null;
   }
 }

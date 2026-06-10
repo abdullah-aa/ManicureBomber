@@ -22,6 +22,7 @@ import { RadarManager } from '../ui/RadarManager';
 import { WorkerManager } from './WorkerManager';
 import { Building } from '../entities/Building';
 import { AIController } from './AIController';
+import { ExplosionPool } from '../effects/ExplosionPool';
 
 export class Game {
   private readonly scene: Scene;
@@ -47,6 +48,9 @@ export class Game {
 
   // Iskander missile system
   private iskanderMissiles: IskanderMissile[] = [];
+  private iskanderExplodedAt: Map<IskanderMissile, number> = new Map();
+  // Recomputed once per frame; read by AI, countermeasures, and the UI tick
+  private iskanderAlertActive: boolean = false;
   private nextIskanderLaunchTime: number = -Infinity;
   private iskanderLaunchInterval: number = 30;
   private iskanderRandomInterval: number = 45;
@@ -62,9 +66,6 @@ export class Game {
   private gameOver: boolean = false;
   private started: boolean = false; // Gameplay is paused until the player dismisses the splash screen
 
-  // Performance optimization: frame rate control
-  private targetFrameRate: number = 60;
-  private frameInterval: number = 1000 / this.targetFrameRate; // 16.67ms for 60 FPS
   private lastTerrainUpdateTime: number = 0;
   private terrainUpdateInterval: number = 100; // Re-evaluate streaming often so terrain leads turns
   private lastDefenseUpdateTime: number = 0;
@@ -78,6 +79,9 @@ export class Game {
 
   constructor(scene: Scene, canvas: HTMLCanvasElement) {
     this.scene = scene;
+    // Touch-first game: pointer moves never need a pick ray (input reads raw
+    // client coordinates), so skip Babylon's per-move scene picking entirely.
+    this.scene.skipPointerMovePicking = true;
     this.canvas = canvas;
   }
 
@@ -146,6 +150,10 @@ export class Game {
     const directionalLight = new DirectionalLight('directionalLight', new Vector3(-1, -1, -1), this.scene);
     directionalLight.intensity = 0.8;
     directionalLight.diffuse = new Color3(1, 0.9, 0.7);
+
+    // Pre-warm the shared explosion pool (and its effect textures) before combat
+    // so no particle systems or textures are ever built mid-fight.
+    ExplosionPool.get(this.scene);
   }
 
   private setupCamera(): void {
@@ -209,8 +217,8 @@ export class Game {
   }
 
   public startGameLoop(): void {
-    let lastFrameTime = performance.now();
-
+    // Frame pacing is owned by the render loop in index.ts (engine.runRenderLoop is
+    // capped at 60fps and beforeRender only fires inside scene.render()).
     this.scene.registerBeforeRender(() => {
       try {
         const currentTime = performance.now();
@@ -225,15 +233,13 @@ export class Game {
           return; // Exit early to prevent further processing
         }
 
-        // Performance optimization: frame rate limiting
-        if (currentTime - lastFrameTime < this.frameInterval) {
-          return;
-        }
-
         const deltaTime = this.scene.getEngine().getDeltaTime() / 1000;
 
         const safeDeltaTime = Math.min(deltaTime, 0.1);
         const safeCurrentTime = currentTime / 1000;
+
+        // Threat state is computed once per frame; AI, countermeasures, and UI read the cache
+        this.iskanderAlertActive = this.computeIskanderAlert();
 
         // AI runs first so its virtual controls are consumed by the weapon
         // handlers and bomber update in this same frame
@@ -262,15 +268,15 @@ export class Game {
         // Update terrain less frequently
         if (currentTime - this.lastTerrainUpdateTime > this.terrainUpdateInterval) {
           // Streaming is heading-independent (symmetric keep-set), so only position is needed.
-          this.terrainManager.update(this.bomber.getPosition());
+          this.terrainManager.update(this.bomber.getPositionRef());
           this.lastTerrainUpdateTime = currentTime;
         }
 
         // Update defense launchers less frequently
         if (currentTime - this.lastDefenseUpdateTime > this.defenseUpdateInterval) {
           this.terrainManager.updateDefenseLaunchers(
-            this.bomber.getPosition(),
-            this.bomber.getVelocity(),
+            this.bomber.getPositionRef(),
+            this.bomber.getVelocityRef(),
             safeCurrentTime,
             safeDeltaTime,
           );
@@ -296,10 +302,10 @@ export class Game {
         }
 
         this.inputManager.endFrame();
-
-        lastFrameTime = currentTime;
-      } catch {
-        // Silent error handling - no console logging
+      } catch (e) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Game loop error:', e);
+        }
       }
     });
   }
@@ -417,9 +423,13 @@ export class Game {
   private updateIskanderMissiles(deltaTime: number): void {
     // Get active flares once for all missiles
     const activeFlares = this.bomber.getActiveFlares();
+    const currentTime = performance.now() / 1000;
 
-    // Update all Iskander missiles
-    for (const missile of this.iskanderMissiles) {
+    // Update all Iskander missiles; sweep exploded ones 2s after explosion so
+    // their lingering explosion effects finish (no per-frame timers)
+    for (let i = this.iskanderMissiles.length - 1; i >= 0; i--) {
+      const missile = this.iskanderMissiles[i];
+
       // Update flare targets efficiently (replaces old list with current active flares)
       // This ensures missiles always track current flares without duplication
       missile.updateFlareTargets(activeFlares);
@@ -427,15 +437,15 @@ export class Game {
       // Update missile physics (now handled by worker)
       missile.update(deltaTime);
 
-      // Remove missiles that have exploded
       if (missile.hasExploded()) {
-        setTimeout(() => {
+        const explodedAt = this.iskanderExplodedAt.get(missile);
+        if (explodedAt === undefined) {
+          this.iskanderExplodedAt.set(missile, currentTime);
+        } else if (currentTime - explodedAt > 2) {
           missile.dispose();
-          const index = this.iskanderMissiles.indexOf(missile);
-          if (index > -1) {
-            this.iskanderMissiles.splice(index, 1);
-          }
-        }, 2000); // Reduced from 10 seconds to 2 seconds for faster cleanup
+          this.iskanderExplodedAt.delete(missile);
+          this.iskanderMissiles.splice(i, 1);
+        }
       }
     }
   }
@@ -443,9 +453,11 @@ export class Game {
   private checkIskanderMissileCollisions(): void {
     if (this.gameOver || this.bomber.isBomberDestroyed()) return;
 
-    // Use worker for collision detection
+    if (this.iskanderMissiles.length === 0) return;
+
+    // Use worker for collision detection (position is serialized synchronously)
     const bomberData = {
-      position: this.bomber.getPosition(),
+      position: this.bomber.getPositionRef(),
       isDestroyed: this.bomber.isBomberDestroyed(),
     };
 
@@ -471,7 +483,9 @@ export class Game {
       const missile = this.iskanderMissiles[missileIndex];
 
       if (missile && missile.isLaunched() && !missile.hasExploded()) {
-        this.bomber.takeDamage(collision.damage);
+        // explode() applies its own distance-based proximity damage (≤25u) — that is
+        // the single damage path. A direct hit means distance ≈ 0, i.e. max damage,
+        // so applying collision.damage here as well double-damaged the bomber.
         missile.explode();
       }
     }
@@ -555,8 +569,15 @@ export class Game {
   }
 
   public hasIskanderMissilesForAlert(): boolean {
-    const bomberPosition = this.bomber.getPosition();
+    return this.iskanderAlertActive;
+  }
+
+  private computeIskanderAlert(): boolean {
+    if (this.iskanderMissiles.length === 0) return false;
+
+    const bomberPosition = this.bomber.getPositionRef();
     const alertDetectionRange = 500; // Much larger range for alerts - 500 units
+    const alertRangeSq = alertDetectionRange * alertDetectionRange;
 
     for (const missile of this.iskanderMissiles) {
       if (missile.isLaunched() && !missile.hasExploded()) {
@@ -566,9 +587,8 @@ export class Game {
 
         // Show alert if missile is locked on OR has started the lock process (progress > 0)
         if (isLockedOn || lockProgress > 0) {
-          const missilePosition = missile.getPosition();
-          const distance = Vector3.Distance(bomberPosition, missilePosition);
-          if (distance <= alertDetectionRange) {
+          const missilePosition = missile.getPositionRef();
+          if (Vector3.DistanceSquared(bomberPosition, missilePosition) <= alertRangeSq) {
             return true;
           }
         }
@@ -620,8 +640,8 @@ export class Game {
     const showCrosshairs = this.cameraController.getShowGroundCrosshairs();
     if (showCrosshairs) {
       this.groundCrosshair.setEnabled(true);
-      const bomberPosition = this.bomber.getPosition();
-      const bomberRotation = this.bomber.getRotation();
+      const bomberPosition = this.bomber.getPositionRef();
+      const bomberRotation = this.bomber.getRotationRef();
 
       // Calculate position in front of bomber based on its heading
       const forwardDistance = 10; // Units in front of bomber
@@ -665,9 +685,9 @@ export class Game {
 
     if (this.defenseMissiles.length === 0) return;
 
-    // Use worker for collision detection
+    // Use worker for collision detection (position is serialized synchronously)
     const bomberData = {
-      position: this.bomber.getPosition(),
+      position: this.bomber.getPositionRef(),
       isDestroyed: this.bomber.isBomberDestroyed(),
     };
 

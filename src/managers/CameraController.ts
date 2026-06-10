@@ -104,8 +104,8 @@ export class CameraController {
       }
     }
 
-    const bomberPos = this.bomber.getPosition();
-    const bomberRotation = this.bomber.getRotation();
+    const bomberPos = this.bomber.getPositionRef();
+    const bomberRotation = this.bomber.getRotationRef();
 
     // Calculate effective rotation with caching to avoid repeated trig calculations
     const effectiveRotation = bomberRotation.y + this.panAngleOffset;

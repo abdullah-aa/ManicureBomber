@@ -38,10 +38,6 @@ export class TerrainManager {
   private subdivisions = 48;
   private bomber: any = null;
 
-  private buildingCache: Map<string, Building[]> = new Map();
-  private cacheTimeout: number = 1000;
-  private lastCacheTime: number = 0;
-
   private workerManager: WorkerManager;
 
   private isDisposing: boolean = false;
@@ -184,6 +180,7 @@ export class TerrainManager {
     ground.position.y = 0;
     ground.position.z = worldZ;
     ground.material = this.terrainMaterial;
+    ground.isPickable = false; // nothing in the game picks terrain (input reads raw pointer coords)
 
     // Process vertex data in batches to prevent frame drops
     this.updateVertexDataInBatches(ground, heightmap, chunkKey, chunkX, chunkZ, buildingConfigs);
@@ -218,6 +215,13 @@ export class TerrainManager {
         // Finished processing all vertices
         ground.updateVerticesData('position', positions);
         ground.createNormals(false);
+
+        // The chunk never moves again: freeze its transform, sync its (hill-aware)
+        // bounding box to world space once, then opt out of per-frame bounds sync.
+        ground.refreshBoundingInfo();
+        ground.freezeWorldMatrix();
+        ground.getBoundingInfo().update(ground.getWorldMatrix());
+        ground.doNotSyncBoundingInfo = true;
 
         this.heightmapCache.set(chunkKey, heightmap);
 
@@ -274,13 +278,8 @@ export class TerrainManager {
           building.setGame(this.game);
         }
 
-        if (buildingConfig.isDefenseLauncher && this.bomber) {
-          building.setOnDestroyedCallback(() => {
-            if (this.bomber && this.bomber.invalidateTargetCache) {
-              this.bomber.invalidateTargetCache();
-            }
-          });
-        }
+        // (No destroyed-callback needed for target acquisition anymore — the
+        // bomber's target query is synchronous and always fresh.)
         chunk.buildings.push(building);
       }
 
@@ -374,34 +373,66 @@ export class TerrainManager {
       return;
     }
 
-    // Generate whenever the keep-set may have holes: either we're near a chunk edge, or we simply
-    // have room for more chunks (the worker returns [] when nothing's needed).
-    if (this.chunks.size < this.maxTotalChunks) {
-      this.generateChunksNearPlayerAsync(currentChunkX, currentChunkZ);
-    } else {
-      this.workerManager
-        .getDistanceToNearestChunkEdge(bomberPosition, this.chunkSize)
-        .then((result: { distance: number }) => {
-          if (result.distance < this.generationThreshold) {
-            this.generateChunksNearPlayerAsync(currentChunkX, currentChunkZ);
-          }
-        })
-        .catch(() => {
-          // Skip on failed updates - no fallback
-          return;
-        });
+    // Generate whenever the keep-set may have holes: either we're near a chunk edge, or we
+    // simply have room for more chunks. These streaming decisions are a handful of arithmetic
+    // ops, so they run inline — only heightmap generation is worth a worker round trip.
+    if (this.chunks.size < this.maxTotalChunks || this.distanceToNearestChunkEdge(bomberPosition) < this.generationThreshold) {
+      this.generateMissingKeepSetChunks(currentChunkX, currentChunkZ);
     }
 
-    // Use worker to determine which chunks to remove (symmetric keep-set, mirrors generation).
-    this.workerManager
-      .getChunksToRemove(currentChunkX, currentChunkZ, Array.from(this.chunks.keys()), this.keepRadius)
-      .then((result: { chunksToRemove: string[] }) => {
-        this.removeChunks(result.chunksToRemove);
-      })
-      .catch(() => {
-        // Skip on failed updates - no fallback
-        return;
-      });
+    // Remove anything outside the symmetric keep-set (mirrors generation).
+    this.removeChunks(this.chunksOutsideKeepSet(currentChunkX, currentChunkZ));
+  }
+
+  private distanceToNearestChunkEdge(position: Vector3): number {
+    const chunkX = Math.floor(position.x / this.chunkSize);
+    const chunkZ = Math.floor(position.z / this.chunkSize);
+    const chunkCenterX = (chunkX + 0.5) * this.chunkSize;
+    const chunkCenterZ = (chunkZ + 0.5) * this.chunkSize;
+    return Math.min(
+      this.chunkSize / 2 - Math.abs(position.x - chunkCenterX),
+      this.chunkSize / 2 - Math.abs(position.z - chunkCenterZ),
+    );
+  }
+
+  private computeKeepSet(currentChunkX: number, currentChunkZ: number): Set<string> {
+    const keep = new Set<string>();
+    for (let dx = -this.keepRadius; dx <= this.keepRadius; dx++) {
+      for (let dz = -this.keepRadius; dz <= this.keepRadius; dz++) {
+        keep.add(`${currentChunkX + dx}_${currentChunkZ + dz}`);
+      }
+    }
+    return keep;
+  }
+
+  private chunksOutsideKeepSet(currentChunkX: number, currentChunkZ: number): string[] {
+    const keep = this.computeKeepSet(currentChunkX, currentChunkZ);
+    const toRemove: string[] = [];
+    this.chunks.forEach((_, chunkKey) => {
+      if (!keep.has(chunkKey)) toRemove.push(chunkKey);
+    });
+    return toRemove;
+  }
+
+  /** Queue generation for missing keep-set chunks, nearest-to-the-plane first. */
+  private generateMissingKeepSetChunks(currentChunkX: number, currentChunkZ: number): void {
+    if (this.chunks.size >= this.maxTotalChunks) return;
+
+    const missing: { chunkX: number; chunkZ: number; distSq: number }[] = [];
+    for (let dx = -this.keepRadius; dx <= this.keepRadius; dx++) {
+      for (let dz = -this.keepRadius; dz <= this.keepRadius; dz++) {
+        const chunkX = currentChunkX + dx;
+        const chunkZ = currentChunkZ + dz;
+        if (this.chunks.has(`${chunkX}_${chunkZ}`)) continue;
+        missing.push({ chunkX, chunkZ, distSq: dx * dx + dz * dz });
+      }
+    }
+    missing.sort((a, b) => a.distSq - b.distSq);
+
+    const budget = Math.min(this.maxChunksPerUpdate, this.maxTotalChunks - this.chunks.size);
+    missing.slice(0, budget).forEach(({ chunkX, chunkZ }) => {
+      this.generateChunk(chunkX, chunkZ);
+    });
   }
 
   private removeChunks(chunksToRemove: string[]): void {
@@ -426,95 +457,37 @@ export class TerrainManager {
     });
   }
 
-  private generateChunksNearPlayerAsync(currentChunkX: number, currentChunkZ: number): void {
-    // Don't generate chunks if not safe for worker calls
-    if (!this.isSafeForWorkerCalls()) {
-      return;
+  /**
+   * Synchronous spatial query: chunks are the spatial index. Only the 1-9 chunks
+   * overlapping the radius are visited, and Building.isWithinRadius avoids sqrt.
+   * At the game's worst case (~9 chunks × ~26 buildings) this is a few hundred
+   * squared-distance checks — far cheaper than the old serialize-everything
+   * worker round trip it replaces, and always fresh so no cache is needed.
+   */
+  public getBuildingsInRadiusSync(position: Vector3, radius: number): Building[] {
+    const minChunkX = Math.floor((position.x - radius) / this.chunkSize + 0.5);
+    const maxChunkX = Math.floor((position.x + radius) / this.chunkSize + 0.5);
+    const minChunkZ = Math.floor((position.z - radius) / this.chunkSize + 0.5);
+    const maxChunkZ = Math.floor((position.z + radius) / this.chunkSize + 0.5);
+
+    const result: Building[] = [];
+    for (let chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+      for (let chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+        const chunk = this.chunks.get(`${chunkX}_${chunkZ}`);
+        if (!chunk) continue;
+        for (const building of chunk.buildings) {
+          if (building.isWithinRadius(position, radius)) {
+            result.push(building);
+          }
+        }
+      }
     }
-
-    if (this.chunks.size >= this.maxTotalChunks) {
-      return;
-    }
-
-    const existingChunks = Array.from(this.chunks.keys());
-
-    // Use promise-based callbacks instead of async/await
-    this.workerManager
-      .generateChunksNearPlayer(
-        currentChunkX,
-        currentChunkZ,
-        existingChunks,
-        this.maxTotalChunks,
-        this.maxChunksPerUpdate,
-        this.keepRadius,
-      )
-      .then((result) => {
-        const chunksToGenerate = result.chunks as { chunkX: number; chunkZ: number }[];
-        chunksToGenerate.forEach(({ chunkX, chunkZ }) => {
-          this.generateChunk(chunkX, chunkZ);
-        });
-      })
-      .catch(() => {
-        // Skip on failed updates - no fallback
-        return;
-      });
+    return result;
   }
 
+  /** Promise wrapper kept for callers written against the old async API. */
   public getBuildingsInRadius(position: Vector3, radius: number): Promise<Building[]> {
-    const cacheKey = `${Math.floor(position.x / 50)}_${Math.floor(position.z / 50)}_${radius}`;
-    const currentTime = performance.now();
-
-    if (this.buildingCache.has(cacheKey) && currentTime - this.lastCacheTime < this.cacheTimeout) {
-      // Use optimized radius check (avoids sqrt by using squared distance)
-      return Promise.resolve(
-        this.buildingCache.get(cacheKey)!.filter((building) => building.isWithinRadius(position, radius)),
-      );
-    }
-
-    // Gather all buildings in all loaded chunks (or optimize to only nearby chunks)
-    const buildingData: any[] = [];
-    const buildingMap: Map<string, Building> = new Map();
-
-    this.chunks.forEach((chunk) => {
-      if (chunk) {
-        chunk.buildings.forEach((building) => {
-          const id = building.getPosition().toString();
-          buildingData.push({
-            id,
-            position: {
-              x: building.getPosition().x,
-              y: building.getPosition().y,
-              z: building.getPosition().z,
-            },
-            isTarget: building.isTarget(),
-            isDefenseLauncher: building.isDefenseLauncher(),
-            isDestroyed: building.getIsDestroyed(),
-          });
-          buildingMap.set(id, building);
-        });
-      }
-    });
-
-    return this.workerManager
-      .getBuildingsInRadiusMinimal(position, buildingData, radius)
-      .then((result) => {
-        const buildingIds = result.buildingIds as string[];
-
-        const buildings: Building[] = [];
-        for (const id of buildingIds) {
-          const b = buildingMap.get(id);
-          if (b) buildings.push(b);
-        }
-
-        this.buildingCache.set(cacheKey, buildings);
-        this.lastCacheTime = currentTime;
-
-        return buildings;
-      })
-      .catch(() => {
-        // Skip on failed updates - no fallback
-        return [];
-      });
+    return Promise.resolve(this.getBuildingsInRadiusSync(position, radius));
   }
 
   public updateDefenseLaunchers(
@@ -525,19 +498,12 @@ export class TerrainManager {
   ): void {
     const maxRange = 400;
 
-    // Use promise-based callbacks instead of async/await
-    this.getBuildingsInRadius(bomberPosition, maxRange)
-      .then((buildings) => {
-        buildings.forEach((building) => {
-          if (building.isDefenseLauncher()) {
-            building.updateDefenseLauncher(bomberPosition, bomberVelocity, currentTime, deltaTime);
-          }
-        });
-      })
-      .catch(() => {
-        // Skip on failed updates - no fallback
-        return;
-      });
+    const buildings = this.getBuildingsInRadiusSync(bomberPosition, maxRange);
+    for (const building of buildings) {
+      if (building.isDefenseLauncher()) {
+        building.updateDefenseLauncher(bomberPosition, bomberVelocity, currentTime, deltaTime);
+      }
+    }
   }
 
   public setBomber(bomber: any): void {
@@ -585,7 +551,6 @@ export class TerrainManager {
       // Clear all maps
       this.chunks.clear();
       this.heightmapCache.clear();
-      this.buildingCache.clear();
 
       // Dispose of terrain material
       if (this.terrainMaterial) {

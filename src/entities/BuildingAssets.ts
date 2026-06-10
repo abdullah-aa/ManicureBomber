@@ -40,6 +40,10 @@ export class BuildingAssets {
   private launcherSource: Mesh | null = null;
   private fireTexture: DynamicTexture | null = null;
   private smokeTexture: DynamicTexture | null = null;
+  private explosionTexture: DynamicTexture | null = null;
+  private bombExplosionTexture: DynamicTexture | null = null;
+  private debrisTexture: DynamicTexture | null = null;
+  private ringMaterial: StandardMaterial | null = null;
 
   private constructor(scene: Scene) {
     this.scene = scene;
@@ -170,6 +174,68 @@ export class BuildingAssets {
       this.fireTexture = texture;
     }
     return this.fireTexture;
+  }
+
+  /** Shared red target-ring material — one instance for every target building. */
+  getRingMaterial(): StandardMaterial {
+    if (!this.ringMaterial) {
+      this.ringMaterial = new StandardMaterial('ringMaterial', this.scene);
+      this.ringMaterial.emissiveColor = new Color3(1, 0, 0); // Red glow
+      this.ringMaterial.diffuseColor = new Color3(0.8, 0, 0);
+    }
+    return this.ringMaterial;
+  }
+
+  /** Shared explosion flash texture (buildings and defense missiles use the same gradient). */
+  getExplosionTexture(): DynamicTexture {
+    if (!this.explosionTexture) {
+      const texture = new DynamicTexture('explosionTexture', { width: 64, height: 64 }, this.scene);
+      const ctx = texture.getContext();
+      const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+      gradient.addColorStop(0.2, 'rgba(255, 255, 0, 0.9)');
+      gradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.6)');
+      gradient.addColorStop(0.8, 'rgba(255, 50, 0, 0.3)');
+      gradient.addColorStop(1, 'rgba(200, 0, 0, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 64, 64);
+      texture.update();
+      this.explosionTexture = texture;
+    }
+    return this.explosionTexture;
+  }
+
+  /** Shared dramatic bomb-destruction explosion texture. */
+  getBombExplosionTexture(): DynamicTexture {
+    if (!this.bombExplosionTexture) {
+      const texture = new DynamicTexture('bombExplosionTexture', { width: 64, height: 64 }, this.scene);
+      const ctx = texture.getContext();
+      const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+      gradient.addColorStop(0.1, 'rgba(255, 255, 0, 1)');
+      gradient.addColorStop(0.3, 'rgba(255, 150, 0, 0.9)');
+      gradient.addColorStop(0.6, 'rgba(255, 50, 0, 0.7)');
+      gradient.addColorStop(0.9, 'rgba(200, 0, 0, 0.3)');
+      gradient.addColorStop(1, 'rgba(100, 0, 0, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 64, 64);
+      texture.update();
+      this.bombExplosionTexture = texture;
+    }
+    return this.bombExplosionTexture;
+  }
+
+  /** Shared gray debris texture. */
+  getDebrisTexture(): DynamicTexture {
+    if (!this.debrisTexture) {
+      const texture = new DynamicTexture('debrisTexture', { width: 32, height: 32 }, this.scene);
+      const ctx = texture.getContext();
+      ctx.fillStyle = 'rgba(100, 100, 100, 1)';
+      ctx.fillRect(0, 0, 32, 32);
+      texture.update();
+      this.debrisTexture = texture;
+    }
+    return this.debrisTexture;
   }
 
   /** Shared smoke particle texture (identical for every building). */
