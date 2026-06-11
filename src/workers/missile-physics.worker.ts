@@ -130,10 +130,11 @@ function generateTomahawkPath(request: TomahawkPathRequest): { waypoints: Vector
   // Calculate direction from start to target
   const directionToTarget = vector3Normalize(vector3Subtract(targetPosition, predictedStartPos));
 
-  // Define cruise altitude below bomber (bomber is at ~200, missile at ~100-120)
+  // Define cruise altitude below bomber (bomber flies at 150-200, missile cruises beneath)
   // Ensure it's well below the bomber but above ground
   const cruiseAltitude = Math.max(predictedStartPos.y, targetPosition.y) - 80;
-  const safeCruiseAltitude = Math.max(cruiseAltitude, 80); // Minimum 80 units above ground
+  // Floor of 100 keeps the missile clear of 60-high terrain crests and skyscrapers
+  const safeCruiseAltitude = Math.max(cruiseAltitude, 100);
 
   // Calculate horizontal distance (XZ plane)
   const horizontalDistance = Math.sqrt(

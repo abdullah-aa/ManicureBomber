@@ -29,7 +29,7 @@ export class Bomber {
   private rotation: Vector3;
   private velocity: Vector3;
   private speed: number = 25; // Units per second
-  private altitude: number = 200; // Doubled spawn altitude
+  private altitude: number = 175; // Spawn mid-band between minimumAltitude and maximumAltitude
   private turnSpeed: number = 0.5; // Radians per second
   private climbRate: number = 20; // Units per second
   private particleSystems: ParticleSystem[] = []; // Engine exhaust particle systems
@@ -57,8 +57,15 @@ export class Bomber {
   private bankSpeed: number = 2.5; // How quickly the bomber banks into turns (slightly faster for responsiveness)
   private currentBankAngle: number = 0; // Current roll angle
   private targetBankAngle: number = 0; // Target roll angle
-  private minimumAltitude: number = 80;
-  private maximumAltitude: number = 500; // Cap climb so the camera can't reveal far terrain
+  // Floor sits well above any defense-missile launch point: launchers top out at
+  // 63 (building height <= 60, pinned to ground y=0, + 3 muzzle offset) and aim
+  // points carry up to +-40 error, so 150 keeps every launched missile climbing
+  // toward the bomber — no altitude slips under the threat envelope.
+  private minimumAltitude: number = 150;
+  // Ceiling matches the defense missiles' former airburst altitude; they now fly
+  // higher than this before bursting, so there is no safe altitude above the
+  // envelope either. Also keeps the camera from revealing far terrain.
+  private maximumAltitude: number = 200;
 
   // Tomahawk missile system
   private missiles: TomahawkMissile[] = [];

@@ -160,8 +160,9 @@ export class Game {
   }
 
   private setupCamera(): void {
-    this.camera = new FreeCamera('camera', new Vector3(0, 280, -200), this.scene);
-    this.camera.setTarget(new Vector3(0, 200, 0));
+    // Initial framing matches the bomber's spawn altitude (175) + default follow height
+    this.camera = new FreeCamera('camera', new Vector3(0, 255, -200), this.scene);
+    this.camera.setTarget(new Vector3(0, 175, 0));
     // Limit the far clip plane to cull distant terrain. Must sit beyond the fog end
     // (fogEnd = 1500, set in TerrainManager.createClearSky) so terrain fully fades to sky.
     this.camera.maxZ = 1700;

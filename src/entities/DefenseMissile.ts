@@ -16,7 +16,13 @@ import { ExplosionPool } from '../effects/ExplosionPool';
 
 export class DefenseMissile {
   /** Highest altitude any defense missile can reach before self-detonating. */
-  public static readonly MAX_ALTITUDE = 200;
+  public static readonly MAX_ALTITUDE = 280;
+  /**
+   * Lowest possible airburst altitude. Sits above the bomber's 200 ceiling plus
+   * the 20 u proximity-damage radius, so every missile stays lethal through the
+   * bomber's entire flyable band before bursting.
+   */
+  public static readonly MIN_AIRBURST_ALTITUDE = 220;
 
   private scene: Scene;
   private workerManager: WorkerManager;
@@ -26,13 +32,15 @@ export class DefenseMissile {
   private velocity: Vector3;
   private targetPosition: Vector3;
   private bomberVelocity: Vector3;
-  private speed: number = 120 + Math.random() * 30; // Variable speed between 120-180 units/sec
+  private speed: number = 120 + Math.random() * 30; // Variable speed between 120-150 units/sec
   private launched: boolean = false;
   private exploded: boolean = false;
   private exhaustParticles!: ParticleSystem;
   private lightHandle: LightHandle = LightHandle.inert();
   private targetSet: boolean = false; // Performance optimization flag
-  private maxAltitude: number = 120 + Math.random() * (DefenseMissile.MAX_ALTITUDE - 120); // Maximum altitude before detonation
+  private maxAltitude: number =
+    DefenseMissile.MIN_AIRBURST_ALTITUDE +
+    Math.random() * (DefenseMissile.MAX_ALTITUDE - DefenseMissile.MIN_AIRBURST_ALTITUDE); // Airburst altitude per missile
 
   // Trajectory calculation properties
   private trajectoryCalculated: boolean = false;
@@ -259,8 +267,9 @@ export class DefenseMissile {
     this.position.addInPlace(this.velocity.scale(deltaTime));
     this.missileGroup.position = this.position.clone();
 
-    // Check for altitude-based explosion
-    if (this.position.y >= this.maxAltitude) {
+    // Airburst at the missile's ceiling — or on ground impact, so a downward-aimed
+    // shot can never fly underground forever and leak its mesh/particles/light.
+    if (this.position.y >= this.maxAltitude || this.position.y <= 0) {
       this.explode();
     }
   }
@@ -287,6 +296,11 @@ export class DefenseMissile {
   /** Read-only reference to the internal position — callers must not mutate it. */
   public getPositionRef(): Vector3 {
     return this.position;
+  }
+
+  /** Read-only reference to the internal velocity — callers must not mutate it. */
+  public getVelocityRef(): Vector3 {
+    return this.velocity;
   }
 
   public isLaunched(): boolean {
