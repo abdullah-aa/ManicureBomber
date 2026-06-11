@@ -298,11 +298,6 @@ export class DefenseMissile {
     return this.position;
   }
 
-  /** Read-only reference to the internal velocity — callers must not mutate it. */
-  public getVelocityRef(): Vector3 {
-    return this.velocity;
-  }
-
   public isLaunched(): boolean {
     return this.launched;
   }

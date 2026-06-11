@@ -1,7 +1,6 @@
 import { Vector3 } from '@babylonjs/core';
 import { Bomber } from '../entities/Bomber';
 import { Building } from '../entities/Building';
-import { DefenseMissile } from '../entities/DefenseMissile';
 import { InputManager } from './InputManager';
 import { TerrainManager } from './TerrainManager';
 import { Game } from './Game';
@@ -16,12 +15,9 @@ enum AIState {
 
 /**
  * Autopilot: flies the bomber to nearby targets, runs bombing passes, fires
- * tomahawks at defense launchers, and defends itself with a split by threat
- * type — defense missiles fly straight after a launch-time lead prediction, so
- * a hard perpendicular turn defeats them (CPA check + steering override below);
- * Iskanders are seeker-guided and can't be out-turned, so flares remain the
- * sole response to them. Cruise altitude wanders randomly inside the flyable
- * band so launch-time lead prediction is never systematically right.
+ * tomahawks at defense launchers, and pops flares when Iskanders threaten.
+ * Cruise altitude wanders randomly inside the flyable band so launch-time
+ * lead prediction is never systematically right.
  * Issues all commands through InputManager's AI virtual controls, so the
  * existing weapon handlers keep enforcing every cooldown and safety gate.
  */
@@ -73,15 +69,6 @@ export class AIController {
   // vs the bomber's 0.5, so steering evasion can't work against them.
   private readonly flareReleaseRange = 300;
 
-  // Defense-missile evasion. A defense missile is aimed once at launch (lead
-  // prediction + random error) and then flies straight, so it's evaded by
-  // breaking perpendicular to its path the moment a closest-point-of-approach
-  // check says it would pass inside the danger radius.
-  private evading = false;
-  private evadeThreat: DefenseMissile | null = null;
-  private readonly evadeHorizon = 4; // seconds of look-ahead; a 90° break takes ~3.1 s
-  private readonly evadeMissDistance = 40; // u; 20 u proximity-damage radius + aim-error margin
-
   constructor(game: Game, bomber: Bomber, terrainManager: TerrainManager, inputManager: InputManager) {
     this.game = game;
     this.bomber = bomber;
@@ -99,8 +86,6 @@ export class AIController {
       this.extendAnchor = null;
       this.manualOverrideUntil = -Infinity;
       this.nextAltitudeRetargetTime = -Infinity; // re-roll the wander target on re-enable
-      this.evading = false;
-      this.evadeThreat = null;
     }
   }
 
@@ -138,10 +123,6 @@ export class AIController {
       this.inputManager.setAIControl('countermeasure', true);
     }
 
-    // Detect inbound defense missiles before the state machine runs so NAVIGATE
-    // can hold its bomb press while a break turn is about to hijack the heading
-    this.updateEvasionThreat();
-
     this.scanForTarget(currentTime);
     this.handleTomahawk();
 
@@ -175,13 +156,6 @@ export class AIController {
       case AIState.BOMB_RUN:
         this.updateBombRun();
         break;
-    }
-
-    // Steering override LAST so it wins over whatever the state machine pressed.
-    // The states keep progressing underneath (scan timers, extend anchors, run
-    // watchers) and resume seamlessly once the threat passes.
-    if (this.evading) {
-      this.applyEvasionSteering();
     }
   }
 
@@ -298,10 +272,7 @@ export class AIController {
     if (
       distance <= this.bombLeadDistance &&
       Math.abs(headingError) < this.bombHeadingTolerance &&
-      this.game.isBombingAvailable() &&
-      // Don't start a run on the same frame a break turn hijacks the heading —
-      // the 9-bomb stick would scatter along the evasion arc
-      !this.evading
+      this.game.isBombingAvailable()
     ) {
       this.inputManager.setAIControl('bomb', true);
       this.sawRunActive = false;
@@ -382,75 +353,6 @@ export class AIController {
     const dx = targetPosition.x - position.x;
     const dz = targetPosition.z - position.z;
     return Math.sqrt(dx * dx + dz * dz);
-  }
-
-  /**
-   * Closest-point-of-approach sweep over live defense missiles. Bomber velocity
-   * must be included: missiles are lead-aimed at the bomber's FUTURE position, so
-   * a bomber-stationary check would classify true intercepts as clean misses.
-   * Re-evaluated every frame; the break turn itself grows the predicted miss past
-   * the threshold within ~1-2 s, which is what ends the evasion.
-   */
-  private updateEvasionThreat(): void {
-    this.evading = false;
-    this.evadeThreat = null;
-
-    const bomberPosition = this.bomber.getPositionRef();
-    const bomberVelocity = this.bomber.getVelocityRef();
-    const missDistanceSq = this.evadeMissDistance * this.evadeMissDistance;
-    let soonestCpaTime = Infinity;
-
-    for (const missile of this.game.getDefenseMissiles()) {
-      if (!missile.isLaunched() || missile.hasExploded()) continue;
-
-      const missilePosition = missile.getPositionRef();
-      const missileVelocity = missile.getVelocityRef();
-      const rx = missilePosition.x - bomberPosition.x;
-      const ry = missilePosition.y - bomberPosition.y;
-      const rz = missilePosition.z - bomberPosition.z;
-      const vx = missileVelocity.x - bomberVelocity.x;
-      const vy = missileVelocity.y - bomberVelocity.y;
-      const vz = missileVelocity.z - bomberVelocity.z;
-      const closingSpeedSq = vx * vx + vy * vy + vz * vz;
-      // Pre-trajectory missiles still have zero velocity; skip them
-      if (closingSpeedSq < 1e-6) continue;
-
-      const cpaTime = -(rx * vx + ry * vy + rz * vz) / closingSpeedSq;
-      if (cpaTime <= 0 || cpaTime > this.evadeHorizon || cpaTime >= soonestCpaTime) continue;
-
-      const cx = rx + vx * cpaTime;
-      const cy = ry + vy * cpaTime;
-      const cz = rz + vz * cpaTime;
-      if (cx * cx + cy * cy + cz * cz < missDistanceSq) {
-        soonestCpaTime = cpaTime;
-        this.evading = true;
-        this.evadeThreat = missile;
-      }
-    }
-  }
-
-  /**
-   * Break perpendicular to the threat's path, on the side of the path line the
-   * bomber already occupies — that grows the existing miss distance fastest, and
-   * the missile cannot correct after launch.
-   */
-  private applyEvasionSteering(): void {
-    if (!this.evadeThreat) return;
-
-    // steerToward only SETS flags (and sets nothing inside its deadband), so the
-    // state machine's earlier presses must be cleared explicitly to be overridden
-    this.inputManager.setAIControl('turnLeft', false);
-    this.inputManager.setAIControl('turnRight', false);
-
-    const bomberPosition = this.bomber.getPositionRef();
-    const missilePosition = this.evadeThreat.getPositionRef();
-    const missileVelocity = this.evadeThreat.getVelocityRef();
-    const relX = bomberPosition.x - missilePosition.x;
-    const relZ = bomberPosition.z - missilePosition.z;
-    // Sign of the horizontal cross product = which side of the path line we're on
-    const side = relX * missileVelocity.z - relZ * missileVelocity.x >= 0 ? 1 : -1;
-    const missileHeading = Math.atan2(missileVelocity.x, missileVelocity.z);
-    this.steerToward(missileHeading + (side * Math.PI) / 2);
   }
 
   /** Presses turn controls toward the desired heading; returns the wrapped heading error. */
