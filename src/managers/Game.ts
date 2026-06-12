@@ -13,7 +13,7 @@ import {
 import { Bomber } from '../entities/Bomber';
 import { TerrainManager } from './TerrainManager';
 import { InputManager } from './InputManager';
-import { CameraController } from './CameraController';
+import { CameraController, FollowableMissile } from './CameraController';
 import { Bomb } from '../entities/Bomb';
 import { IskanderMissile } from '../entities/IskanderMissile';
 import { DefenseMissile } from '../entities/DefenseMissile';
@@ -108,6 +108,9 @@ export class Game {
     });
 
     this.cameraController = new CameraController(this.camera, this.bomber, this.terrainManager);
+    // Provider injection keeps CameraController free of a Game import (Game already
+    // imports CameraController)
+    this.cameraController.setMissileProvider(() => this.getRocketViewCandidate());
 
     this.inputManager = new InputManager(this.scene, this.canvas);
     this.aiController = new AIController(this, this.bomber, this.terrainManager, this.inputManager);
@@ -256,9 +259,15 @@ export class Game {
         this.handleCountermeasures();
 
         this.bomber.update(safeDeltaTime, this.inputManager);
-        this.cameraController.update(safeDeltaTime, this.inputManager);
         this.updateBombs(safeDeltaTime); // Now uses promise-based callbacks internally
         this.updateIskanderMissiles(safeDeltaTime);
+        // Rocket View only exists in AI mode; force it off no matter who disabled the AI
+        if (!this.aiController.isEnabled() && this.cameraController.isRocketViewEnabled()) {
+          this.cameraController.setRocketViewEnabled(false);
+        }
+        // Camera runs after the missile updates so Rocket View never chases a
+        // one-frame-stale Iskander position (bomber updated above either way)
+        this.cameraController.update(safeDeltaTime, this.inputManager);
         this.updateDefenseMissiles(safeDeltaTime);
         this.updateGroundCrosshair();
 
@@ -559,6 +568,26 @@ export class Game {
     return this.defenseMissiles;
   }
 
+  public getIskanderMissiles(): IskanderMissile[] {
+    return this.iskanderMissiles;
+  }
+
+  /**
+   * Missile for Rocket View to chase. Priority: Iskanders, then Tomahawks —
+   * defense missiles are excluded by design (short, uninteresting flights).
+   * Oldest live missile first: arrays are append-ordered, so index 0 is closest
+   * to impact and the camera chains through the rest as each one explodes.
+   */
+  private getRocketViewCandidate(): FollowableMissile | null {
+    for (const missile of this.iskanderMissiles) {
+      if (missile.isLaunched() && !missile.hasExploded()) return missile;
+    }
+    for (const missile of this.bomber.getMissiles()) {
+      if (missile.isLaunched() && !missile.isInLaunchAnimationPhase() && !missile.hasExploded()) return missile;
+    }
+    return null;
+  }
+
   private updateDefenseMissiles(deltaTime: number): void {
     // Update all defense missiles and remove exploded ones
     for (let i = this.defenseMissiles.length - 1; i >= 0; i--) {
@@ -673,6 +702,9 @@ export class Game {
     if (this.bomber) {
       this.bomber.dispose();
     }
+
+    // The settings modal (z-index 3000) would cover the game-over screen (1000)
+    this.uiManager.closeSettingsModal();
 
     // Show game over message
     this.showGameOverMessage();

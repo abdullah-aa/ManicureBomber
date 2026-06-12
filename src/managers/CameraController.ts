@@ -3,6 +3,16 @@ import { FreeCamera, Vector3 } from '@babylonjs/core';
 import { InputManager } from './InputManager';
 import { TerrainManager } from './TerrainManager';
 
+/**
+ * Minimal surface a missile must expose for Rocket View to chase it.
+ * IskanderMissile and TomahawkMissile satisfy this structurally.
+ */
+export interface FollowableMissile {
+  getPositionRef(): Vector3;
+  getVelocityRef(): Vector3;
+  hasExploded(): boolean;
+}
+
 export class CameraController {
   private camera: FreeCamera;
   private bomber: Bomber;
@@ -34,6 +44,19 @@ export class CameraController {
   private cachedCos: number = 0;
   private trigCacheValid: boolean = false;
 
+  // Rocket View: while enabled, chase the missile supplied by the provider instead of
+  // the bomber. Lock-until-explosion: acquisition only runs when nothing is followed.
+  private rocketViewEnabled: boolean = false;
+  private followedMissile: FollowableMissile | null = null;
+  private missileProvider: (() => FollowableMissile | null) | null = null;
+  // Missiles are ~5 units long (vs the bomber's 200-unit follow distance), and they
+  // maneuver hard — sit close behind and track stiffly.
+  private missileChaseDistance: number = 30;
+  private missileChaseHeight: number = 10;
+  private missileChaseSmoothing: number = 5.0;
+  // Heading fallback for any near-zero-velocity frame (e.g. the instant of acquisition).
+  private lastChaseDir: Vector3 = new Vector3(0, 0, 1);
+
   constructor(camera: FreeCamera, bomber: Bomber, terrainManager: TerrainManager) {
     this.camera = camera;
     this.bomber = bomber;
@@ -44,6 +67,28 @@ export class CameraController {
   }
 
   public update(deltaTime: number, inputManager: InputManager): void {
+    // Rocket View state machine. Falls through to the normal bomber chase when
+    // there is nothing to follow (that fall-through IS the revert view).
+    if (this.followedMissile && this.followedMissile.hasExploded()) {
+      // Release on the explosion frame — safely before the dispose sweeps.
+      this.followedMissile = null;
+      this.snapBehindBomber();
+    }
+    if (this.rocketViewEnabled && !this.followedMissile && this.missileProvider) {
+      this.followedMissile = this.missileProvider();
+      if (this.followedMissile) {
+        // The missile may be far away; teleport to the chase pose instead of
+        // lerping the camera across the map, then let the lerp take over.
+        this.updateMissileChase(this.followedMissile, deltaTime, true);
+        return;
+      }
+    }
+    if (this.followedMissile) {
+      // Locked chase: free-look drags are intentionally ignored while following.
+      this.updateMissileChase(this.followedMissile, deltaTime, false);
+      return;
+    }
+
     // Camera adjustments are only allowed while the camera-control mode is active.
     // Otherwise a single-finger swipe steers the plane and the camera just follows.
     const isCameraMode = inputManager.getTouchCameraMode();
@@ -124,6 +169,59 @@ export class CameraController {
 
     // Always look at the bomber directly
     this.camera.setTarget(bomberPos);
+  }
+
+  private updateMissileChase(missile: FollowableMissile, deltaTime: number, snap: boolean): void {
+    const missilePos = missile.getPositionRef();
+    const velocity = missile.getVelocityRef();
+    // Trust velocity as the heading only when the missile is actually moving
+    // (speed > 5 u/s); otherwise keep the last known direction.
+    if (velocity.lengthSquared() > 25) {
+      this.lastChaseDir.copyFrom(velocity).normalize();
+    }
+    const dir = this.lastChaseDir; // full 3D heading — the camera pitches with dives
+
+    this.tempVector1.set(
+      missilePos.x - dir.x * this.missileChaseDistance,
+      missilePos.y - dir.y * this.missileChaseDistance + this.missileChaseHeight,
+      missilePos.z - dir.z * this.missileChaseDistance,
+    );
+    // Tomahawks terrain-hug, so clamp against real terrain, not just the world
+    // floor. Over unloaded chunks getTerrainHeightAt returns 0 and the 10-unit
+    // floor still applies.
+    const groundHeight = this.terrainManager.getTerrainHeightAt(this.tempVector1.x, this.tempVector1.z);
+    this.tempVector1.y = Math.max(this.tempVector1.y, groundHeight + 5, 10);
+
+    if (snap) {
+      this.camera.position.copyFrom(this.tempVector1);
+    } else {
+      const lerpFactor = Math.min(this.missileChaseSmoothing * deltaTime, 1.0);
+      const invLerpFactor = 1.0 - lerpFactor;
+      this.camera.position.x = this.camera.position.x * invLerpFactor + this.tempVector1.x * lerpFactor;
+      this.camera.position.y = this.camera.position.y * invLerpFactor + this.tempVector1.y * lerpFactor;
+      this.camera.position.z = this.camera.position.z * invLerpFactor + this.tempVector1.z * lerpFactor;
+    }
+    this.camera.setTarget(missilePos);
+  }
+
+  public setMissileProvider(provider: () => FollowableMissile | null): void {
+    this.missileProvider = provider;
+  }
+
+  public setRocketViewEnabled(enabled: boolean): void {
+    this.rocketViewEnabled = enabled;
+    if (!enabled && this.followedMissile) {
+      this.followedMissile = null;
+      this.snapBehindBomber();
+    }
+  }
+
+  public isRocketViewEnabled(): boolean {
+    return this.rocketViewEnabled;
+  }
+
+  public isFollowingMissile(): boolean {
+    return this.followedMissile !== null;
   }
 
   public toggleGroundCrosshairs(): void {

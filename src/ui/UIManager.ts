@@ -16,9 +16,12 @@ export class UIManager {
   private countermeasureButtonCooldown!: HTMLElement;
   private cameraToggleButton!: HTMLElement;
   private cameraToggleIcon!: HTMLElement;
-  private aiToggleButton!: HTMLElement;
-  private touchCameraToggleButton!: HTMLElement;
-  private touchCameraToggleIcon!: HTMLElement;
+  private settingsButton!: HTMLElement;
+  private settingsModalBackdrop!: HTMLElement;
+  private settingsAIToggle!: HTMLElement;
+  private settingsControlToggle!: HTMLElement;
+  private settingsRocketRow!: HTMLElement;
+  private settingsRocketToggle!: HTMLElement;
   private healthBar!: HTMLElement;
   private healthBarFill!: HTMLElement;
   private healthText!: HTMLElement;
@@ -38,6 +41,10 @@ export class UIManager {
   private lastAIEnabled: boolean = false;
   private lastAISuspended: boolean = false;
   private lastHasIskander: boolean = false;
+  // null forces the first paint of the modal toggles
+  private lastControlCameraMode: boolean | null = null;
+  private lastRocketViewOn: boolean | null = null;
+  private lastRocketAvailable: boolean | null = null;
 
   // Alert system
   private alertContainer!: HTMLElement;
@@ -54,8 +61,8 @@ export class UIManager {
     this.createMissileButton();
     this.createCountermeasureButton();
     this.createCameraToggleButton();
-    this.createAIToggleButton();
-    this.createTouchCameraToggleButton();
+    this.createSettingsButton();
+    this.createSettingsModal();
     this.createHealthBar();
     this.createAlertSystem();
 
@@ -97,27 +104,41 @@ export class UIManager {
       this.updateCameraToggleIcon();
     });
 
-    // Listen for AI toggle button clicks
-    this.aiToggleButton.addEventListener('click', () => {
+    // The ⚙️ button toggles the settings modal; the game keeps running behind it
+    this.settingsButton.addEventListener('click', () => {
+      this.settingsModalBackdrop.classList.toggle('open');
+    });
+    this.settingsModalBackdrop.addEventListener('click', () => this.closeSettingsModal());
+
+    this.settingsAIToggle.addEventListener('click', () => {
       const aiController = this.game.getAIController();
       aiController.setEnabled(!aiController.isEnabled());
       this.showAlert(aiController.isEnabled() ? 'AUTOPILOT ENGAGED' : 'AUTOPILOT OFF', 'default', 2000);
+      // Rocket View only exists in AI mode (Game's loop check is the backstop)
+      if (!aiController.isEnabled()) {
+        this.game.getCameraController().setRocketViewEnabled(false);
+      }
       this.updateAIToggleButton(true);
+      this.updateRocketViewRow();
     });
 
-    // Listen for touch camera toggle button clicks (mobile only)
-    if (this.touchCameraToggleButton) {
-      this.touchCameraToggleButton.addEventListener('click', () => {
-        const currentMode = this.inputManager.getTouchCameraMode();
-        this.inputManager.setTouchCameraMode(!currentMode);
-        this.updateTouchCameraToggleIcon();
-        // Navigate mode always keeps the camera behind the plane: leaving camera
-        // mode swings the camera back to its follow position.
-        if (!this.inputManager.getTouchCameraMode()) {
-          this.game.getCameraController().snapBehindBomber();
-        }
-      });
-    }
+    this.settingsControlToggle.addEventListener('click', () => {
+      const currentMode = this.inputManager.getTouchCameraMode();
+      this.inputManager.setTouchCameraMode(!currentMode);
+      this.updateControlToggle();
+      // Navigate mode always keeps the camera behind the plane: leaving camera
+      // mode swings the camera back to its follow position.
+      if (!this.inputManager.getTouchCameraMode()) {
+        this.game.getCameraController().snapBehindBomber();
+      }
+    });
+
+    this.settingsRocketToggle.addEventListener('click', () => {
+      const cameraController = this.game.getCameraController();
+      cameraController.setRocketViewEnabled(!cameraController.isRocketViewEnabled());
+      this.showAlert(cameraController.isRocketViewEnabled() ? 'ROCKET VIEW ON' : 'ROCKET VIEW OFF', 'default', 2000);
+      this.updateRocketViewRow();
+    });
   }
 
   private createBombButton(): void {
@@ -176,25 +197,137 @@ export class UIManager {
     this.updateCameraToggleIcon();
   }
 
-  private createAIToggleButton(): void {
-    this.aiToggleButton = document.createElement('div');
-    this.aiToggleButton.id = 'ai-toggle-button';
-    this.aiToggleButton.innerHTML = `
-            <div id="ai-toggle-icon">AI</div>
+  private createSettingsButton(): void {
+    this.settingsButton = document.createElement('div');
+    this.settingsButton.id = 'settings-button';
+    this.settingsButton.innerHTML = `
+            <div id="settings-button-icon">⚙️</div>
         `;
-    document.body.appendChild(this.aiToggleButton);
+    document.body.appendChild(this.settingsButton);
   }
 
-  private createTouchCameraToggleButton(): void {
-    this.touchCameraToggleButton = document.createElement('div');
-    this.touchCameraToggleButton.id = 'touch-camera-toggle-button';
-    this.touchCameraToggleButton.innerHTML = `
-            <div id="touch-camera-toggle-icon"></div>
+  private createSettingsModal(): void {
+    this.settingsModalBackdrop = document.createElement('div');
+    this.settingsModalBackdrop.id = 'settings-modal-backdrop';
+    this.settingsModalBackdrop.innerHTML = `
+            <div id="settings-modal">
+                <div id="settings-modal-header">
+                    <span>SETTINGS</span>
+                    <span id="settings-modal-close">✕</span>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">🤖 AUTOPILOT</span>
+                    <button class="settings-toggle" id="settings-ai-toggle">OFF</button>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">CONTROL MODE</span>
+                    <button class="settings-toggle" id="settings-control-toggle">✈️ PLANE</button>
+                </div>
+                <div class="settings-row" id="settings-rocket-row">
+                    <span class="settings-label">🚀 ROCKET VIEW</span>
+                    <button class="settings-toggle" id="settings-rocket-toggle">OFF</button>
+                </div>
+            </div>
         `;
-    document.body.appendChild(this.touchCameraToggleButton);
+    document.body.appendChild(this.settingsModalBackdrop);
 
-    this.touchCameraToggleIcon = document.getElementById('touch-camera-toggle-icon')!;
-    this.updateTouchCameraToggleIcon();
+    this.settingsAIToggle = document.getElementById('settings-ai-toggle')!;
+    this.settingsControlToggle = document.getElementById('settings-control-toggle')!;
+    this.settingsRocketRow = document.getElementById('settings-rocket-row')!;
+    this.settingsRocketToggle = document.getElementById('settings-rocket-toggle')!;
+
+    // Clicks inside the panel must not bubble to the backdrop's close handler
+    document.getElementById('settings-modal')!.addEventListener('click', (e) => e.stopPropagation());
+    document.getElementById('settings-modal-close')!.addEventListener('click', () => this.closeSettingsModal());
+
+    this.addSettingsStyles();
+    this.updateControlToggle();
+    this.updateRocketViewRow();
+  }
+
+  public closeSettingsModal(): void {
+    this.settingsModalBackdrop.classList.remove('open');
+  }
+
+  private addSettingsStyles(): void {
+    const style = document.createElement('style');
+    style.textContent = `
+            #settings-modal-backdrop {
+                position: fixed;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.6);
+                z-index: 3000;
+                display: none;
+                align-items: center;
+                justify-content: center;
+            }
+            #settings-modal-backdrop.open {
+                display: flex;
+            }
+            #settings-modal {
+                width: min(320px, 85vw);
+                background: rgba(0, 20, 0, 0.95);
+                border: 2px solid #00ff00;
+                border-radius: 8px;
+                box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
+                font-family: 'Courier New', monospace;
+                color: #00ff00;
+                padding: 16px;
+            }
+            #settings-modal-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-weight: bold;
+                letter-spacing: 2px;
+                margin-bottom: 8px;
+            }
+            #settings-modal-close {
+                cursor: pointer;
+                padding: 0 4px;
+            }
+            .settings-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 10px 0;
+                border-bottom: 1px solid rgba(0, 255, 0, 0.2);
+            }
+            .settings-row:last-child {
+                border-bottom: none;
+            }
+            .settings-label {
+                font-size: 14px;
+                user-select: none;
+            }
+            .settings-toggle {
+                font-family: 'Courier New', monospace;
+                font-weight: bold;
+                font-size: 13px;
+                color: #ffffff;
+                background: rgba(0, 0, 0, 0.5);
+                border: 2px solid #ffffff;
+                border-radius: 4px;
+                padding: 4px 10px;
+                cursor: pointer;
+                min-width: 90px;
+            }
+            .settings-toggle.on {
+                color: #00ff00;
+                border-color: #00ff00;
+                box-shadow: 0 0 15px rgba(0, 255, 0, 0.6);
+            }
+            .settings-toggle.suspended {
+                color: #ffaa00;
+                border-color: #ffaa00;
+                box-shadow: 0 0 15px rgba(255, 170, 0, 0.6);
+            }
+            #settings-rocket-row.unavailable {
+                opacity: 0.4;
+                pointer-events: none;
+            }
+        `;
+    document.head.appendChild(style);
   }
 
   private createHealthBar(): void {
@@ -308,18 +441,25 @@ export class UIManager {
     this.cameraToggleIcon.style.backgroundImage = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="${showCrosshairs ? '%2300ff00' : '%23ffffff'}" d="M179.641,189.565c2.455,0,4.869,0.193,7.223,0.561l36.999-36.998c-13.193-7.048-28.249-11.051-44.221-11.051 c-51.92,0-94.162,42.241-94.162,94.162c0,51.921,42.242,94.162,94.162,94.162s94.161-42.241,94.161-94.162 c0-15.973-4.002-31.027-11.051-44.22l-36.997,36.999c0.367,2.354,0.56,4.766,0.56,7.222c0,25.736-20.937,46.674-46.672,46.674 c-25.736,0-46.674-20.938-46.674-46.674S153.905,189.565,179.641,189.565z"></path> <path fill="${showCrosshairs ? '%2300ff00' : '%23ffffff'}" d="M290.454,164.316c13.488,20.712,21.338,45.417,21.338,71.922c0,72.87-59.281,132.153-132.15,132.153 c-72.869,0-132.153-59.283-132.153-132.152s59.283-132.153,132.152-132.153c26.508,0,51.211,7.851,71.924,21.34l34.104-34.104 c-29.738-21.817-66.402-34.724-106.027-34.724c-99.055,0-179.641,80.587-179.641,179.641c0,99.054,80.586,179.642,179.641,179.642 c99.054,0,179.638-80.588,179.638-179.642c0-39.626-12.904-76.29-34.721-106.026L290.454,164.316z"></path> <path fill="%23ff0000" d="M415.415,56.64c-1.119-3.539-4.119-6.157-7.775-6.793l-35.449-6.157l-6.156-35.45c-0.637-3.656-3.256-6.655-6.793-7.774 c-3.537-1.122-7.402-0.178-10.027,2.447l-27.412,27.411c-1.863,1.864-2.91,4.393-2.912,7.029l0.002,40.896l-148.1,148.096 c-5.176,5.177-5.176,13.566,0,18.743c5.178,5.175,13.568,5.177,18.744,0L337.632,96.991h40.896c2.635,0,5.164-1.047,7.027-2.911 l27.412-27.413C415.593,64.044,416.536,60.177,415.415,56.64z"></path></svg>')`;
   }
 
-  public updateTouchCameraToggleIcon(): void {
-    if (!this.touchCameraToggleIcon) return; // Only update if button exists (mobile only)
-
+  public updateControlToggle(): void {
     const isCameraMode = this.inputManager.getTouchCameraMode();
-    // Camera icon when camera mode is enabled, bomber icon when bomber mode is enabled
-    if (isCameraMode) {
-      // Camera icon - Simple eye with crosshairs
-      this.touchCameraToggleIcon.innerHTML = `📹`;
-    } else {
-      // Bomber icon - Simple aircraft shape
-      this.touchCameraToggleIcon.innerHTML = `✈️`;
-    }
+    if (isCameraMode === this.lastControlCameraMode) return;
+    this.lastControlCameraMode = isCameraMode;
+    this.settingsControlToggle.textContent = isCameraMode ? '📹 CAMERA' : '✈️ PLANE';
+  }
+
+  private updateRocketViewRow(force: boolean = false): void {
+    const available = this.game.getAIController().isEnabled();
+    const rocketViewOn = this.game.getCameraController().isRocketViewEnabled();
+    if (!force && available === this.lastRocketAvailable && rocketViewOn === this.lastRocketViewOn) return;
+    this.lastRocketAvailable = available;
+    this.lastRocketViewOn = rocketViewOn;
+
+    this.settingsRocketRow.classList.toggle('unavailable', !available);
+    // pointer-events:none alone leaves the button keyboard-focusable
+    (this.settingsRocketToggle as HTMLButtonElement).disabled = !available;
+    this.settingsRocketToggle.textContent = rocketViewOn ? 'ON' : 'OFF';
+    this.settingsRocketToggle.classList.toggle('on', rocketViewOn);
   }
 
   private addStyles(): void {
@@ -528,7 +668,7 @@ export class UIManager {
                 background-position: center;
                 z-index: 2;
             }
-            #ai-toggle-button {
+            #settings-button {
                 position: fixed;
                 top: 50px;
                 right: 20px;
@@ -544,50 +684,10 @@ export class UIManager {
                 border: 2px solid #ffffff;
                 transition: border-color 0.3s ease, box-shadow 0.3s ease;
             }
-            #ai-toggle-icon {
-                color: #ffffff;
-                font-family: 'Courier New', monospace;
-                font-size: clamp(12px, 1.8vw, 16px);
-                font-weight: bold;
+            #settings-button-icon {
+                font-size: clamp(16px, 2.2vw, 22px);
                 z-index: 2;
                 user-select: none;
-            }
-            #ai-toggle-button.active {
-                border-color: #00ff00;
-                box-shadow: 0 0 15px rgba(0, 255, 0, 0.6);
-            }
-            #ai-toggle-button.active #ai-toggle-icon {
-                color: #00ff00;
-            }
-            #ai-toggle-button.suspended {
-                border-color: #ffaa00;
-                box-shadow: 0 0 15px rgba(255, 170, 0, 0.6);
-            }
-            #ai-toggle-button.suspended #ai-toggle-icon {
-                color: #ffaa00;
-            }
-            #touch-camera-toggle-button {
-                position: fixed;
-                top: 50px;
-                right: calc(20px + min(45px, 6vw) + 10px);
-                width: min(45px, 6vw);
-                height: min(45px, 6vw);
-                border-radius: 50%;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                overflow: hidden;
-                border: 2px solid #ffffff;
-                transition: border-color 0.3s ease;
-            }
-            #touch-camera-toggle-icon {
-                width: min(28px, 3.5vw);
-                height: min(28px, 3.5vw);
-                background-size: contain;
-                background-repeat: no-repeat;
-                background-position: center;
-                z-index: 2;
             }
         `;
     document.head.appendChild(style);
@@ -667,22 +767,13 @@ export class UIManager {
           margin: 2px 0 0 4px !important;
         }
 
-        #ai-toggle-icon {
-          font-size: 12px !important;
-        }
-
-        #ai-toggle-button, #touch-camera-toggle-button {
+        #settings-button {
           width: 35px !important;
           height: 35px !important;
         }
 
-        #touch-camera-toggle-icon {
-          width: 20px !important;
-          height: 20px !important;
-        }
-
-        #touch-camera-toggle-button {
-          right: calc(20px + 35px + 12px) !important;
+        #settings-button-icon {
+          font-size: 16px !important;
         }
 
         #health-bar {
@@ -706,8 +797,10 @@ export class UIManager {
     this.updateMissileButton();
     this.updateCountermeasureButton();
     this.updateCameraButton();
-    this.updateTouchCameraToggleIcon();
+    this.updateControlToggle();
     this.updateAIToggleButton();
+    // Catches the Game-side Rocket View force-off so the modal never goes stale
+    this.updateRocketViewRow();
     this.updateHealthBar();
     this.updateIskanderAlert();
   }
@@ -849,8 +942,9 @@ export class UIManager {
     this.lastAIEnabled = enabled;
     this.lastAISuspended = suspended;
 
-    this.aiToggleButton.classList.toggle('suspended', enabled && suspended);
-    this.aiToggleButton.classList.toggle('active', enabled && !suspended);
+    this.settingsAIToggle.textContent = enabled ? 'ON' : 'OFF';
+    this.settingsAIToggle.classList.toggle('suspended', enabled && suspended);
+    this.settingsAIToggle.classList.toggle('on', enabled && !suspended);
   }
 
   private updateCameraButton(): void {
