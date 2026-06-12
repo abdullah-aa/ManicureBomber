@@ -59,7 +59,7 @@ export class Building {
   private launcherDestroyed: boolean = false;
   private lastMissileLaunchTime: number = 0;
   private missileLaunchInterval: number = 4 + Math.random() * 6; // Random interval between 4-10 seconds
-  private radarScanRange: number = 300; // Detection range
+  private radarScanRange: number = 450; // Detection range — outranges the Tomahawk's 300 (Bomber.ts)
 
   // Callback for destruction notification
   private onDestroyedCallback: (() => void) | null = null;

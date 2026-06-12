@@ -852,10 +852,10 @@ export class Bomber {
     return Math.min(timeSinceLastLaunch / this.missileCooldownTime, 1);
   }
 
-  // Tomahawk acquisition range — reaches near the outer radar ring (radar range is 500).
-  // Deliberately larger than the defense launchers' own radarScanRange (300, Building.ts), so
-  // the bomber can strike launchers as counter-battery from beyond their return-fire range.
-  private readonly defenseAcquisitionRange = 450;
+  // Tomahawk acquisition range — deliberately SHORTER than the defense launchers'
+  // radarScanRange (450, Building.ts): launchers get to fire first, and the bomber
+  // must penetrate their engagement zone before it can return fire.
+  private readonly defenseAcquisitionRange = 300;
 
   public findClosestDefenseBuildingSync(): Building | null {
     if (!this.terrainManager) return null;
