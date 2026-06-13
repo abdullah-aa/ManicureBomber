@@ -391,10 +391,14 @@
         text-transform: uppercase;
       }
 
-      #splashControls {
-        list-style: none;
+      /* Transparent by default: the two cards flow in the splash column. */
+      .splash-cards {
+        display: contents;
+      }
+
+      .splash-card {
         margin: 0;
-        padding: 16px 20px;
+        padding: 10px 20px 12px 20px;
         max-width: 460px;
         width: 100%;
         box-sizing: border-box;
@@ -404,7 +408,25 @@
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
       }
 
-      #splashControls li {
+      .splash-card-title {
+        text-align: left;
+        font-size: clamp(11px, 3vw, 14px);
+        font-weight: bold;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: #00ff00;
+        text-shadow: 0 0 8px rgba(0, 255, 0, 0.6);
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(0, 255, 0, 0.3);
+      }
+
+      .splash-card ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .splash-card li {
         display: flex;
         align-items: center;
         gap: 12px;
@@ -416,18 +438,18 @@
         border-bottom: 1px solid rgba(0, 255, 0, 0.15);
       }
 
-      #splashControls li:last-child {
+      .splash-card li:last-child {
         border-bottom: none;
       }
 
-      #splashControls .control-icon {
+      .splash-card .control-icon {
         flex: 0 0 auto;
         font-size: clamp(20px, 6vw, 28px);
         width: 36px;
         text-align: center;
       }
 
-      #splashControls strong {
+      .splash-card strong {
         color: #00ff00;
       }
 
@@ -460,6 +482,48 @@
         transform: translateY(0);
         box-shadow: 0 0 14px rgba(0, 255, 0, 0.6);
       }
+
+      /* Short viewports (e.g. landscape phones): compact the splash and lay the
+         two cards side by side so the Start button stays above the fold. */
+      @media (max-height: 540px) {
+        #splashScreen {
+          gap: 8px;
+          padding: 8px;
+        }
+        #splashTitle {
+          font-size: clamp(18px, 4.5vw, 26px);
+        }
+        #splashTagline {
+          display: none;
+        }
+        .splash-cards {
+          display: flex;
+          flex-direction: row;
+          align-items: stretch;
+          gap: 12px;
+          max-width: 900px;
+          width: 100%;
+        }
+        .splash-cards .splash-card {
+          flex: 1 1 0;
+          max-width: none;
+          padding: 8px 14px 10px 14px;
+        }
+        .splash-card li {
+          padding: 5px 0;
+          font-size: clamp(11px, 2.6vw, 13px);
+          line-height: 1.35;
+          gap: 10px;
+        }
+        .splash-card .control-icon {
+          font-size: clamp(15px, 4vw, 20px);
+          width: 26px;
+        }
+        #startButton {
+          padding: 9px 34px;
+          font-size: clamp(14px, 4vw, 18px);
+        }
+      }
     </style>
   </head>
   <body>
@@ -469,20 +533,42 @@
     <div id="splashScreen">
       <h1 id="splashTitle">✈️🚀💥 Manicure Bomber</h1>
       <p id="splashTagline">Fly · Bomb · Survive</p>
-      <ul id="splashControls">
-        <li>
-          <span class="control-icon">🕹️</span>
-          <span><strong>Swipe</strong> anywhere to fly — up/down to climb &amp; dive, left/right to turn.</span>
-        </li>
-        <li>
-          <span class="control-icon">💣</span>
-          <span>Tap the <strong>Bomb</strong>, <strong>Missile</strong> &amp; <strong>Flare</strong> buttons (bottom-right) to bomb targets, launch Tomahawks, and dodge incoming Iskander missiles.</span>
-        </li>
-        <li>
-          <span class="control-icon">📹</span>
-          <span>Tap the <strong>camera</strong> button (top-right) to switch to camera mode, then swipe to look around.</span>
-        </li>
-      </ul>
+      <div class="splash-cards">
+      <div class="splash-card">
+        <div class="splash-card-title">Fly &amp; Fight</div>
+        <ul>
+          <li>
+            <span class="control-icon">🕹️</span>
+            <span><strong>Swipe</strong> anywhere to fly — up/down to climb &amp; dive, left/right to turn &amp; bank.</span>
+          </li>
+          <li>
+            <span class="control-icon">💣</span>
+            <span>Tap <strong>Bomb · 🚀 Missile · 🔥 Flare</strong> (bottom-right) to drop a 9-bomb run, fire a <strong>Tomahawk</strong> at a locked target, and pop <strong>flares</strong> when an Iskander locks onto you.</span>
+          </li>
+          <li>
+            <span class="control-icon">🎯</span>
+            <span>Tap the <strong>crosshair</strong> button (bottom-right) to toggle the ground targeting reticle.</span>
+          </li>
+        </ul>
+      </div>
+      <div class="splash-card">
+        <div class="splash-card-title">⚙️ Settings (top-right gear)</div>
+        <ul>
+          <li>
+            <span class="control-icon">🤖</span>
+            <span><strong>Autopilot</strong> — hand flying to the AI; touch the controls anytime to take over.</span>
+          </li>
+          <li>
+            <span class="control-icon">📹</span>
+            <span><strong>Control Mode</strong> — switch swipe between flying the plane (✈️) and moving the camera (📹).</span>
+          </li>
+          <li>
+            <span class="control-icon">🚀</span>
+            <span><strong>Rocket View</strong> — cinematic missile-chase camera (Autopilot only).</span>
+          </li>
+        </ul>
+      </div>
+      </div>
       <button id="startButton">Start Mission</button>
     </div>
 

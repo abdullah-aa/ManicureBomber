@@ -63,7 +63,6 @@ export class CameraController {
 
   // Performance optimization: reuse Vector3 objects to reduce GC pressure
   private tempVector1: Vector3 = new Vector3();
-  private tempVector2: Vector3 = new Vector3(); // look-at target for launch framing
 
   // Cache trigonometric calculations to avoid repeated computations
   private lastEffectiveRotation: number = 0;
@@ -90,14 +89,23 @@ export class CameraController {
   private explosionPoint: Vector3 = new Vector3();
   private explosionHoldTimer: number = 0;
   private readonly explosionHoldDuration: number = 1.5;
-  // Launch framing (favor the Iskander launch site, bomber at the frame edge). TUNABLE.
-  private launchFramingSide: number = 1; // which side of the launch the camera sits (fixed per acquisition)
-  private readonly launchFramingDistance: number = 90;
-  private readonly launchFramingHeight: number = 25;
-  // How far the look-at slides from the iskander toward the bomber. Small, because the
-  // iskander is close and the bomber far: a little shift swings the bomber to the frame
-  // edge while keeping the rising rocket dominant. TUNABLE (playtest).
-  private readonly launchFramingBomberBias: number = 0.08;
+  // Launch framing: a wide STATIC establishing shot capturing the whole vertical launch
+  // column (launcher base → climb apex) so both stay in frame the entire climb. Captured
+  // once when IskanderLaunch begins; no bomber reference. TUNABLE.
+  private readonly LAUNCH_APEX_Y = 90;             // mirrors IskanderMissile.CLIMB_ALTITUDE
+  private readonly LAUNCH_MIN_EXTENT = 45;         // floor on column height for the distance calc
+  private readonly LAUNCH_V_MARGIN = 12;           // world-unit padding above apex / below base
+  private readonly LAUNCH_MIN_DIST = 55;
+  private readonly LAUNCH_MAX_DIST = 140;          // fits (90/2+12)/tan(0.4)=134.8
+  private readonly LAUNCH_HALF_VFOV_TAN = 0.42279; // tan(0.4) — Babylon default 0.8rad vertical FOV
+  private launchCamPos: Vector3 = new Vector3();   // captured static camera pose (reused)
+  private launchLookAt: Vector3 = new Vector3();   // captured static look-at (reused)
+  // Chase de-jerk: slew the heading toward velocity and smooth the look-at instead of
+  // snapping each frame, so the camera follows the arc but not every guidance wag. TUNABLE.
+  private readonly headingSmoothing = 2.5;
+  private readonly targetSmoothing = 6.0;
+  private smoothedTarget: Vector3 = new Vector3(); // smoothed look-at (launch + chase)
+  private smoothedTargetValid: boolean = false;    // false until seeded at acquisition
 
   constructor(camera: FreeCamera, bomber: Bomber, terrainManager: TerrainManager) {
     this.camera = camera;
@@ -167,6 +175,13 @@ export class CameraController {
           this.followedMissile.isClimbing?.() === false
         ) {
           this.rocketSubState = RocketSubState.IskanderChase;
+          // Seed the chase heading to the current (vertical) velocity so the heading
+          // slew eases from straight-up rather than from a stale direction.
+          const v = this.followedMissile.getVelocityRef();
+          if (v.lengthSquared() > 25) {
+            const vl = v.length();
+            this.lastChaseDir.set(v.x / vl, v.y / vl, v.z / vl);
+          }
         }
         // Locked follow: free-look drags are intentionally ignored.
         this.applyRocketPose(deltaTime, false);
@@ -260,9 +275,18 @@ export class CameraController {
     const missilePos = missile.getPositionRef();
     const velocity = missile.getVelocityRef();
     // Trust velocity as the heading only when the missile is actually moving
-    // (speed > 5 u/s); otherwise keep the last known direction.
+    // (speed > 5 u/s); otherwise keep the last known direction. Slew toward the
+    // velocity instead of snapping so the camera follows the missile's arc but not
+    // every high-rate guidance wag (the main source of chase jerk).
     if (velocity.lengthSquared() > 25) {
-      this.lastChaseDir.copyFrom(velocity).normalize();
+      const vl = velocity.length();
+      const tx = velocity.x / vl, ty = velocity.y / vl, tz = velocity.z / vl;
+      const hlf = Math.min(this.headingSmoothing * deltaTime, 1.0);
+      const nx = this.lastChaseDir.x + (tx - this.lastChaseDir.x) * hlf;
+      const ny = this.lastChaseDir.y + (ty - this.lastChaseDir.y) * hlf;
+      const nz = this.lastChaseDir.z + (tz - this.lastChaseDir.z) * hlf;
+      const nl = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (nl > 0.0001) this.lastChaseDir.set(nx / nl, ny / nl, nz / nl);
     }
     const dir = this.lastChaseDir; // full 3D heading — the camera pitches with dives
 
@@ -305,7 +329,7 @@ export class CameraController {
       this.camera.position.y = this.camera.position.y * invLerpFactor + this.tempVector1.y * lerpFactor;
       this.camera.position.z = this.camera.position.z * invLerpFactor + this.tempVector1.z * lerpFactor;
     }
-    this.camera.setTarget(missilePos);
+    this.applySmoothedTarget(missilePos, deltaTime, snap);
   }
 
   /** Record a freshly acquired (or preempted) target and pick the sub-state. */
@@ -314,11 +338,15 @@ export class CameraController {
     this.followedKind = candidate.kind;
     if (candidate.kind === RocketViewKind.Iskander && candidate.missile.isClimbing?.()) {
       this.rocketSubState = RocketSubState.IskanderLaunch;
-      this.chooseLaunchFramingSide(candidate.missile);
+      this.beginLaunchFraming(candidate.missile); // captures the static pose + seeds smoothedTarget
     } else if (candidate.kind === RocketViewKind.Iskander) {
       this.rocketSubState = RocketSubState.IskanderChase;
+      this.smoothedTarget.copyFrom(candidate.missile.getPositionRef());
+      this.smoothedTargetValid = true;
     } else {
       this.rocketSubState = RocketSubState.DefenseFollow;
+      this.smoothedTarget.copyFrom(candidate.missile.getPositionRef());
+      this.smoothedTargetValid = true;
     }
   }
 
@@ -333,67 +361,70 @@ export class CameraController {
   }
 
   /**
-   * Pick which side of the launch axis the camera sits on, once per acquisition,
-   * based on where the camera already is — so it doesn't flip sides mid-launch.
+   * Capture the static wide establishing shot for an Iskander launch, ONCE when
+   * IskanderLaunch begins. The launch column is at the missile's frozen x,z (it
+   * climbs straight up) with its base at terrain height and apex at LAUNCH_APEX_Y.
+   * The camera is placed far enough to fit the whole column vertically in the FOV,
+   * on a bomber-free bearing taken from where the camera already is. No per-frame
+   * recompute — the pose is held static for the entire climb.
    */
-  private chooseLaunchFramingSide(missile: FollowableMissile): void {
+  private beginLaunchFraming(missile: FollowableMissile): void {
     const iPos = missile.getPositionRef();
-    const bPos = this.bomber.getPositionRef();
-    let nx = bPos.x - iPos.x, nz = bPos.z - iPos.z;
-    const d = Math.sqrt(nx * nx + nz * nz);
-    if (d > 0.001) { nx /= d; nz /= d; } else { nx = 0; nz = 1; }
-    const px = -nz, pz = nx; // perpendicular bearing
-    const cx = this.camera.position.x - iPos.x;
-    const cz = this.camera.position.z - iPos.z;
-    this.launchFramingSide = cx * px + cz * pz >= 0 ? 1 : -1;
+    const ax = iPos.x, az = iPos.z; // frozen during the vertical climb
+    const baseY = this.terrainManager.getTerrainHeightAt(ax, az); // 0 over unloaded chunks — fine
+    const columnMidY = (baseY + this.LAUNCH_APEX_Y) * 0.5;
+    const extent = Math.max(this.LAUNCH_APEX_Y - baseY, this.LAUNCH_MIN_EXTENT);
+    // Fit half the column (+ margin) within the vertical half-FOV at distance D.
+    let dist = (extent * 0.5 + this.LAUNCH_V_MARGIN) / this.LAUNCH_HALF_VFOV_TAN;
+    dist = Math.max(this.LAUNCH_MIN_DIST, Math.min(this.LAUNCH_MAX_DIST, dist));
+    // Bomber-free bearing: horizontal direction from the column to the current camera,
+    // so the establishing cut doesn't swing far. Fallback to +Z if degenerate.
+    let dirX = this.camera.position.x - ax;
+    let dirZ = this.camera.position.z - az;
+    const dl = Math.sqrt(dirX * dirX + dirZ * dirZ);
+    if (dl > 0.001) { dirX /= dl; dirZ /= dl; } else { dirX = 0; dirZ = 1; }
+    this.launchCamPos.set(ax + dirX * dist, columnMidY, az + dirZ * dist);
+    const camGround = this.terrainManager.getTerrainHeightAt(this.launchCamPos.x, this.launchCamPos.z);
+    this.launchCamPos.y = Math.max(this.launchCamPos.y, camGround + 5, 10);
+    this.launchLookAt.set(ax, columnMidY, az);
+    // Seed the smoothed look-at so the first setTarget isn't aimed at the origin.
+    this.smoothedTarget.copyFrom(this.launchLookAt);
+    this.smoothedTargetValid = true;
+  }
+
+  /** Ease the camera's look-at toward a target instead of snapping it. */
+  private applySmoothedTarget(target: Vector3, deltaTime: number, snap: boolean): void {
+    if (snap || !this.smoothedTargetValid) {
+      this.smoothedTarget.copyFrom(target);
+      this.smoothedTargetValid = true;
+    } else {
+      const lf = Math.min(this.targetSmoothing * deltaTime, 1.0);
+      const inv = 1.0 - lf;
+      this.smoothedTarget.x = this.smoothedTarget.x * inv + target.x * lf;
+      this.smoothedTarget.y = this.smoothedTarget.y * inv + target.y * lf;
+      this.smoothedTarget.z = this.smoothedTarget.z * inv + target.z * lf;
+    }
+    this.camera.setTarget(this.smoothedTarget);
   }
 
   /**
-   * "Favor the launch" framing: sit behind-and-to-one-side of the Iskander launch
-   * site so the rising rocket dominates the frame, looking mostly at the Iskander
-   * with a small bias toward the bomber so the bomber sits near the frame edge.
-   * Allocation-free (reuses tempVector1 for position, tempVector2 for look-at).
+   * Hold the static wide establishing shot captured in beginLaunchFraming: a fixed
+   * side-on view that contains the whole launch column so the launcher and the rising
+   * missile both stay framed for the entire vertical climb. The pose is constant, so
+   * the lerp settles within ~0.3s and the camera is then genuinely still (smoothest).
+   * The missile param is unused — framing is anchored to the captured launch column.
    */
-  private updateLaunchFraming(missile: FollowableMissile, deltaTime: number, snap: boolean): void {
-    const iPos = missile.getPositionRef();
-    const bPos = this.bomber.getPositionRef();
-    // Horizontal bearing iskander → bomber.
-    let nx = bPos.x - iPos.x, nz = bPos.z - iPos.z;
-    const d = Math.sqrt(nx * nx + nz * nz);
-    if (d > 0.001) { nx /= d; nz /= d; } else { nx = 0; nz = 1; }
-    const px = -nz, pz = nx; // perpendicular → side-on view of the liftoff
-    // Blend "behind the launch" with a sideways kick so the rocket is foreground.
-    let cdx = -nx * 0.7 + px * this.launchFramingSide * 0.7;
-    let cdz = -nz * 0.7 + pz * this.launchFramingSide * 0.7;
-    const cl = Math.sqrt(cdx * cdx + cdz * cdz);
-    if (cl > 0.001) { cdx /= cl; cdz /= cl; } else { cdx = 0; cdz = 1; }
-
-    this.tempVector1.set(
-      iPos.x + cdx * this.launchFramingDistance,
-      iPos.y + this.launchFramingHeight,
-      iPos.z + cdz * this.launchFramingDistance,
-    );
-    const groundHeight = this.terrainManager.getTerrainHeightAt(this.tempVector1.x, this.tempVector1.z);
-    this.tempVector1.y = Math.max(this.tempVector1.y, groundHeight + 5, 10);
-
+  private updateLaunchFraming(_missile: FollowableMissile, deltaTime: number, snap: boolean): void {
     if (snap) {
-      this.camera.position.copyFrom(this.tempVector1);
+      this.camera.position.copyFrom(this.launchCamPos);
     } else {
       const lerpFactor = Math.min(this.missileChaseSmoothing * deltaTime, 1.0);
       const invLerpFactor = 1.0 - lerpFactor;
-      this.camera.position.x = this.camera.position.x * invLerpFactor + this.tempVector1.x * lerpFactor;
-      this.camera.position.y = this.camera.position.y * invLerpFactor + this.tempVector1.y * lerpFactor;
-      this.camera.position.z = this.camera.position.z * invLerpFactor + this.tempVector1.z * lerpFactor;
+      this.camera.position.x = this.camera.position.x * invLerpFactor + this.launchCamPos.x * lerpFactor;
+      this.camera.position.y = this.camera.position.y * invLerpFactor + this.launchCamPos.y * lerpFactor;
+      this.camera.position.z = this.camera.position.z * invLerpFactor + this.launchCamPos.z * lerpFactor;
     }
-
-    // Look mostly at the iskander, nudged toward the bomber so it sits near the edge.
-    const t = this.launchFramingBomberBias;
-    this.tempVector2.set(
-      iPos.x + (bPos.x - iPos.x) * t,
-      iPos.y + (bPos.y - iPos.y) * t,
-      iPos.z + (bPos.z - iPos.z) * t,
-    );
-    this.camera.setTarget(this.tempVector2);
+    this.applySmoothedTarget(this.launchLookAt, deltaTime, snap);
   }
 
   /**

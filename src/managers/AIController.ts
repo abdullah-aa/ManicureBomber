@@ -38,14 +38,14 @@ export class AIController {
   private readonly targetScanRadius = 500; // matches radar range
   private readonly targetScanInterval = 1; // seconds between building queries
   // Altitude wander: defense missiles can now outclimb the bomber's 200 ceiling,
-  // so there is no altitude to hide at. Instead the AI re-rolls a random cruise
-  // target inside [wanderFloor, wanderCeiling] every ~6-11 s. The band stays 18 u
-  // off the bomber's 150 floor ("not too close to the minimum") and one deadband
-  // off the 200 ceiling so the clamp is never pegged.
+  // so there is no altitude to hide at. Every ~6-11 s the AI retargets to the
+  // OPPOSITE extreme of [wanderFloor, wanderCeiling] (see update()), so each change
+  // is a large ~30-46 u swing rather than a small re-roll. The band stays ~one
+  // deadband off the 150 floor and 200 ceiling so the clamp is never pegged.
   private altitudeTarget = 185;
   private nextAltitudeRetargetTime = -Infinity;
-  private readonly wanderFloor = 168;
-  private readonly wanderCeiling = 195;
+  private readonly wanderFloor = 152;
+  private readonly wanderCeiling = 198;
   private readonly altitudeRetargetMin = 5.9; // seconds (8/1.35 — retarget 35% more often)
   private readonly altitudeRetargetSpan = 5.2; // seconds of random extra (7/1.35)
   private readonly altitudeDeadband = 5;
@@ -127,7 +127,13 @@ export class AIController {
     this.handleTomahawk();
 
     if (currentTime >= this.nextAltitudeRetargetTime) {
-      this.altitudeTarget = this.wanderFloor + Math.random() * (this.wanderCeiling - this.wanderFloor);
+      // Swing to the opposite extreme of the band (with small jitter) so every
+      // altitude change is large rather than an occasional near-zero re-roll.
+      const mid = (this.wanderFloor + this.wanderCeiling) / 2;
+      const goLow = this.bomber.getPositionRef().y > mid;
+      this.altitudeTarget = goLow
+        ? this.wanderFloor + Math.random() * 8
+        : this.wanderCeiling - Math.random() * 8;
       this.nextAltitudeRetargetTime =
         currentTime + this.altitudeRetargetMin + Math.random() * this.altitudeRetargetSpan;
     }

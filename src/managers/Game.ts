@@ -418,7 +418,12 @@ export class Game {
 
         if (farthestLauncher) {
           const launchPosition = farthestLauncher.getPosition().clone();
-          launchPosition.y += farthestLauncher.getMaxHeight() + 3; // roof, matching defense-missile spawns
+          // Buildings are pinned to world y=0 while terrain rises to ~60, so the roof
+          // alone can sit below the local ground and the missile would climb buried.
+          // Spawn above BOTH the roof and the terrain so it's visible from liftoff.
+          const terrainY = this.terrainManager.getTerrainHeightAt(launchPosition.x, launchPosition.z);
+          const roofY = launchPosition.y + farthestLauncher.getMaxHeight(); // parent.y == 0
+          launchPosition.y = Math.max(roofY, terrainY) + 5;
 
           const missile = new IskanderMissile(this.scene, launchPosition, this.bomber, this.workerManager);
           missile.setTerrainManager(this.terrainManager);
