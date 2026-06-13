@@ -653,11 +653,6 @@ export class Bomber {
     return this.position.clone();
   }
 
-  /** Live array of launched Tomahawks (includes exploded ones awaiting dispose). */
-  public getMissiles(): TomahawkMissile[] {
-    return this.missiles;
-  }
-
   public getRotation(): Vector3 {
     return this.rotation.clone();
   }

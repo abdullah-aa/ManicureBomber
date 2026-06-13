@@ -560,31 +560,6 @@ export class TomahawkMissile {
     return this.exploded;
   }
 
-  /** Read-only reference to the internal position — callers must not mutate it. */
-  public getPositionRef(): Vector3 {
-    return this.position;
-  }
-
-  /**
-   * Read-only reference to the internal velocity — callers must not mutate it.
-   * Zero until the launch animation finishes (see isInLaunchAnimationPhase).
-   */
-  public getVelocityRef(): Vector3 {
-    return this.velocity;
-  }
-
-  public isLaunched(): boolean {
-    return this.launched;
-  }
-
-  /**
-   * While true, the visual mesh is parented to the bomber and animated — the
-   * internal position/velocity do not reflect what's on screen yet.
-   */
-  public isInLaunchAnimationPhase(): boolean {
-    return this.inLaunchAnimationPhase;
-  }
-
   public dispose(): void {
     // Dispose part materials with the hierarchy (they are per-missile instances).
     // Flight particle textures are shared via EffectTextures — dispose(false).

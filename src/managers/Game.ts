@@ -261,14 +261,16 @@ export class Game {
         this.bomber.update(safeDeltaTime, this.inputManager);
         this.updateBombs(safeDeltaTime); // Now uses promise-based callbacks internally
         this.updateIskanderMissiles(safeDeltaTime);
+        this.updateDefenseMissiles(safeDeltaTime);
         // Rocket View only exists in AI mode; force it off no matter who disabled the AI
         if (!this.aiController.isEnabled() && this.cameraController.isRocketViewEnabled()) {
           this.cameraController.setRocketViewEnabled(false);
         }
         // Camera runs after the missile updates so Rocket View never chases a
-        // one-frame-stale Iskander position (bomber updated above either way)
+        // one-frame-stale Iskander/defense-missile position, and sees a defense
+        // missile's hasExploded() the same frame it airbursts (they dispose
+        // same-frame, with no grace period)
         this.cameraController.update(safeDeltaTime, this.inputManager);
-        this.updateDefenseMissiles(safeDeltaTime);
         this.updateGroundCrosshair();
 
         // Check for defense missile collisions (high frequency for responsive damage)
@@ -410,7 +412,7 @@ export class Game {
 
         if (farthestLauncher) {
           const launchPosition = farthestLauncher.getPosition().clone();
-          launchPosition.y += 5; // Launch from above the launcher
+          launchPosition.y += farthestLauncher.getMaxHeight() + 3; // roof, matching defense-missile spawns
 
           const missile = new IskanderMissile(this.scene, launchPosition, this.bomber, this.workerManager);
           missile.setTerrainManager(this.terrainManager);
@@ -573,17 +575,22 @@ export class Game {
   }
 
   /**
-   * Missile for Rocket View to chase. Priority: Iskanders, then Tomahawks —
-   * defense missiles are excluded by design (short, uninteresting flights).
-   * Oldest live missile first: arrays are append-ordered, so index 0 is closest
-   * to impact and the camera chains through the rest as each one explodes.
+   * Missile for Rocket View to chase. Priority: Iskanders, then defense
+   * missiles — Tomahawks are excluded by design (their terrain-hugging weave
+   * makes for a chaotic view). Oldest live missile first: arrays are
+   * append-ordered, so index 0 is closest to impact and the camera chains
+   * through the rest as each one explodes.
    */
   private getRocketViewCandidate(): FollowableMissile | null {
     for (const missile of this.iskanderMissiles) {
       if (missile.isLaunched() && !missile.hasExploded()) return missile;
     }
-    for (const missile of this.bomber.getMissiles()) {
-      if (missile.isLaunched() && !missile.isInLaunchAnimationPhase() && !missile.hasExploded()) return missile;
+    for (const missile of this.defenseMissiles) {
+      // Velocity stays (0,0,0) until the async trajectory worker replies; don't
+      // acquire a missile frozen on its pad.
+      if (missile.isLaunched() && !missile.hasExploded() && missile.getVelocityRef().lengthSquared() > 0) {
+        return missile;
+      }
     }
     return null;
   }

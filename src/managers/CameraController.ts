@@ -5,7 +5,7 @@ import { TerrainManager } from './TerrainManager';
 
 /**
  * Minimal surface a missile must expose for Rocket View to chase it.
- * IskanderMissile and TomahawkMissile satisfy this structurally.
+ * IskanderMissile and DefenseMissile satisfy this structurally.
  */
 export interface FollowableMissile {
   getPositionRef(): Vector3;
@@ -181,14 +181,33 @@ export class CameraController {
     }
     const dir = this.lastChaseDir; // full 3D heading — the camera pitches with dives
 
+    // Both followed types climb steeply; a near-vertical heading would park the
+    // camera exactly under/over the missile where setTarget's default up vector
+    // degenerates. Clamp the OFFSET direction only (lastChaseDir keeps the true
+    // heading) to keep a horizontal standoff.
+    let ox = dir.x, oy = dir.y, oz = dir.z;
+    const horiz = Math.sqrt(ox * ox + oz * oz);
+    const minHoriz = 0.35; // ~20° off vertical
+    if (horiz < minHoriz) {
+      // Borrow the horizontal bearing from where the camera already is so it
+      // holds its side instead of snapping to an arbitrary azimuth.
+      let bx = this.camera.position.x - missilePos.x;
+      let bz = this.camera.position.z - missilePos.z;
+      const b = Math.sqrt(bx * bx + bz * bz);
+      if (b > 0.001) { bx /= b; bz /= b; } else { bx = 0; bz = 1; }
+      ox = -bx * minHoriz; // camera = missile - offset*distance → negative pushes
+      oz = -bz * minHoriz; // the camera toward the borrowed bearing
+      oy = Math.sign(oy || 1) * Math.sqrt(1 - minHoriz * minHoriz);
+    }
+
     this.tempVector1.set(
-      missilePos.x - dir.x * this.missileChaseDistance,
-      missilePos.y - dir.y * this.missileChaseDistance + this.missileChaseHeight,
-      missilePos.z - dir.z * this.missileChaseDistance,
+      missilePos.x - ox * this.missileChaseDistance,
+      missilePos.y - oy * this.missileChaseDistance + this.missileChaseHeight,
+      missilePos.z - oz * this.missileChaseDistance,
     );
-    // Tomahawks terrain-hug, so clamp against real terrain, not just the world
-    // floor. Over unloaded chunks getTerrainHeightAt returns 0 and the 10-unit
-    // floor still applies.
+    // Followed missiles fly near the rooftops at launch, so clamp against real
+    // terrain, not just the world floor. Over unloaded chunks
+    // getTerrainHeightAt returns 0 and the 10-unit floor still applies.
     const groundHeight = this.terrainManager.getTerrainHeightAt(this.tempVector1.x, this.tempVector1.z);
     this.tempVector1.y = Math.max(this.tempVector1.y, groundHeight + 5, 10);
 

@@ -28,6 +28,13 @@ export class IskanderMissile {
   private bomber: Bomber;
   private speed: number = 120;
   private turnRate: number = 1.25; // Increased turn rate for better responsiveness
+  /**
+   * Boost-phase ceiling: climb straight up to here before guidance arcs the
+   * missile toward the bomber. Clears the tallest structure (skyscraper,
+   * world y ≈ 61) with margin while staying below the bomber's flight band.
+   */
+  public static readonly CLIMB_ALTITUDE = 90;
+  private climbing: boolean = true;
   private launched: boolean = false;
   private exploded: boolean = false;
   private exhaustParticles!: ParticleSystem;
@@ -295,18 +302,14 @@ export class IskanderMissile {
 
     this.launched = true;
 
-    // Set initial velocity toward target
+    // Boost phase: straight up at half speed; guidance takes over at CLIMB_ALTITUDE.
+    this.velocity.set(0, this.speed * 0.5, 0);
+    // Pure-vertical velocity defeats the atan2-from-velocity pose (the
+    // horizontalSpeed guard would leave the mesh horizontal) — set the nose-up
+    // pitch explicitly and pre-aim the yaw at the target so the arc-over is
+    // mostly pitch.
     const directionToTarget = this.targetPosition.subtract(this.position).normalize();
-    this.velocity = directionToTarget.scale(this.speed * 0.5); // Start at half speed
-
-    // Calculate initial rotation to face target
-    if (this.velocity.lengthSquared() > 0.01) {
-      this.rotation.y = Math.atan2(this.velocity.x, this.velocity.z);
-      const horizontalSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
-      if (horizontalSpeed > 0.001) {
-        this.rotation.x = Math.atan2(-this.velocity.y, horizontalSpeed);
-      }
-    }
+    this.rotation.set(-Math.PI / 2, Math.atan2(directionToTarget.x, directionToTarget.z), 0);
 
     // Update visual representation
     this.missileGroup.position = this.position.clone();
@@ -362,6 +365,19 @@ export class IskanderMissile {
         this.waypoints = [this.position.clone(), this.targetPosition.clone()];
       }
       this.lastTargetUpdateTime = currentTime;
+    }
+
+    // Boost phase: integrate the vertical climb directly; guidance (and with it
+    // flare seduction and lock-on) starts once the missile clears CLIMB_ALTITUDE.
+    // The climb lasts ~0.5-1.3s and flares only fly near the bomber, so skipping
+    // flare retargeting during it is inconsequential.
+    if (this.climbing) {
+      if (this.position.y < IskanderMissile.CLIMB_ALTITUDE) {
+        this.position.y += this.velocity.y * deltaTime;
+        this.missileGroup.position.copyFrom(this.position);
+        return;
+      }
+      this.climbing = false; // fall through to guidance this same frame
     }
 
     // Terrain-surface detonation height; 0 (legacy flat-world floor) until the
