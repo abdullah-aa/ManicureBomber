@@ -28,6 +28,7 @@ export class TomahawkMissile {
   private velocity: Vector3;
   private rotation: Vector3;
   private targetPosition: Vector3;
+  private launchOrigin: Vector3; // immutable copy of the launch point (position mutates after launch); for Rocket View framing
   private targetBuilding: Building | null = null;
   private speed: number = 150; // Cruise missile speed
   private turnRate: number = 2.0; // How fast the missile can turn
@@ -86,6 +87,7 @@ export class TomahawkMissile {
     this.scene = scene;
     this.workerManager = workerManager;
     this.position = launchPosition.clone();
+    this.launchOrigin = launchPosition.clone();
     this.targetBuilding = targetBuilding;
     // Aim for the launcher sitting on top of the building, not the base.
     this.targetPosition = targetBuilding.getPosition().clone();
@@ -558,6 +560,31 @@ export class TomahawkMissile {
 
   public hasExploded(): boolean {
     return this.exploded;
+  }
+
+  /** Read-only reference to the internal position — callers must not mutate it. */
+  public getPositionRef(): Vector3 {
+    return this.position;
+  }
+
+  /** Read-only reference to the internal velocity — callers must not mutate it. */
+  public getVelocityRef(): Vector3 {
+    return this.velocity;
+  }
+
+  /** True only during the ~2s bomb-bay pop-up — the catch-at-launch window for Rocket View. */
+  public isInLaunchPhase(): boolean {
+    return this.inLaunchAnimationPhase;
+  }
+
+  /** Immutable original launch point (position mutates after launch). For Rocket View framing. */
+  public getLaunchPosition(): Vector3 {
+    return this.launchOrigin;
+  }
+
+  /** Target impact point (launcher atop the building). For Rocket View framing. */
+  public getTargetPosition(): Vector3 {
+    return this.targetPosition;
   }
 
   public dispose(): void {

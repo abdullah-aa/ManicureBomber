@@ -955,6 +955,11 @@ export class Bomber {
     this.missileLaunchPending = false;
   }
 
+  /** Active Tomahawk missiles (for Rocket View's candidate provider). */
+  public getMissiles(): TomahawkMissile[] {
+    return this.missiles;
+  }
+
   private updateMissiles(deltaTime: number): void {
     const currentTime = performance.now() / 1000;
 

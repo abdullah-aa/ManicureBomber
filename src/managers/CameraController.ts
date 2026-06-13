@@ -18,6 +18,7 @@ export interface FollowableMissile {
 
 export enum RocketViewKind {
   Iskander,
+  Tomahawk,
   Defense,
 }
 
@@ -35,6 +36,7 @@ enum RocketSubState {
   None,
   IskanderLaunch,
   IskanderChase,
+  TomahawkView,
   DefenseFollow,
   ExplosionHold,
 }
@@ -100,6 +102,17 @@ export class CameraController {
   private readonly LAUNCH_HALF_VFOV_TAN = 0.42279; // tan(0.4) — Babylon default 0.8rad vertical FOV
   private launchCamPos: Vector3 = new Vector3();   // captured static camera pose (reused)
   private launchLookAt: Vector3 = new Vector3();   // captured static look-at (reused)
+  // Tomahawk View: a LAUNCH-ANCHORED static shot — pinned just behind/beside the bomber's
+  // launch point, looking down-and-forward along the flight at the loop-field center, so the
+  // launch + pop-up sit close and dramatic in the foreground and the loops recede ahead-and-
+  // below into the distance. Captured once at launch, held (no chase). TUNABLE.
+  private readonly TOMA_LOOK_Y = 120;              // look-at altitude along the flight (launch ~175 → cruise ~100)
+  private readonly TOMA_AHEAD = 200;               // how far along the flight axis the camera aims ("looking along the flight")
+  private readonly TOMA_BACK = 50;                 // pull camera back behind the launch → launch sits in the foreground
+  private readonly TOMA_SIDE = 15;                 // small lateral offset toward the loop bulge for a 3/4 angle (sign TUNABLE)
+  private readonly TOMA_UP = 25;                   // raise camera above the launch so it looks down-forward along the flight
+  private tomahawkCamPos: Vector3 = new Vector3(); // captured static camera pose (reused)
+  private tomahawkLookAt: Vector3 = new Vector3(); // captured static look-at (reused)
   // Chase de-jerk: slew the heading toward velocity and smooth the look-at instead of
   // snapping each frame, so the camera follows the arc but not every guidance wag. TUNABLE.
   private readonly headingSmoothing = 2.5;
@@ -153,13 +166,15 @@ export class CameraController {
             this.applyRocketPose(deltaTime, true);
             return;
           }
-        } else if (this.followedKind === RocketViewKind.Defense) {
-          // A live Iskander outranks an in-progress defense follow — preempt it.
+        } else {
+          // A higher-ranked live candidate preempts the current follow: Iskander
+          // outranks Tomahawk and Defense; Tomahawk outranks Defense. Iskander is
+          // never preempted, and same-rank never hops.
           const candidate = this.missileProvider();
           if (
             candidate &&
-            candidate.kind === RocketViewKind.Iskander &&
-            candidate.missile !== this.followedMissile
+            candidate.missile !== this.followedMissile &&
+            this.priorityOf(candidate.kind) > this.priorityOf(this.followedKind)
           ) {
             this.acquire(candidate);
             this.applyRocketPose(deltaTime, true);
@@ -343,10 +358,26 @@ export class CameraController {
       this.rocketSubState = RocketSubState.IskanderChase;
       this.smoothedTarget.copyFrom(candidate.missile.getPositionRef());
       this.smoothedTargetValid = true;
+    } else if (candidate.kind === RocketViewKind.Tomahawk) {
+      this.rocketSubState = RocketSubState.TomahawkView;
+      // We never run updateMissileChase for Tomahawks, so seed a horizontal chase dir
+      // to keep a later holdOnExplosion standoff sane (avoids the near-vertical clamp).
+      this.lastChaseDir.set(0, 0, 1);
+      this.beginTomahawkView(candidate.missile); // captures the static pose + seeds smoothedTarget
     } else {
       this.rocketSubState = RocketSubState.DefenseFollow;
       this.smoothedTarget.copyFrom(candidate.missile.getPositionRef());
       this.smoothedTargetValid = true;
+    }
+  }
+
+  /** Preemption rank: higher wins. Iskander > Tomahawk > Defense. */
+  private priorityOf(kind: RocketViewKind | null): number {
+    switch (kind) {
+      case RocketViewKind.Iskander: return 2;
+      case RocketViewKind.Tomahawk: return 1;
+      case RocketViewKind.Defense: return 0;
+      default: return -1;
     }
   }
 
@@ -355,6 +386,8 @@ export class CameraController {
     if (!this.followedMissile) return;
     if (this.rocketSubState === RocketSubState.IskanderLaunch) {
       this.updateLaunchFraming(this.followedMissile, deltaTime, snap);
+    } else if (this.rocketSubState === RocketSubState.TomahawkView) {
+      this.updateTomahawkView(this.followedMissile, deltaTime, snap);
     } else {
       this.updateMissileChase(this.followedMissile, deltaTime, snap);
     }
@@ -425,6 +458,66 @@ export class CameraController {
       this.camera.position.z = this.camera.position.z * invLerpFactor + this.launchCamPos.z * lerpFactor;
     }
     this.applySmoothedTarget(this.launchLookAt, deltaTime, snap);
+  }
+
+  /**
+   * Capture the LAUNCH-ANCHORED static shot for a Tomahawk, ONCE at launch. The camera is
+   * pinned just behind/beside the bomber's launch point (pulled back along the flight axis,
+   * offset to the loop-bulge side, raised) and looks down-and-forward at the loop-field
+   * center (worker geometry: midpoint pushed dist*0.2 perpendicular toward the bulge, at
+   * cruise altitude). So the launch + pop-up fill the close foreground and the convoluted
+   * loops recede ahead-and-below. Held static — no per-frame recompute, so it never jerks.
+   */
+  private beginTomahawkView(missile: FollowableMissile): void {
+    // Tomahawk-only accessors (the shared FollowableMissile interface omits them);
+    // this method is only reached when kind === Tomahawk, so the cast is safe.
+    const m = missile as unknown as { getLaunchPosition(): Vector3; getTargetPosition(): Vector3 };
+    const launch = m.getLaunchPosition();
+    const target = m.getTargetPosition();
+
+    // Horizontal flight axis launch→target.
+    let fx = target.x - launch.x, fz = target.z - launch.z;
+    const dist = Math.sqrt(fx * fx + fz * fz);
+    if (dist > 0.001) { fx /= dist; fz /= dist; } else { fx = 0; fz = 1; } // target under bomber → look +Z
+    const px = -fz, pz = fx; // perpendicular; worker bulges the loops toward +perp
+
+    // Look-at: a point ahead ALONG the flight axis at cruise-ish altitude — "looking along
+    // the flight". Aiming down the axis (not at the far perp-offset loop center) keeps the
+    // close launch in frame; the loops trace off into the distance from there.
+    this.tomahawkLookAt.set(launch.x + fx * this.TOMA_AHEAD, this.TOMA_LOOK_Y, launch.z + fz * this.TOMA_AHEAD);
+
+    // Camera just behind the launch, a touch to the bulge side (+perp; sign TUNABLE), raised
+    // so it looks down-forward along the flight. Launch + pop-up fill the close foreground;
+    // the missile flies out and traces its loops into the distance.
+    this.tomahawkCamPos.set(
+      launch.x - fx * this.TOMA_BACK + px * this.TOMA_SIDE,
+      launch.y + this.TOMA_UP,
+      launch.z - fz * this.TOMA_BACK + pz * this.TOMA_SIDE,
+    );
+    const camGround = this.terrainManager.getTerrainHeightAt(this.tomahawkCamPos.x, this.tomahawkCamPos.z);
+    this.tomahawkCamPos.y = Math.max(this.tomahawkCamPos.y, camGround + 5, 10);
+
+    // Seed the smoothed look-at so the first setTarget isn't aimed at the origin.
+    this.smoothedTarget.copyFrom(this.tomahawkLookAt);
+    this.smoothedTargetValid = true;
+  }
+
+  /**
+   * Hold the static side-overview captured in beginTomahawkView. The pose is constant,
+   * so the lerp settles in ~0.3s and the camera is then genuinely still. The missile
+   * param is unused — framing is anchored to the captured loop field.
+   */
+  private updateTomahawkView(_missile: FollowableMissile, deltaTime: number, snap: boolean): void {
+    if (snap) {
+      this.camera.position.copyFrom(this.tomahawkCamPos);
+    } else {
+      const lerpFactor = Math.min(this.missileChaseSmoothing * deltaTime, 1.0);
+      const invLerpFactor = 1.0 - lerpFactor;
+      this.camera.position.x = this.camera.position.x * invLerpFactor + this.tomahawkCamPos.x * lerpFactor;
+      this.camera.position.y = this.camera.position.y * invLerpFactor + this.tomahawkCamPos.y * lerpFactor;
+      this.camera.position.z = this.camera.position.z * invLerpFactor + this.tomahawkCamPos.z * lerpFactor;
+    }
+    this.applySmoothedTarget(this.tomahawkLookAt, deltaTime, snap);
   }
 
   /**

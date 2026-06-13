@@ -586,23 +586,30 @@ export class Game {
   }
 
   /**
-   * Candidate for Rocket View to NEWLY acquire. Priority: Iskanders, then
-   * defense missiles — Tomahawks are excluded by design (their terrain-hugging
-   * weave makes for a chaotic view). Oldest live missile first: arrays are
-   * append-ordered, so index 0 is closest to impact and the camera chains
-   * through the rest as each one explodes.
+   * Candidate for Rocket View to NEWLY acquire. Priority: Iskanders > Tomahawks >
+   * defense missiles (the camera generalizes this into a preemption chain).
    *
-   * Defense missiles are acquirable ONLY in their on-pad window (velocity still
-   * (0,0,0) before the async trajectory worker replies) so the camera catches
-   * the launch and shows the full lifecycle rather than snapping onto one
-   * already mid-flight. Once followed, the camera keeps the missile regardless.
-   * Returns a single reused descriptor (the camera copies its fields out).
+   * Acquisition windows differ by kind: an Iskander is acquirable its whole life;
+   * a Tomahawk only during its bomb-bay launch animation (isInLaunchPhase); a
+   * defense missile only in its on-pad window (velocity still (0,0,0) before the
+   * async trajectory worker replies). So the camera catches Tomahawks/Defense at
+   * launch and shows the full lifecycle rather than snapping onto one already
+   * mid-flight; once followed, it keeps the missile regardless. Returns a single
+   * reused descriptor (the camera copies its fields out).
    */
   private getRocketViewCandidate(): RocketViewCandidate | null {
     for (const missile of this.iskanderMissiles) {
       if (missile.isLaunched() && !missile.hasExploded()) {
         this.rocketCandidate.missile = missile;
         this.rocketCandidate.kind = RocketViewKind.Iskander;
+        return this.rocketCandidate;
+      }
+    }
+    for (const missile of this.bomber.getMissiles()) {
+      // Catch the Tomahawk only during its launch pop-up, then the follow persists.
+      if (!missile.hasExploded() && missile.isInLaunchPhase()) {
+        this.rocketCandidate.missile = missile;
+        this.rocketCandidate.kind = RocketViewKind.Tomahawk;
         return this.rocketCandidate;
       }
     }
