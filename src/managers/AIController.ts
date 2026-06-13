@@ -39,15 +39,15 @@ export class AIController {
   private readonly targetScanInterval = 1; // seconds between building queries
   // Altitude wander: defense missiles can now outclimb the bomber's 200 ceiling,
   // so there is no altitude to hide at. Instead the AI re-rolls a random cruise
-  // target inside [wanderFloor, wanderCeiling] every 8-15 s. The band stays 18 u
+  // target inside [wanderFloor, wanderCeiling] every ~6-11 s. The band stays 18 u
   // off the bomber's 150 floor ("not too close to the minimum") and one deadband
   // off the 200 ceiling so the clamp is never pegged.
   private altitudeTarget = 185;
   private nextAltitudeRetargetTime = -Infinity;
   private readonly wanderFloor = 168;
   private readonly wanderCeiling = 195;
-  private readonly altitudeRetargetMin = 8; // seconds
-  private readonly altitudeRetargetSpan = 7; // seconds of random extra
+  private readonly altitudeRetargetMin = 5.9; // seconds (8/1.35 — retarget 35% more often)
+  private readonly altitudeRetargetSpan = 5.2; // seconds of random extra (7/1.35)
   private readonly altitudeDeadband = 5;
   private readonly headingDeadband = 0.04; // rad; > per-frame turn step (0.5 * 1/60)
   // Bombs fall straight down; the 9-bomb stick lands 25-225 units past run start
