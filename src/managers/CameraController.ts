@@ -5,12 +5,38 @@ import { TerrainManager } from './TerrainManager';
 
 /**
  * Minimal surface a missile must expose for Rocket View to chase it.
- * IskanderMissile and DefenseMissile satisfy this structurally.
+ * IskanderMissile and DefenseMissile satisfy this structurally. Only the
+ * Iskander implements isClimbing(); for defense missiles it is undefined and
+ * treated as not-climbing.
  */
 export interface FollowableMissile {
   getPositionRef(): Vector3;
   getVelocityRef(): Vector3;
   hasExploded(): boolean;
+  isClimbing?(): boolean;
+}
+
+export enum RocketViewKind {
+  Iskander,
+  Defense,
+}
+
+/** What the provider hands the camera each pull: the missile plus its class. */
+export interface RocketViewCandidate {
+  missile: FollowableMissile;
+  kind: RocketViewKind;
+}
+
+/**
+ * Rocket View camera sub-states. None falls through to the bomber chase (the
+ * revert view). See the priority/transition rules in update().
+ */
+enum RocketSubState {
+  None,
+  IskanderLaunch,
+  IskanderChase,
+  DefenseFollow,
+  ExplosionHold,
 }
 
 export class CameraController {
@@ -37,6 +63,7 @@ export class CameraController {
 
   // Performance optimization: reuse Vector3 objects to reduce GC pressure
   private tempVector1: Vector3 = new Vector3();
+  private tempVector2: Vector3 = new Vector3(); // look-at target for launch framing
 
   // Cache trigonometric calculations to avoid repeated computations
   private lastEffectiveRotation: number = 0;
@@ -44,11 +71,14 @@ export class CameraController {
   private cachedCos: number = 0;
   private trigCacheValid: boolean = false;
 
-  // Rocket View: while enabled, chase the missile supplied by the provider instead of
-  // the bomber. Lock-until-explosion: acquisition only runs when nothing is followed.
+  // Rocket View: while enabled, follow the missile supplied by the provider instead of
+  // the bomber, showing its full lifecycle. A small sub-state machine handles the
+  // Iskander launch-framing → chase hand-off and the post-explosion hold (see update()).
   private rocketViewEnabled: boolean = false;
   private followedMissile: FollowableMissile | null = null;
-  private missileProvider: (() => FollowableMissile | null) | null = null;
+  private followedKind: RocketViewKind | null = null;
+  private rocketSubState: RocketSubState = RocketSubState.None;
+  private missileProvider: (() => RocketViewCandidate | null) | null = null;
   // Missiles are ~5 units long (vs the bomber's 200-unit follow distance), and they
   // maneuver hard — sit close behind and track stiffly.
   private missileChaseDistance: number = 30;
@@ -56,6 +86,18 @@ export class CameraController {
   private missileChaseSmoothing: number = 5.0;
   // Heading fallback for any near-zero-velocity frame (e.g. the instant of acquisition).
   private lastChaseDir: Vector3 = new Vector3(0, 0, 1);
+  // Explosion-hold: linger on the blast for a beat so the player sees the missile die.
+  private explosionPoint: Vector3 = new Vector3();
+  private explosionHoldTimer: number = 0;
+  private readonly explosionHoldDuration: number = 1.5;
+  // Launch framing (favor the Iskander launch site, bomber at the frame edge). TUNABLE.
+  private launchFramingSide: number = 1; // which side of the launch the camera sits (fixed per acquisition)
+  private readonly launchFramingDistance: number = 90;
+  private readonly launchFramingHeight: number = 25;
+  // How far the look-at slides from the iskander toward the bomber. Small, because the
+  // iskander is close and the bomber far: a little shift swings the bomber to the frame
+  // edge while keeping the rising rocket dominant. TUNABLE (playtest).
+  private readonly launchFramingBomberBias: number = 0.08;
 
   constructor(camera: FreeCamera, bomber: Bomber, terrainManager: TerrainManager) {
     this.camera = camera;
@@ -69,24 +111,67 @@ export class CameraController {
   public update(deltaTime: number, inputManager: InputManager): void {
     // Rocket View state machine. Falls through to the normal bomber chase when
     // there is nothing to follow (that fall-through IS the revert view).
-    if (this.followedMissile && this.followedMissile.hasExploded()) {
-      // Release on the explosion frame — safely before the dispose sweeps.
-      this.followedMissile = null;
-      this.snapBehindBomber();
-    }
-    if (this.rocketViewEnabled && !this.followedMissile && this.missileProvider) {
-      this.followedMissile = this.missileProvider();
-      if (this.followedMissile) {
-        // The missile may be far away; teleport to the chase pose instead of
-        // lerping the camera across the map, then let the lerp take over.
-        this.updateMissileChase(this.followedMissile, deltaTime, true);
+    if (this.rocketViewEnabled) {
+      // ExplosionHold: linger on the copied blast point, then revert and re-evaluate.
+      if (this.rocketSubState === RocketSubState.ExplosionHold) {
+        this.explosionHoldTimer -= deltaTime;
+        this.holdOnExplosion(deltaTime);
+        if (this.explosionHoldTimer <= 0) {
+          this.followedMissile = null;
+          this.followedKind = null;
+          this.rocketSubState = RocketSubState.None;
+          this.snapBehindBomber();
+        }
         return;
       }
-    }
-    if (this.followedMissile) {
-      // Locked chase: free-look drags are intentionally ignored while following.
-      this.updateMissileChase(this.followedMissile, deltaTime, false);
-      return;
+
+      // Followed missile just exploded → copy the blast point and enter the hold.
+      if (this.followedMissile && this.followedMissile.hasExploded()) {
+        this.explosionPoint.copyFrom(this.followedMissile.getPositionRef());
+        this.explosionHoldTimer = this.explosionHoldDuration;
+        this.rocketSubState = RocketSubState.ExplosionHold;
+        this.holdOnExplosion(deltaTime);
+        return;
+      }
+
+      if (this.missileProvider) {
+        if (!this.followedMissile) {
+          // Acquire a fresh target (provider only returns about-to-launch defense
+          // missiles, so we never snap onto one already mid-flight).
+          const candidate = this.missileProvider();
+          if (candidate) {
+            this.acquire(candidate);
+            // Teleport to the pose instead of lerping across the map, then lerp.
+            this.applyRocketPose(deltaTime, true);
+            return;
+          }
+        } else if (this.followedKind === RocketViewKind.Defense) {
+          // A live Iskander outranks an in-progress defense follow — preempt it.
+          const candidate = this.missileProvider();
+          if (
+            candidate &&
+            candidate.kind === RocketViewKind.Iskander &&
+            candidate.missile !== this.followedMissile
+          ) {
+            this.acquire(candidate);
+            this.applyRocketPose(deltaTime, true);
+            return;
+          }
+        }
+      }
+
+      if (this.followedMissile) {
+        // Hand off from launch framing to the chase once the Iskander tops out.
+        if (
+          this.rocketSubState === RocketSubState.IskanderLaunch &&
+          this.followedMissile.isClimbing?.() === false
+        ) {
+          this.rocketSubState = RocketSubState.IskanderChase;
+        }
+        // Locked follow: free-look drags are intentionally ignored.
+        this.applyRocketPose(deltaTime, false);
+        return;
+      }
     }
 
     // Camera adjustments are only allowed while the camera-control mode is active.
@@ -223,7 +308,130 @@ export class CameraController {
     this.camera.setTarget(missilePos);
   }
 
-  public setMissileProvider(provider: () => FollowableMissile | null): void {
+  /** Record a freshly acquired (or preempted) target and pick the sub-state. */
+  private acquire(candidate: RocketViewCandidate): void {
+    this.followedMissile = candidate.missile;
+    this.followedKind = candidate.kind;
+    if (candidate.kind === RocketViewKind.Iskander && candidate.missile.isClimbing?.()) {
+      this.rocketSubState = RocketSubState.IskanderLaunch;
+      this.chooseLaunchFramingSide(candidate.missile);
+    } else if (candidate.kind === RocketViewKind.Iskander) {
+      this.rocketSubState = RocketSubState.IskanderChase;
+    } else {
+      this.rocketSubState = RocketSubState.DefenseFollow;
+    }
+  }
+
+  /** Dispatch the per-frame pose for the current sub-state. */
+  private applyRocketPose(deltaTime: number, snap: boolean): void {
+    if (!this.followedMissile) return;
+    if (this.rocketSubState === RocketSubState.IskanderLaunch) {
+      this.updateLaunchFraming(this.followedMissile, deltaTime, snap);
+    } else {
+      this.updateMissileChase(this.followedMissile, deltaTime, snap);
+    }
+  }
+
+  /**
+   * Pick which side of the launch axis the camera sits on, once per acquisition,
+   * based on where the camera already is — so it doesn't flip sides mid-launch.
+   */
+  private chooseLaunchFramingSide(missile: FollowableMissile): void {
+    const iPos = missile.getPositionRef();
+    const bPos = this.bomber.getPositionRef();
+    let nx = bPos.x - iPos.x, nz = bPos.z - iPos.z;
+    const d = Math.sqrt(nx * nx + nz * nz);
+    if (d > 0.001) { nx /= d; nz /= d; } else { nx = 0; nz = 1; }
+    const px = -nz, pz = nx; // perpendicular bearing
+    const cx = this.camera.position.x - iPos.x;
+    const cz = this.camera.position.z - iPos.z;
+    this.launchFramingSide = cx * px + cz * pz >= 0 ? 1 : -1;
+  }
+
+  /**
+   * "Favor the launch" framing: sit behind-and-to-one-side of the Iskander launch
+   * site so the rising rocket dominates the frame, looking mostly at the Iskander
+   * with a small bias toward the bomber so the bomber sits near the frame edge.
+   * Allocation-free (reuses tempVector1 for position, tempVector2 for look-at).
+   */
+  private updateLaunchFraming(missile: FollowableMissile, deltaTime: number, snap: boolean): void {
+    const iPos = missile.getPositionRef();
+    const bPos = this.bomber.getPositionRef();
+    // Horizontal bearing iskander → bomber.
+    let nx = bPos.x - iPos.x, nz = bPos.z - iPos.z;
+    const d = Math.sqrt(nx * nx + nz * nz);
+    if (d > 0.001) { nx /= d; nz /= d; } else { nx = 0; nz = 1; }
+    const px = -nz, pz = nx; // perpendicular → side-on view of the liftoff
+    // Blend "behind the launch" with a sideways kick so the rocket is foreground.
+    let cdx = -nx * 0.7 + px * this.launchFramingSide * 0.7;
+    let cdz = -nz * 0.7 + pz * this.launchFramingSide * 0.7;
+    const cl = Math.sqrt(cdx * cdx + cdz * cdz);
+    if (cl > 0.001) { cdx /= cl; cdz /= cl; } else { cdx = 0; cdz = 1; }
+
+    this.tempVector1.set(
+      iPos.x + cdx * this.launchFramingDistance,
+      iPos.y + this.launchFramingHeight,
+      iPos.z + cdz * this.launchFramingDistance,
+    );
+    const groundHeight = this.terrainManager.getTerrainHeightAt(this.tempVector1.x, this.tempVector1.z);
+    this.tempVector1.y = Math.max(this.tempVector1.y, groundHeight + 5, 10);
+
+    if (snap) {
+      this.camera.position.copyFrom(this.tempVector1);
+    } else {
+      const lerpFactor = Math.min(this.missileChaseSmoothing * deltaTime, 1.0);
+      const invLerpFactor = 1.0 - lerpFactor;
+      this.camera.position.x = this.camera.position.x * invLerpFactor + this.tempVector1.x * lerpFactor;
+      this.camera.position.y = this.camera.position.y * invLerpFactor + this.tempVector1.y * lerpFactor;
+      this.camera.position.z = this.camera.position.z * invLerpFactor + this.tempVector1.z * lerpFactor;
+    }
+
+    // Look mostly at the iskander, nudged toward the bomber so it sits near the edge.
+    const t = this.launchFramingBomberBias;
+    this.tempVector2.set(
+      iPos.x + (bPos.x - iPos.x) * t,
+      iPos.y + (bPos.y - iPos.y) * t,
+      iPos.z + (bPos.z - iPos.z) * t,
+    );
+    this.camera.setTarget(this.tempVector2);
+  }
+
+  /**
+   * Linger on a missile's explosion. Eases to a standoff from the copied blast
+   * point along the last chase heading and watches it. The point is copied at
+   * hold entry, so this is independent of when the missile object is disposed.
+   */
+  private holdOnExplosion(deltaTime: number): void {
+    const dir = this.lastChaseDir;
+    let ox = dir.x, oy = dir.y, oz = dir.z;
+    const horiz = Math.sqrt(ox * ox + oz * oz);
+    const minHoriz = 0.35;
+    if (horiz < minHoriz) {
+      let bx = this.camera.position.x - this.explosionPoint.x;
+      let bz = this.camera.position.z - this.explosionPoint.z;
+      const b = Math.sqrt(bx * bx + bz * bz);
+      if (b > 0.001) { bx /= b; bz /= b; } else { bx = 0; bz = 1; }
+      ox = -bx * minHoriz;
+      oz = -bz * minHoriz;
+      oy = Math.sign(oy || 1) * Math.sqrt(1 - minHoriz * minHoriz);
+    }
+    this.tempVector1.set(
+      this.explosionPoint.x - ox * this.missileChaseDistance,
+      this.explosionPoint.y - oy * this.missileChaseDistance + this.missileChaseHeight,
+      this.explosionPoint.z - oz * this.missileChaseDistance,
+    );
+    const groundHeight = this.terrainManager.getTerrainHeightAt(this.tempVector1.x, this.tempVector1.z);
+    this.tempVector1.y = Math.max(this.tempVector1.y, groundHeight + 5, 10);
+
+    const lerpFactor = Math.min(this.missileChaseSmoothing * 0.5 * deltaTime, 1.0);
+    const invLerpFactor = 1.0 - lerpFactor;
+    this.camera.position.x = this.camera.position.x * invLerpFactor + this.tempVector1.x * lerpFactor;
+    this.camera.position.y = this.camera.position.y * invLerpFactor + this.tempVector1.y * lerpFactor;
+    this.camera.position.z = this.camera.position.z * invLerpFactor + this.tempVector1.z * lerpFactor;
+    this.camera.setTarget(this.explosionPoint);
+  }
+
+  public setMissileProvider(provider: () => RocketViewCandidate | null): void {
     this.missileProvider = provider;
   }
 
@@ -231,8 +439,16 @@ export class CameraController {
     this.rocketViewEnabled = enabled;
     if (!enabled && this.followedMissile) {
       this.followedMissile = null;
+      this.followedKind = null;
+      this.rocketSubState = RocketSubState.None;
+      this.explosionHoldTimer = 0;
       this.snapBehindBomber();
     }
+  }
+
+  /** Instrumentation for tests: the current Rocket View sub-state name. */
+  public getRocketSubState(): string {
+    return RocketSubState[this.rocketSubState];
   }
 
   public isRocketViewEnabled(): boolean {

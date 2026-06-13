@@ -506,6 +506,16 @@ export class IskanderMissile {
     return this.exploded;
   }
 
+  /**
+   * True while the missile is still in its initial vertical boost (below
+   * CLIMB_ALTITUDE). Flips false the frame it reaches chase altitude and hands
+   * off to guidance. Read live by Rocket View to switch from launch framing to
+   * the chase.
+   */
+  public isClimbing(): boolean {
+    return this.climbing;
+  }
+
   public getIsLockedOn(): boolean {
     return this.isLockedOn;
   }

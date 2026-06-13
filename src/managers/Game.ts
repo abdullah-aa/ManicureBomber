@@ -13,7 +13,7 @@ import {
 import { Bomber } from '../entities/Bomber';
 import { TerrainManager } from './TerrainManager';
 import { InputManager } from './InputManager';
-import { CameraController, FollowableMissile } from './CameraController';
+import { CameraController, RocketViewCandidate, RocketViewKind } from './CameraController';
 import { Bomb } from '../entities/Bomb';
 import { IskanderMissile } from '../entities/IskanderMissile';
 import { DefenseMissile } from '../entities/DefenseMissile';
@@ -60,6 +60,12 @@ export class Game {
 
   // Defense missile system - centralized management
   private defenseMissiles: DefenseMissile[] = [];
+  // Defer disposal ~1.5s after explosion so Rocket View can hold on the blast and
+  // the airburst finishes (mirrors iskanderExplodedAt).
+  private defenseExplodedAt: Map<DefenseMissile, number> = new Map();
+  // Reused descriptor returned by getRocketViewCandidate() — the camera copies its
+  // fields out synchronously, so a single instance avoids per-frame allocation.
+  private rocketCandidate: RocketViewCandidate = { missile: null as any, kind: RocketViewKind.Iskander };
 
   // Scoring system
   private destroyedBuildings: number = 0;
@@ -575,36 +581,53 @@ export class Game {
   }
 
   /**
-   * Missile for Rocket View to chase. Priority: Iskanders, then defense
-   * missiles — Tomahawks are excluded by design (their terrain-hugging weave
-   * makes for a chaotic view). Oldest live missile first: arrays are
+   * Candidate for Rocket View to NEWLY acquire. Priority: Iskanders, then
+   * defense missiles — Tomahawks are excluded by design (their terrain-hugging
+   * weave makes for a chaotic view). Oldest live missile first: arrays are
    * append-ordered, so index 0 is closest to impact and the camera chains
    * through the rest as each one explodes.
+   *
+   * Defense missiles are acquirable ONLY in their on-pad window (velocity still
+   * (0,0,0) before the async trajectory worker replies) so the camera catches
+   * the launch and shows the full lifecycle rather than snapping onto one
+   * already mid-flight. Once followed, the camera keeps the missile regardless.
+   * Returns a single reused descriptor (the camera copies its fields out).
    */
-  private getRocketViewCandidate(): FollowableMissile | null {
+  private getRocketViewCandidate(): RocketViewCandidate | null {
     for (const missile of this.iskanderMissiles) {
-      if (missile.isLaunched() && !missile.hasExploded()) return missile;
+      if (missile.isLaunched() && !missile.hasExploded()) {
+        this.rocketCandidate.missile = missile;
+        this.rocketCandidate.kind = RocketViewKind.Iskander;
+        return this.rocketCandidate;
+      }
     }
     for (const missile of this.defenseMissiles) {
-      // Velocity stays (0,0,0) until the async trajectory worker replies; don't
-      // acquire a missile frozen on its pad.
-      if (missile.isLaunched() && !missile.hasExploded() && missile.getVelocityRef().lengthSquared() > 0) {
-        return missile;
+      if (missile.isLaunched() && !missile.hasExploded() && missile.getVelocityRef().lengthSquared() === 0) {
+        this.rocketCandidate.missile = missile;
+        this.rocketCandidate.kind = RocketViewKind.Defense;
+        return this.rocketCandidate;
       }
     }
     return null;
   }
 
   private updateDefenseMissiles(deltaTime: number): void {
-    // Update all defense missiles and remove exploded ones
+    const currentTime = performance.now() / 1000;
+    // Update all defense missiles; sweep exploded ones ~1.5s after explosion so
+    // the airburst finishes and Rocket View can hold on the blast (no per-frame timers).
     for (let i = this.defenseMissiles.length - 1; i >= 0; i--) {
       const missile = this.defenseMissiles[i];
       missile.update(deltaTime);
 
-      // Remove exploded missiles
       if (missile.hasExploded()) {
-        missile.dispose();
-        this.defenseMissiles.splice(i, 1);
+        const explodedAt = this.defenseExplodedAt.get(missile);
+        if (explodedAt === undefined) {
+          this.defenseExplodedAt.set(missile, currentTime);
+        } else if (currentTime - explodedAt > 1.5) {
+          missile.dispose();
+          this.defenseExplodedAt.delete(missile);
+          this.defenseMissiles.splice(i, 1);
+        }
       }
     }
   }
