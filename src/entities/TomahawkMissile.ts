@@ -17,6 +17,7 @@ import { LightManager, LightHandle, LightPriority } from '../managers/LightManag
 import { EffectTextures } from '../effects/EffectTextures';
 import { ExplosionPool } from '../effects/ExplosionPool';
 import { updateTomahawkMissilePhysics } from '../managers/MissileGuidance';
+import { computeTomahawkLoopFraming, TomahawkLoopFraming } from '../workers/worker-utils';
 
 export class TomahawkMissile {
   private scene: Scene;
@@ -44,6 +45,9 @@ export class TomahawkMissile {
   // Curved path navigation properties
   private pathStartTime: number = 0;
   private waypoints: Vector3[] = [];
+  // Deterministic loop geometry for Rocket View framing; computed synchronously at
+  // construction (the async path worker isn't ready when the camera acquires at launch).
+  private loopFraming: TomahawkLoopFraming | null = null;
 
   // Simple curved path following
   private pathTime: number = 0;
@@ -92,6 +96,9 @@ export class TomahawkMissile {
     // Aim for the launcher sitting on top of the building, not the base.
     this.targetPosition = targetBuilding.getPosition().clone();
     this.targetPosition.y += targetBuilding.getMaxHeight();
+    // Loop framing for Rocket View — same {15,-20,15} offset generateInitialPath passes
+    // to the path worker, so the camera frames the exact loop the missile will fly.
+    this.loopFraming = computeTomahawkLoopFraming(this.position, this.targetPosition, { x: 15, y: -20, z: 15 });
     this.rotation = launchRotation.clone();
     this.velocity = new Vector3(0, 0, 0); // Start stationary
     this.bomberVelocity = bomberVelocity ? bomberVelocity.clone() : new Vector3(0, 0, 0);
@@ -585,6 +592,11 @@ export class TomahawkMissile {
   /** Target impact point (launcher atop the building). For Rocket View framing. */
   public getTargetPosition(): Vector3 {
     return this.targetPosition;
+  }
+
+  /** Deterministic loop geometry (loop-start, center, radius, cruise altitude). For Rocket View framing. */
+  public getLoopFraming(): TomahawkLoopFraming | null {
+    return this.loopFraming;
   }
 
   public dispose(): void {

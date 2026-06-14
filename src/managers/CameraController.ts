@@ -2,6 +2,7 @@ import { Bomber } from '../entities/Bomber';
 import { FreeCamera, Vector3 } from '@babylonjs/core';
 import { InputManager } from './InputManager';
 import { TerrainManager } from './TerrainManager';
+import { TomahawkLoopFraming } from '../workers/worker-utils';
 
 /**
  * Minimal surface a missile must expose for Rocket View to chase it.
@@ -36,8 +37,7 @@ enum RocketSubState {
   None,
   IskanderLaunch,
   IskanderChase,
-  TomahawkBayFocus,    // Tomahawk beat 1: frame the open bay + dropping missile
-  TomahawkDestination, // Tomahawk beat 2: planted static shot, looks at the target
+  TomahawkLocked,      // Tomahawk: fixed shot above the loop start; FOV-zooms in before impact
   DefenseFollow,
   ExplosionHold,
 }
@@ -103,22 +103,17 @@ export class CameraController {
   private readonly LAUNCH_HALF_VFOV_TAN = 0.42279; // tan(0.4) — Babylon default 0.8rad vertical FOV
   private launchCamPos: Vector3 = new Vector3();   // captured static camera pose (reused)
   private launchLookAt: Vector3 = new Vector3();   // captured static look-at (reused)
-  // Tomahawk View: a cinematic — (1) BayFocus frames the open bomb bay as the missile drops
-  // out, (2) Destination hard-cuts to a planted static shot at the drift-stop point (before
-  // the loop) facing the target launcher while the loops recede away, (3) the shared
-  // ExplosionHold falls close for the kill. TUNABLE.
-  // Beat 1 — close 3/4 angle below-and-behind the moving bomb bay, looking UP at the belly so
-  // the bomber rises above center and the dropping missile (the aim point) sits centered.
-  private readonly TOMA_BAY_BACK = 35;             // behind the bay along the bomber's heading
-  private readonly TOMA_BAY_SIDE = 28;             // lateral offset for a 3/4 angle (sign TUNABLE)
-  private readonly TOMA_BAY_DOWN = 40;             // drop below the bay; larger = look further up, missile more centered
-  // Beat 2 — planted static pose anchored at the missile's drift-stop position (guided-flight
-  // start, before the loop), looking at the target launcher; held still as the loops recede.
-  private readonly TOMA_PLANT_BACK = 50;           // pull back along the flight so the missile starts ahead and recedes
-  private readonly TOMA_PLANT_UP = 25;             // raise for a downward angle onto the receding loops
-  private readonly TOMA_PLANT_SIDE = 0;            // optional lateral offset (sign TUNABLE)
+  // Tomahawk View: a single FIXED shot planted high above the loop-start point, angled so both
+  // the looping missile and the target stay framed for the whole flight; the shared ExplosionHold
+  // then falls close for the kill. TUNABLE.
+  // Locked pose — placed above-and-behind the loop start; offsets scale with the loop→target
+  // span so near and far targets both frame. See beginTomahawkLocked.
+  private readonly TOMA_LOCK_BACK_K = 0.5;         // pull back behind loop-start by this * span
+  private readonly TOMA_LOCK_UP_K = 0.65;          // raise above cruise altitude by this * span
+  private readonly TOMA_LOCK_SIDE_K = 1.2;         // lateral offset in loop-radius units (sign TUNABLE)
+  private readonly TOMA_LOCK_LOOK_BIAS = 0.4;      // look-at: 0 = loop center, 1 = target
   private tomahawkCamPos: Vector3 = new Vector3(); // captured static camera pose (reused)
-  private tomahawkLookAt: Vector3 = new Vector3(); // captured static look-at (reused)
+  private tomahawkLookAt: Vector3 = new Vector3(); // locked look-at (reused)
   // Chase de-jerk: slew the heading toward velocity and smooth the look-at instead of
   // snapping each frame, so the camera follows the arc but not every guidance wag. TUNABLE.
   private readonly headingSmoothing = 2.5;
@@ -204,8 +199,6 @@ export class CameraController {
             this.lastChaseDir.set(v.x / vl, v.y / vl, v.z / vl);
           }
         }
-        // Tomahawk beat hand-offs (BayFocus → Chase → Destination).
-        this.updateTomahawkBeat(deltaTime);
         // Locked follow: free-look drags are intentionally ignored.
         this.applyRocketPose(deltaTime, false);
         return;
@@ -367,13 +360,10 @@ export class CameraController {
       this.smoothedTarget.copyFrom(candidate.missile.getPositionRef());
       this.smoothedTargetValid = true;
     } else if (candidate.kind === RocketViewKind.Tomahawk) {
-      // Beat 1: frame the open bay as the missile drops out. The in-flight hand-offs in
-      // update() carry it through chase → destination → the shared explosion hold.
-      this.rocketSubState = RocketSubState.TomahawkBayFocus;
-      // Seed a horizontal chase dir so a later holdOnExplosion standoff is sane until the
-      // chase/destination beats overwrite it (avoids the near-vertical clamp).
-      this.lastChaseDir.set(0, 0, 1);
-      this.beginTomahawkBayFocus(candidate.missile); // seeds smoothedTarget from the missile
+      // Lock a fixed establishing shot above the loop start from launch; it FOV-zooms onto
+      // the target before impact, then the shared explosion hold takes over.
+      this.rocketSubState = RocketSubState.TomahawkLocked;
+      this.beginTomahawkLocked(candidate.missile); // computes the pose + seeds smoothedTarget
     } else {
       this.rocketSubState = RocketSubState.DefenseFollow;
       this.smoothedTarget.copyFrom(candidate.missile.getPositionRef());
@@ -396,10 +386,8 @@ export class CameraController {
     if (!this.followedMissile) return;
     if (this.rocketSubState === RocketSubState.IskanderLaunch) {
       this.updateLaunchFraming(this.followedMissile, deltaTime, snap);
-    } else if (this.rocketSubState === RocketSubState.TomahawkBayFocus) {
-      this.updateTomahawkBayFocus(this.followedMissile, deltaTime, snap);
-    } else if (this.rocketSubState === RocketSubState.TomahawkDestination) {
-      this.updateTomahawkDestination(this.followedMissile, deltaTime, snap);
+    } else if (this.rocketSubState === RocketSubState.TomahawkLocked) {
+      this.updateTomahawkLocked(this.followedMissile, deltaTime, snap);
     } else {
       // IskanderChase and DefenseFollow share the chase machinery.
       this.updateMissileChase(this.followedMissile, deltaTime, snap);
@@ -474,112 +462,65 @@ export class CameraController {
   }
 
   /**
-   * Drive the Tomahawk's in-flight beat hand-off (called each locked-follow frame, only
-   * matters while a Tomahawk is followed): the moment the launch pop-up ends and guided
-   * flight begins — i.e. the drift motion stops, BEFORE the loop (which starts ~0.15s later)
-   * — hard-cut from BayFocus to the planted Destination shot so the camera never moves with
-   * the missile into the loop.
+   * Plant the fixed Tomahawk shot ONCE at acquisition: a pose high above-and-behind the loop
+   * start, angled so both the looping missile and the distant target stay framed. Offsets scale
+   * with the loop→target span so near and far targets both fit. The look-at is biased between the
+   * loop center and the target. Also aims lastChaseDir down the flight axis so the later
+   * ExplosionHold sits behind the approach. Falls back to a launch→target plant if the loop
+   * framing isn't available (it is computed synchronously at construction, so this is rare).
    */
-  private updateTomahawkBeat(_deltaTime: number): void {
-    if (this.followedKind !== RocketViewKind.Tomahawk || !this.followedMissile) return;
-    if (this.rocketSubState !== RocketSubState.TomahawkBayFocus) return;
-    const missile = this.followedMissile;
-    // Tomahawk-only accessor (omitted from the shared FollowableMissile interface).
-    const m = missile as unknown as { isInLaunchPhase(): boolean };
+  private beginTomahawkLocked(missile: FollowableMissile): void {
+    const m = missile as unknown as {
+      getLoopFraming(): TomahawkLoopFraming | null;
+      getTargetPosition(): Vector3;
+    };
+    const f = m.getLoopFraming();
 
-    if (!m.isInLaunchPhase()) {
-      // Plant at the drift-stop point and hard-cut: copy the camera straight onto the planted
-      // pose so the locked-follow lerp this frame starts already-correct (no swoop), and the
-      // seeded smoothedTarget aims it at the launcher immediately.
-      this.beginTomahawkDestination(missile);
-      this.rocketSubState = RocketSubState.TomahawkDestination;
-      this.camera.position.copyFrom(this.tomahawkCamPos);
-    }
-  }
+    if (f) {
+      const ls = f.loopStart, lc = f.loopCenter, tgt = f.target;
+      // Horizontal axis loop-start → target.
+      let ax = tgt.x - ls.x, az = tgt.z - ls.z;
+      const run = Math.sqrt(ax * ax + az * az);
+      if (run > 0.001) { ax /= run; az /= run; } else { ax = 0; az = 1; }
+      const px = -az, pz = ax; // lateral for the 3/4 angle
+      const span = Math.max(run, f.loopRadius * 2);
 
-  /**
-   * Beat 1: seed the bay-focus look-at from the dropping missile. The pose itself is
-   * recomputed each frame in updateTomahawkBayFocus (the bay moves with the bomber).
-   */
-  private beginTomahawkBayFocus(missile: FollowableMissile): void {
-    this.smoothedTarget.copyFrom(missile.getPositionRef());
-    this.smoothedTargetValid = true;
-  }
-
-  /**
-   * Beat 1 pose: a close 3/4 shot pinned below-and-behind the moving bomb bay, looking UP
-   * at the open doors with the dropping missile in the foreground. Recomputed each frame
-   * because the bay travels with the bomber; the look-at tracks the emerging missile.
-   */
-  private updateTomahawkBayFocus(missile: FollowableMissile, deltaTime: number, snap: boolean): void {
-    const bay = this.bomber.getBombBayPosition();
-    const ry = this.bomber.getRotationRef().y;
-    // Bomber forward = (sin ry, 0, cos ry) (matches the bomber-chase math in update());
-    // right = forward rotated -90° about Y.
-    const fx = Math.sin(ry), fz = Math.cos(ry);
-    const rx = Math.cos(ry), rz = -Math.sin(ry);
-    this.tempVector1.set(
-      bay.x - fx * this.TOMA_BAY_BACK + rx * this.TOMA_BAY_SIDE,
-      bay.y - this.TOMA_BAY_DOWN,
-      bay.z - fz * this.TOMA_BAY_BACK + rz * this.TOMA_BAY_SIDE,
-    );
-    const camGround = this.terrainManager.getTerrainHeightAt(this.tempVector1.x, this.tempVector1.z);
-    this.tempVector1.y = Math.max(this.tempVector1.y, camGround + 5, 10);
-
-    if (snap) {
-      this.camera.position.copyFrom(this.tempVector1);
+      this.tomahawkCamPos.set(
+        ls.x - ax * (span * this.TOMA_LOCK_BACK_K) + px * (f.loopRadius * this.TOMA_LOCK_SIDE_K),
+        f.cruiseAltitude + span * this.TOMA_LOCK_UP_K,
+        ls.z - az * (span * this.TOMA_LOCK_BACK_K) + pz * (f.loopRadius * this.TOMA_LOCK_SIDE_K),
+      );
+      this.tomahawkLookAt.set(
+        lc.x + (tgt.x - lc.x) * this.TOMA_LOCK_LOOK_BIAS,
+        f.cruiseAltitude * 0.5,
+        lc.z + (tgt.z - lc.z) * this.TOMA_LOCK_LOOK_BIAS,
+      );
+      this.lastChaseDir.set(ax, 0, az);
     } else {
-      const lerpFactor = Math.min(this.missileChaseSmoothing * deltaTime, 1.0);
-      const invLerpFactor = 1.0 - lerpFactor;
-      this.camera.position.x = this.camera.position.x * invLerpFactor + this.tempVector1.x * lerpFactor;
-      this.camera.position.y = this.camera.position.y * invLerpFactor + this.tempVector1.y * lerpFactor;
-      this.camera.position.z = this.camera.position.z * invLerpFactor + this.tempVector1.z * lerpFactor;
+      // Fallback: anchor a raised plant behind the missile along the launch→target bearing.
+      const pos = missile.getPositionRef();
+      const target = m.getTargetPosition();
+      let ax = target.x - pos.x, az = target.z - pos.z;
+      const run = Math.sqrt(ax * ax + az * az);
+      if (run > 0.001) { ax /= run; az /= run; } else { ax = 0; az = 1; }
+      this.tomahawkCamPos.set(pos.x - ax * 80, pos.y + 120, pos.z - az * 80);
+      this.tomahawkLookAt.copyFrom(target);
+      this.lastChaseDir.set(ax, 0, az);
     }
-    this.applySmoothedTarget(missile.getPositionRef(), deltaTime, snap);
-  }
 
-  /**
-   * Beat 2: snapshot a STATIC pose anchored where the missile is at the drift-stop point
-   * (guided-flight start, before the loop), pulled back along the flight axis and raised so
-   * the missile starts ahead of the camera and recedes; the look-at is the target launcher.
-   * Captured once — the missile then loops away toward the target while the camera holds still.
-   * Also points lastChaseDir down the flight axis so the later ExplosionHold sits behind the
-   * missile's approach for a sensible kill angle.
-   */
-  private beginTomahawkDestination(missile: FollowableMissile): void {
-    const m = missile as unknown as { getLaunchPosition(): Vector3; getTargetPosition(): Vector3 };
-    const pos = missile.getPositionRef();
-    const launch = m.getLaunchPosition();
-    const target = m.getTargetPosition();
-
-    // Horizontal flight axis launch→target.
-    let fx = target.x - launch.x, fz = target.z - launch.z;
-    const dist = Math.sqrt(fx * fx + fz * fz);
-    if (dist > 0.001) { fx /= dist; fz /= dist; } else { fx = 0; fz = 1; }
-    const px = -fz, pz = fx; // perpendicular (loop-bulge side)
-
-    this.tomahawkCamPos.set(
-      pos.x - fx * this.TOMA_PLANT_BACK + px * this.TOMA_PLANT_SIDE,
-      pos.y + this.TOMA_PLANT_UP,
-      pos.z - fz * this.TOMA_PLANT_BACK + pz * this.TOMA_PLANT_SIDE,
-    );
     const camGround = this.terrainManager.getTerrainHeightAt(this.tomahawkCamPos.x, this.tomahawkCamPos.z);
     this.tomahawkCamPos.y = Math.max(this.tomahawkCamPos.y, camGround + 5, 10);
-
-    this.tomahawkLookAt.copyFrom(target);
-    // Standoff bearing for the kill: along the flight axis (horizontal).
-    this.lastChaseDir.set(fx, 0, fz);
 
     this.smoothedTarget.copyFrom(this.tomahawkLookAt);
     this.smoothedTargetValid = true;
   }
 
   /**
-   * Beat 2 pose: hold the static plant captured in beginTomahawkDestination, looking at the
-   * target launcher. The plant was hard-cut on entry, so this is genuinely still from frame
-   * one while the missile loops away into the target.
+   * Hold the fixed pose captured in beginTomahawkLocked: the camera never moves and keeps the
+   * looping missile + target framed for the whole flight, looking at the locked midpoint. The
+   * shared ExplosionHold takes over for the kill.
    */
-  private updateTomahawkDestination(_missile: FollowableMissile, deltaTime: number, snap: boolean): void {
+  private updateTomahawkLocked(_missile: FollowableMissile, deltaTime: number, snap: boolean): void {
     if (snap) {
       this.camera.position.copyFrom(this.tomahawkCamPos);
     } else {

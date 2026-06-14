@@ -51,6 +51,60 @@ export function vector3Lerp(a: Vector3, b: Vector3, t: number): Vector3 {
   };
 }
 
+/**
+ * Deterministic loop geometry for a Tomahawk path, shared by the physics worker
+ * (which builds the waypoints from it) and Rocket View (which frames the loop).
+ * Keeping this in one place guarantees the camera and the flown path never diverge.
+ */
+export interface TomahawkLoopFraming {
+  loopStart: Vector3;   // wp1: above the launch point, at cruise altitude
+  loopCenter: Vector3;  // offsetLoopCenter, at cruise altitude
+  loopRadius: number;
+  cruiseAltitude: number;
+  target: Vector3;
+}
+
+/**
+ * Compute the loop framing/intermediates from the three launch-time inputs. Pure
+ * function of launchPosition, targetPosition and the fixed animationOffset, so it
+ * can be evaluated synchronously the instant the missile is constructed.
+ */
+export function computeTomahawkLoopFraming(
+  launchPosition: Vector3,
+  targetPosition: Vector3,
+  animationOffset: Vector3,
+): TomahawkLoopFraming {
+  const predictedStartPos = vector3Add(launchPosition, animationOffset);
+  const directionToTarget = vector3Normalize(vector3Subtract(targetPosition, predictedStartPos));
+
+  const cruiseAltitude = Math.max(predictedStartPos.y, targetPosition.y) - 80;
+  const safeCruiseAltitude = Math.max(cruiseAltitude, 100);
+
+  const horizontalDistance = Math.sqrt(
+    (targetPosition.x - predictedStartPos.x) ** 2 +
+    (targetPosition.z - predictedStartPos.z) ** 2,
+  );
+
+  const perpendicular = { x: -directionToTarget.z, y: 0, z: directionToTarget.x };
+  const loopRadius = Math.max(Math.min(horizontalDistance * 0.4, 400), 150);
+
+  const loopCenter = vector3Lerp(predictedStartPos, targetPosition, 0.5);
+  const centerOffset = horizontalDistance * 0.2;
+  const offsetLoopCenter = {
+    x: loopCenter.x + perpendicular.x * centerOffset,
+    y: safeCruiseAltitude,
+    z: loopCenter.z + perpendicular.z * centerOffset,
+  };
+
+  return {
+    loopStart: { x: predictedStartPos.x, y: safeCruiseAltitude, z: predictedStartPos.z },
+    loopCenter: offsetLoopCenter,
+    loopRadius,
+    cruiseAltitude: safeCruiseAltitude,
+    target: { x: targetPosition.x, y: targetPosition.y, z: targetPosition.z },
+  };
+}
+
 // Shared worker types - cannot use Babylon.js types in workers due to serialization constraints
 
 export enum BuildingType {

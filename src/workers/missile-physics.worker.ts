@@ -11,6 +11,7 @@ import {
   vector3Normalize,
   vector3Distance,
   vector3Lerp,
+  computeTomahawkLoopFraming,
 } from './worker-utils';
 
 // Base interface for common missile properties
@@ -124,52 +125,24 @@ interface TomahawkPathRequest {
 function generateTomahawkPath(request: TomahawkPathRequest): { waypoints: Vector3[] } {
   const { launchPosition, targetPosition, animationOffset } = request;
 
-  // Calculate predicted start position after launch animation
+  // Loop geometry is computed by a shared pure function so Rocket View can frame the
+  // exact same loop the missile flies (see computeTomahawkLoopFraming in worker-utils).
+  const framing = computeTomahawkLoopFraming(launchPosition, targetPosition, animationOffset);
+  const loopRadius = framing.loopRadius;
+  const safeCruiseAltitude = framing.cruiseAltitude;
+  const offsetLoopCenter = framing.loopCenter;
+
+  // Direction vectors used only for waypoint angles below (cheap, derived from the same inputs).
   const predictedStartPos = vector3Add(launchPosition, animationOffset);
-
-  // Calculate direction from start to target
   const directionToTarget = vector3Normalize(vector3Subtract(targetPosition, predictedStartPos));
-
-  // Define cruise altitude below bomber (bomber flies at 150-200, missile cruises beneath)
-  // Ensure it's well below the bomber but above ground
-  const cruiseAltitude = Math.max(predictedStartPos.y, targetPosition.y) - 80;
-  // Floor of 100 keeps the missile clear of 60-high terrain crests and skyscrapers
-  const safeCruiseAltitude = Math.max(cruiseAltitude, 100);
-
-  // Calculate horizontal distance (XZ plane)
-  const horizontalDistance = Math.sqrt(
-    (targetPosition.x - predictedStartPos.x) ** 2 +
-    (targetPosition.z - predictedStartPos.z) ** 2
-  );
-
-  // Calculate perpendicular vector for looping (90 degrees to direction)
   const perpendicular = {
     x: -directionToTarget.z,
     y: 0,
     z: directionToTarget.x,
   };
 
-  // Calculate looping radius - make it large enough to avoid bomber
-  // Use 40% of horizontal distance, minimum 150 units, maximum 400 units
-  const loopRadius = Math.max(Math.min(horizontalDistance * 0.4, 400), 150);
-
-  // Calculate center point for loops (midway between start and target, offset from bomber path)
-  const loopCenter = vector3Lerp(predictedStartPos, targetPosition, 0.5);
-  // Offset center away from bomber's path to avoid collision
-  const centerOffset = horizontalDistance * 0.2;
-  const offsetLoopCenter = {
-    x: loopCenter.x + perpendicular.x * centerOffset,
-    y: safeCruiseAltitude,
-    z: loopCenter.z + perpendicular.z * centerOffset,
-  };
-
-  // Create waypoints for looping approach
-  // Waypoint 1: Start position (after launch animation) - descend to cruise altitude
-  const wp1 = {
-    x: predictedStartPos.x,
-    y: safeCruiseAltitude,
-    z: predictedStartPos.z,
-  };
+  // Waypoint 1: Start position (after launch animation), descended to cruise altitude.
+  const wp1 = framing.loopStart;
 
   // First loop - approach from side
   // Waypoint 2: Entry point for first loop (east/north side)
