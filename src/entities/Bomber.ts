@@ -1001,6 +1001,11 @@ export class Bomber {
     return this.isDestroyed;
   }
 
+  public heal(amount: number): void {
+    if (this.isDestroyed || this.health >= this.maxHealth) return;
+    this.health = Math.min(this.maxHealth, this.health + amount);
+  }
+
   public takeDamage(damageAmount: number): void {
     if (this.isDestroyed) return;
 

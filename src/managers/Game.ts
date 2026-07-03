@@ -80,6 +80,8 @@ export class Game {
   // Scoring system
   private destroyedBuildings: number = 0;
   private destroyedTargets: number = 0;
+  // Fraction of max health restored per red-ring target destroyed
+  private readonly targetDestroyHealFraction = 0.05;
 
   // Game state
   private gameOver: boolean = false;
@@ -730,6 +732,7 @@ export class Game {
             this.destroyedBuildings++;
             if (building.isTarget()) {
               this.destroyedTargets++;
+              this.bomber.heal(this.bomber.getMaxHealth() * this.targetDestroyHealFraction);
             }
           }
         }

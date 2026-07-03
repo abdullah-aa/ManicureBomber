@@ -707,6 +707,23 @@ export class UIManager {
                 background-color: rgba(0, 255, 0, 0.4);
                 transition: width 0.1s linear;
             }
+            #health-bar-fill.heal-flash {
+                animation: healthBarHealFlash 0.6s ease-out;
+            }
+            @keyframes healthBarHealFlash {
+                0% {
+                    filter: brightness(1);
+                    box-shadow: none;
+                }
+                25% {
+                    filter: brightness(1.6);
+                    box-shadow: 0 0 12px 4px rgba(0, 255, 100, 0.9);
+                }
+                100% {
+                    filter: brightness(1);
+                    box-shadow: none;
+                }
+            }
             #health-text {
                 position: absolute;
                 top: 0;
@@ -930,6 +947,14 @@ export class UIManager {
 
     // Only update if changed
     if (currentHealth !== this.lastHealth) {
+      // Net health increase means a heal landed (>= 0 guard skips the initial seed);
+      // restart the flash so back-to-back heals each read
+      if (currentHealth > this.lastHealth && this.lastHealth >= 0) {
+        this.healthBarFill.classList.remove('heal-flash');
+        void this.healthBarFill.offsetWidth; // Force reflow so the animation restarts
+        this.healthBarFill.classList.add('heal-flash');
+      }
+
       const fillWidth = Math.max(0, Math.min(100, currentHealth));
       this.healthBarFill.style.width = `${fillWidth}%`;
       this.healthText.textContent = `${currentHealth.toFixed(0)}%`;
