@@ -824,6 +824,15 @@ export class Bomber {
     return this.isBombBayActive() || this.missileLaunchPending;
   }
 
+  /**
+   * True only while a Tomahawk launch is waiting on the bay doors — the
+   * missile-vs-bomb discriminator for an open bay (bombing runs never set it).
+   * Cleared when the missile spawns, or silently if the target died first.
+   */
+  public isMissileLaunchPending(): boolean {
+    return this.missileLaunchPending;
+  }
+
   public getBombBayOpenProgress(): number {
     return this.bombBayOpenProgress;
   }

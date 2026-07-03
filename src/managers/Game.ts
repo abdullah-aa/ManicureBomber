@@ -57,6 +57,10 @@ export class Game {
   private nextIskanderLaunchTime: number = -Infinity;
   private iskanderLaunchInterval: number = 30;
   private iskanderRandomInterval: number = 45;
+  // Launcher pre-selected this many seconds before the scheduled launch so Rocket
+  // View can dwell on it; re-validated per-frame in handleIskanderLaunch.
+  private pendingIskanderLauncher: Building | null = null;
+  private readonly iskanderPreselectLead = 4;
 
   // Defense missile system - centralized management
   private defenseMissiles: DefenseMissile[] = [];
@@ -65,7 +69,13 @@ export class Game {
   private defenseExplodedAt: Map<DefenseMissile, number> = new Map();
   // Reused descriptor returned by getRocketViewCandidate() — the camera copies its
   // fields out synchronously, so a single instance avoids per-frame allocation.
-  private rocketCandidate: RocketViewCandidate = { missile: null as any, kind: RocketViewKind.Iskander };
+  // anchorX/anchorZ are only meaningful for anchor-only kinds (IskanderPrelaunch).
+  private rocketCandidate: RocketViewCandidate = {
+    missile: null,
+    kind: RocketViewKind.Iskander,
+    anchorX: 0,
+    anchorZ: 0,
+  };
 
   // Scoring system
   private destroyedBuildings: number = 0;
@@ -374,9 +384,25 @@ export class Game {
   }
 
   private handleIskanderLaunch(currentTime: number): void {
+    // Pre-select the launcher during the lead window so Rocket View can dwell on
+    // it before the missile exists. Re-validated per-frame: a launcher destroyed
+    // mid-dwell is dropped and replaced (or left null if none is in range yet).
+    if (
+      currentTime >= this.nextIskanderLaunchTime - this.iskanderPreselectLead &&
+      currentTime < this.nextIskanderLaunchTime
+    ) {
+      if (this.pendingIskanderLauncher && this.pendingIskanderLauncher.getIsDestroyed()) {
+        this.pendingIskanderLauncher = null;
+      }
+      if (!this.pendingIskanderLauncher) {
+        this.pendingIskanderLauncher = this.findFarthestLauncher();
+      }
+    }
+
     // Check if it's time to launch an Iskander missile
     if (currentTime >= this.nextIskanderLaunchTime) {
       this.launchIskanderMissile();
+      this.pendingIskanderLauncher = null;
 
       // Calculate next launch time
       const totalInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
@@ -384,8 +410,8 @@ export class Game {
     }
   }
 
-  private launchIskanderMissile(): void {
-    // Find the defense launcher farthest from the bomber
+  /** The live defense launcher farthest from the bomber within 1000u, or null. */
+  private findFarthestLauncher(): Building | null {
     const bomberPosition = this.bomber.getPosition();
 
     const buildings = this.terrainManager.getBuildingsInRadiusSync(bomberPosition, 1000);
@@ -401,6 +427,22 @@ export class Game {
         }
       }
     }
+    return farthestLauncher;
+  }
+
+  /** Instrumentation for tests: the launcher Rocket View is dwelling on, if any. */
+  public getPendingIskanderLauncher(): Building | null {
+    return this.pendingIskanderLauncher;
+  }
+
+  private launchIskanderMissile(): void {
+    // Prefer the pre-selected launcher (re-validated — it may have been destroyed
+    // this same frame); fall back to a fresh scan so a launcher that entered range
+    // after the preselect window opened can still fire.
+    const farthestLauncher =
+      this.pendingIskanderLauncher && !this.pendingIskanderLauncher.getIsDestroyed()
+        ? this.pendingIskanderLauncher
+        : this.findFarthestLauncher();
 
     if (farthestLauncher) {
       const launchPosition = farthestLauncher.getPosition().clone();
@@ -551,16 +593,20 @@ export class Game {
   }
 
   /**
-   * Candidate for Rocket View to NEWLY acquire. Priority: Iskanders > Tomahawks >
-   * defense missiles (the camera generalizes this into a preemption chain).
+   * Candidate for Rocket View to NEWLY acquire. Priority: Iskanders > Iskander
+   * prelaunch dwell > Tomahawks > Tomahawk bay-open > defense missiles (the
+   * camera generalizes this into a preemption chain; the live missile displacing
+   * its own anchor-only precursor IS the prelaunch→launch / bay→drop handoff).
    *
    * Acquisition windows differ by kind: an Iskander is acquirable its whole life;
    * a Tomahawk only during its bomb-bay launch animation (isInLaunchPhase); a
    * defense missile only in its on-pad window (velocity still (0,0,0) before the
    * async trajectory worker replies). So the camera catches Tomahawks/Defense at
    * launch and shows the full lifecycle rather than snapping onto one already
-   * mid-flight; once followed, it keeps the missile regardless. Returns a single
-   * reused descriptor (the camera copies its fields out).
+   * mid-flight; once followed, it keeps the missile regardless. The anchor-only
+   * kinds carry no missile: IskanderPrelaunch frames the pre-selected launcher
+   * (anchorX/anchorZ) and TomahawkBay frames the bomber's bay while the doors
+   * open. Returns a single reused descriptor (the camera copies its fields out).
    */
   private getRocketViewCandidate(): RocketViewCandidate | null {
     for (const missile of this.iskanderMissiles) {
@@ -570,6 +616,15 @@ export class Game {
         return this.rocketCandidate;
       }
     }
+    // Nulled at fire time, so the dwell ends the instant the real missile exists.
+    if (this.pendingIskanderLauncher && !this.pendingIskanderLauncher.getIsDestroyed()) {
+      const p = this.pendingIskanderLauncher.getPosition();
+      this.rocketCandidate.missile = null;
+      this.rocketCandidate.kind = RocketViewKind.IskanderPrelaunch;
+      this.rocketCandidate.anchorX = p.x;
+      this.rocketCandidate.anchorZ = p.z;
+      return this.rocketCandidate;
+    }
     for (const missile of this.bomber.getMissiles()) {
       // Catch the Tomahawk only during its launch pop-up, then the follow persists.
       if (!missile.hasExploded() && missile.isInLaunchPhase()) {
@@ -577,6 +632,12 @@ export class Game {
         this.rocketCandidate.kind = RocketViewKind.Tomahawk;
         return this.rocketCandidate;
       }
+    }
+    // Bay doors opening for a Tomahawk that doesn't exist yet (clears on spawn or abort).
+    if (this.bomber.isMissileLaunchPending()) {
+      this.rocketCandidate.missile = null;
+      this.rocketCandidate.kind = RocketViewKind.TomahawkBay;
+      return this.rocketCandidate;
     }
     for (const missile of this.defenseMissiles) {
       if (missile.isLaunched() && !missile.hasExploded() && missile.getVelocityRef().lengthSquared() === 0) {
@@ -699,6 +760,10 @@ export class Game {
 
   private handleGameOver(): void {
     this.gameOver = true;
+
+    // Game-over stops camera updates entirely, so a mid-zoom Tomahawk FOV would
+    // otherwise stay frozen behind the overlay; this also restores the FOV.
+    this.cameraController.setRocketViewEnabled(false);
 
     if (this.bomber) {
       this.bomber.dispose();
