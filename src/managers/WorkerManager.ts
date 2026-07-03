@@ -1,9 +1,6 @@
-import { Vector3 } from '@babylonjs/core';
-
 export class WorkerManager {
   private terrainWorker!: Worker;
   private missilePhysicsWorker!: Worker;
-  private collisionDetectionWorker!: Worker;
 
   private messageCallbacks: Map<string, { resolve: (result: any) => void; timeoutId: ReturnType<typeof setTimeout> }> =
     new Map();
@@ -25,12 +22,6 @@ export class WorkerManager {
       type: 'module',
     });
     this.setupWorkerListener(this.missilePhysicsWorker);
-
-    // Initialize collision detection worker
-    this.collisionDetectionWorker = new Worker(new URL('../workers/collision-detection.worker.ts', import.meta.url), {
-      type: 'module',
-    });
-    this.setupWorkerListener(this.collisionDetectionWorker);
   }
 
   private setupWorkerListener(worker: Worker): void {
@@ -69,49 +60,6 @@ export class WorkerManager {
     return this.sendMessageToWorker(this.missilePhysicsWorker, {
       type: 'CALCULATE_DEFENSE_TRAJECTORY',
       data: missileData,
-    });
-  }
-
-  public checkIskanderCollisions(iskanderMissiles: any[], bomberData: any): Promise<any> {
-    return this.sendMessageToWorker(this.collisionDetectionWorker, {
-      type: 'CHECK_ISKANDER_COLLISIONS',
-      data: {
-        iskanderMissiles: iskanderMissiles.map((missile, index) => {
-          const position = missile.getPosition();
-          return {
-            id: `iskander_${index}`,
-            position: { x: position.x, y: position.y, z: position.z },
-            isLaunched: missile.isLaunched(),
-            hasExploded: missile.hasExploded(),
-          };
-        }),
-        bomberData: {
-          position: { x: bomberData.position.x, y: bomberData.position.y, z: bomberData.position.z },
-          isDestroyed: bomberData.isDestroyed,
-        },
-      },
-    });
-  }
-
-  public checkDefenseCollisions(defenseMissiles: any[], bomberData: any): Promise<any> {
-    return this.sendMessageToWorker(this.collisionDetectionWorker, {
-      type: 'CHECK_DEFENSE_COLLISIONS',
-      data: {
-        defenseMissiles: defenseMissiles.map((missile, index) => {
-          const position = missile.getPosition();
-          return {
-            id: `defense_${index}`,
-            position: { x: position.x, y: position.y, z: position.z },
-            isLaunched: missile.isLaunched(),
-            hasExploded: missile.hasExploded(),
-            buildingId: `building_${index}`,
-          };
-        }),
-        bomberData: {
-          position: { x: bomberData.position.x, y: bomberData.position.y, z: bomberData.position.z },
-          isDestroyed: bomberData.isDestroyed,
-        },
-      },
     });
   }
 

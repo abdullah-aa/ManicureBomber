@@ -51,6 +51,64 @@ export function vector3Lerp(a: Vector3, b: Vector3, t: number): Vector3 {
   };
 }
 
+// In-place variants for per-frame hot paths (managers/MissileGuidance): they
+// write into a caller-owned object instead of allocating a fresh one per call.
+// All are alias-safe (ref may be one of the inputs). The pure versions above
+// stay for the episodic worker paths, where clarity beats allocation count.
+
+export function vector3CopyToRef(v: Vector3, ref: Vector3): Vector3 {
+  ref.x = v.x;
+  ref.y = v.y;
+  ref.z = v.z;
+  return ref;
+}
+
+export function vector3AddToRef(a: Vector3, b: Vector3, ref: Vector3): Vector3 {
+  ref.x = a.x + b.x;
+  ref.y = a.y + b.y;
+  ref.z = a.z + b.z;
+  return ref;
+}
+
+export function vector3SubtractToRef(a: Vector3, b: Vector3, ref: Vector3): Vector3 {
+  ref.x = a.x - b.x;
+  ref.y = a.y - b.y;
+  ref.z = a.z - b.z;
+  return ref;
+}
+
+export function vector3ScaleToRef(v: Vector3, scale: number, ref: Vector3): Vector3 {
+  ref.x = v.x * scale;
+  ref.y = v.y * scale;
+  ref.z = v.z * scale;
+  return ref;
+}
+
+export function vector3NormalizeToRef(v: Vector3, ref: Vector3): Vector3 {
+  const length = vector3Length(v);
+  if (length === 0) {
+    ref.x = 0;
+    ref.y = 0;
+    ref.z = 0;
+    return ref;
+  }
+  return vector3ScaleToRef(v, 1 / length, ref);
+}
+
+export function vector3LerpToRef(a: Vector3, b: Vector3, t: number, ref: Vector3): Vector3 {
+  ref.x = a.x + (b.x - a.x) * t;
+  ref.y = a.y + (b.y - a.y) * t;
+  ref.z = a.z + (b.z - a.z) * t;
+  return ref;
+}
+
+export function vector3DistanceSquared(a: Vector3, b: Vector3): number {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  const dz = a.z - b.z;
+  return dx * dx + dy * dy + dz * dz;
+}
+
 /**
  * Deterministic loop geometry for a Tomahawk path, shared by the physics worker
  * (which builds the waypoints from it) and Rocket View (which frames the loop).

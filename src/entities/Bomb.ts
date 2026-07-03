@@ -1,14 +1,5 @@
-import {
-  Scene,
-  Mesh,
-  Vector3,
-  MeshBuilder,
-  StandardMaterial,
-  Color3,
-  ParticleSystem,
-  Sound,
-  Color4,
-} from '@babylonjs/core';
+import { Scene, Mesh, Vector3, MeshBuilder, ParticleSystem, Sound, Color4 } from '@babylonjs/core';
+import { MissileAssets } from './MissileAssets';
 import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
 import { EffectTextures } from '../effects/EffectTextures';
 import { ExplosionPool } from '../effects/ExplosionPool';
@@ -44,6 +35,10 @@ export class Bomb {
   }
 
   private createDetailedBombMesh(): Mesh {
+    // Part materials are shared frozen instances (MissileAssets) — one set for
+    // every bomb ever dropped instead of ~12 fresh materials per drop.
+    const assets = MissileAssets.get(this.scene);
+
     // Create a group to hold all bomb parts
     const bombGroup = MeshBuilder.CreateBox('bombGroup', { width: 0.1, height: 0.1, depth: 0.1 }, this.scene);
     bombGroup.isVisible = false; // Hide the group mesh, we'll use it as a container
@@ -64,12 +59,7 @@ export class Bomb {
 
     // No rotation needed - cylinder is already vertical by default
     bombBody.parent = bombGroup;
-
-    const bodyMaterial = new StandardMaterial('bombBodyMaterial', this.scene);
-    bodyMaterial.diffuseColor = new Color3(0.3, 0.3, 0.3); // Dark gray
-    bodyMaterial.specularColor = new Color3(0.5, 0.5, 0.5);
-    bodyMaterial.emissiveColor = new Color3(0.05, 0.05, 0.05);
-    bombBody.material = bodyMaterial;
+    bombBody.material = assets.getBombBodyMaterial();
 
     // Nose cone - conical shape (pointing down)
     const noseCone = MeshBuilder.CreateCylinder(
@@ -85,12 +75,7 @@ export class Bomb {
 
     noseCone.position.y = 2.6; // Top of bomb (pointing down when falling)
     noseCone.parent = bombGroup;
-
-    const noseMaterial = new StandardMaterial('bombNoseMaterial', this.scene);
-    noseMaterial.diffuseColor = new Color3(0.1, 0.1, 0.1); // Very dark, almost black
-    noseMaterial.specularColor = new Color3(0.8, 0.8, 0.8); // High specular for metallic look
-    noseMaterial.emissiveColor = new Color3(0.05, 0.05, 0.05); // Slight glow
-    noseCone.material = noseMaterial;
+    noseCone.material = assets.getBombNoseMaterial();
 
     // Add a small colored tip to make orientation clear
     const noseTip = MeshBuilder.CreateSphere(
@@ -104,11 +89,7 @@ export class Bomb {
 
     noseTip.position.y = 3.2; // Very top tip
     noseTip.parent = bombGroup;
-
-    const tipMaterial = new StandardMaterial('bombNoseTipMaterial', this.scene);
-    tipMaterial.diffuseColor = new Color3(0.8, 0.2, 0.2); // Red tip
-    tipMaterial.emissiveColor = new Color3(0.1, 0.02, 0.02); // Slight red glow
-    noseTip.material = tipMaterial;
+    noseTip.material = assets.getBombNoseTipMaterial();
 
     // Tail fins - 4 fins around the bottom (front when falling)
     const finPositions = [
@@ -132,10 +113,7 @@ export class Bomb {
       fin.position = finData.pos;
       fin.rotation = finData.rot;
       fin.parent = bombGroup;
-
-      const finMaterial = new StandardMaterial(`bombFinMaterial${index}`, this.scene);
-      finMaterial.diffuseColor = new Color3(0.25, 0.25, 0.25);
-      fin.material = finMaterial;
+      fin.material = assets.getBombFinMaterial();
     });
 
     // Tail cone - small cone at the bottom (front when falling)
@@ -152,11 +130,7 @@ export class Bomb {
 
     tailCone.position.y = -2.4; // Bottom of bomb (front when falling)
     tailCone.parent = bombGroup;
-
-    const tailMaterial = new StandardMaterial('bombTailMaterial', this.scene);
-    tailMaterial.diffuseColor = new Color3(0.5, 0.5, 0.5); // Lighter gray to distinguish from nose
-    tailMaterial.specularColor = new Color3(0.3, 0.3, 0.3);
-    tailCone.material = tailMaterial;
+    tailCone.material = assets.getBombTailMaterial();
 
     // Add a small indicator at the very bottom of the tail
     const tailIndicator = MeshBuilder.CreateSphere(
@@ -170,11 +144,7 @@ export class Bomb {
 
     tailIndicator.position.y = -2.8; // Very bottom of bomb
     tailIndicator.parent = bombGroup;
-
-    const indicatorMaterial = new StandardMaterial('bombTailIndicatorMaterial', this.scene);
-    indicatorMaterial.diffuseColor = new Color3(0.7, 0.7, 0.7); // Light gray
-    indicatorMaterial.emissiveColor = new Color3(0.05, 0.05, 0.05); // Slight glow
-    tailIndicator.material = indicatorMaterial;
+    tailIndicator.material = assets.getBombTailIndicatorMaterial();
 
     // Add some detail rings around the body
     for (let i = 0; i < 3; i++) {
@@ -190,10 +160,7 @@ export class Bomb {
 
       ring.position.y = -1 + i * 1.5; // Distribute along body vertically (flipped)
       ring.parent = bombGroup;
-
-      const ringMaterial = new StandardMaterial('bombRingMaterial' + i, this.scene);
-      ringMaterial.diffuseColor = new Color3(0.4, 0.4, 0.4);
-      ring.material = ringMaterial;
+      ring.material = assets.getBombRingMaterial();
     }
 
     return bombGroup;
@@ -226,8 +193,12 @@ export class Bomb {
   }
 
   public update(deltaTime: number): void {
-    this.position.addInPlace(this.velocity.scale(deltaTime));
-    this.mesh.position = this.position;
+    // Component-wise integration — no per-frame Vector3 allocations. The mesh
+    // position already aliases this.position (set once in the constructor), so
+    // mutating the components moves the mesh too.
+    this.position.x += this.velocity.x * deltaTime;
+    this.position.y += this.velocity.y * deltaTime;
+    this.position.z += this.velocity.z * deltaTime;
     this.lightHandle.setPosition(this.position);
   }
 
@@ -251,8 +222,9 @@ export class Bomb {
     // kill the shared EffectTextures trail texture for every later bomb/missile.
     this.trailParticles.emitter = this.position.clone();
 
-    // Dispose part materials/textures with the hierarchy (all are per-bomb instances)
-    this.mesh.dispose(false, true);
+    // Part materials are shared frozen instances (MissileAssets) — plain
+    // dispose() (no disposeMaterialAndTextures) leaves them intact.
+    this.mesh.dispose();
 
     // Let the last trail particles (0.4s lifetime) fade before disposing; the
     // trail texture is shared, so dispose(false) keeps it alive.
@@ -268,8 +240,9 @@ export class Bomb {
   public dispose(): void {
     // Trail before mesh: the mesh is the trail's emitter, and disposing it first
     // would auto-dispose the trail with the shared texture (see explode()).
+    // Plain dispose() keeps the shared MissileAssets part materials.
     if (this.trailParticles) this.trailParticles.dispose(false);
-    this.mesh.dispose(false, true);
+    this.mesh.dispose();
     if (this.explosionSound) this.explosionSound.dispose();
     this.lightHandle.release();
   }

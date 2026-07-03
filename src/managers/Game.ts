@@ -260,12 +260,12 @@ export class Game {
 
         // Always update critical systems
         this.handleBombing(safeCurrentTime);
-        this.handleMissileLaunch(); // Now uses promise-based callbacks internally
+        this.handleMissileLaunch();
         this.handleIskanderLaunch(safeCurrentTime);
         this.handleCountermeasures();
 
         this.bomber.update(safeDeltaTime, this.inputManager);
-        this.updateBombs(safeDeltaTime); // Now uses promise-based callbacks internally
+        this.updateBombs(safeDeltaTime);
         this.updateIskanderMissiles(safeDeltaTime);
         this.updateDefenseMissiles(safeDeltaTime);
         // Rocket View only exists in AI mode; force it off no matter who disabled the AI
@@ -281,7 +281,7 @@ export class Game {
 
         // Check for defense missile collisions (high frequency for responsive damage)
         if (currentTime - this.lastCollisionCheckTime > this.collisionCheckInterval) {
-          this.checkDefenseMissileCollisions(); // Now uses promise-based callbacks internally
+          this.checkDefenseMissileCollisions();
           this.checkIskanderMissileCollisions();
           this.lastCollisionCheckTime = currentTime;
         }
@@ -368,19 +368,8 @@ export class Game {
     }
 
     if (this.inputManager.isMissileKeyPressed() && this.bomber.canLaunchMissile()) {
-      // Use promise-based callbacks instead of async/await
-      this.bomber
-        .hasValidTarget()
-        .then((hasValidTarget) => {
-          if (hasValidTarget) {
-            this.bomber.launchMissile().catch(() => {
-              // Silent error handling for missile launch
-            });
-          }
-        })
-        .catch(() => {
-          // Silent error handling for target validation
-        });
+      // tryLaunchMissile self-validates the target, so no separate pre-check scan
+      this.bomber.tryLaunchMissile();
     }
   }
 
@@ -399,42 +388,35 @@ export class Game {
     // Find the defense launcher farthest from the bomber
     const bomberPosition = this.bomber.getPosition();
 
-    // Use promise-based callbacks instead of async/await
-    this.terrainManager
-      .getBuildingsInRadius(bomberPosition, 1000)
-      .then((buildings) => {
-        let farthestLauncher = null;
-        let maxDistance = 0;
+    const buildings = this.terrainManager.getBuildingsInRadiusSync(bomberPosition, 1000);
+    let farthestLauncher: Building | null = null;
+    let maxDistance = 0;
 
-        for (const building of buildings) {
-          if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
-            const distance = Vector3.Distance(bomberPosition, building.getPosition());
-            if (distance > maxDistance) {
-              maxDistance = distance;
-              farthestLauncher = building;
-            }
-          }
+    for (const building of buildings) {
+      if (building.isDefenseLauncher() && !building.getIsDestroyed()) {
+        const distance = Vector3.Distance(bomberPosition, building.getPosition());
+        if (distance > maxDistance) {
+          maxDistance = distance;
+          farthestLauncher = building;
         }
+      }
+    }
 
-        if (farthestLauncher) {
-          const launchPosition = farthestLauncher.getPosition().clone();
-          // Buildings are pinned to world y=0 while terrain rises to ~60, so the roof
-          // alone can sit below the local ground and the missile would climb buried.
-          // Spawn above BOTH the roof and the terrain so it's visible from liftoff.
-          const terrainY = this.terrainManager.getTerrainHeightAt(launchPosition.x, launchPosition.z);
-          const roofY = launchPosition.y + farthestLauncher.getMaxHeight(); // parent.y == 0
-          launchPosition.y = Math.max(roofY, terrainY) + 5;
+    if (farthestLauncher) {
+      const launchPosition = farthestLauncher.getPosition().clone();
+      // Buildings are pinned to world y=0 while terrain rises to ~60, so the roof
+      // alone can sit below the local ground and the missile would climb buried.
+      // Spawn above BOTH the roof and the terrain so it's visible from liftoff.
+      const terrainY = this.terrainManager.getTerrainHeightAt(launchPosition.x, launchPosition.z);
+      const roofY = launchPosition.y + farthestLauncher.getMaxHeight(); // parent.y == 0
+      launchPosition.y = Math.max(roofY, terrainY) + 5;
 
-          const missile = new IskanderMissile(this.scene, launchPosition, this.bomber, this.workerManager);
-          missile.setTerrainManager(this.terrainManager);
+      const missile = new IskanderMissile(this.scene, launchPosition, this.bomber, this.workerManager);
+      missile.setTerrainManager(this.terrainManager);
 
-          missile.launch();
-          this.iskanderMissiles.push(missile);
-        }
-      })
-      .catch(() => {
-        // Silent error handling - fallback to synchronous method if needed
-      });
+      missile.launch();
+      this.iskanderMissiles.push(missile);
+    }
   }
 
   private handleCountermeasures(): void {
@@ -477,42 +459,25 @@ export class Game {
     }
   }
 
+  // Inline synchronous check (was a collision-worker round trip). Besides the
+  // ~125 timers/sec and per-frame serialization it removes, this fixes a real
+  // bug: the worker mapped results back by array index, but the missile array
+  // is spliced between send and receive, so the wrong missile could explode.
   private checkIskanderMissileCollisions(): void {
     if (this.gameOver || this.bomber.isBomberDestroyed()) return;
 
-    if (this.iskanderMissiles.length === 0) return;
+    const bomberPosition = this.bomber.getPositionRef();
+    // Same threshold the worker used: direct hits (8u) and proximity bursts
+    // (20u) both only triggered explode(), so a single 20u check suffices.
+    const proximityRadiusSq = 20 * 20;
 
-    // Use worker for collision detection (position is serialized synchronously)
-    const bomberData = {
-      position: this.bomber.getPositionRef(),
-      isDestroyed: this.bomber.isBomberDestroyed(),
-    };
+    for (const missile of this.iskanderMissiles) {
+      if (!missile.isLaunched() || missile.hasExploded()) continue;
 
-    this.workerManager
-      .checkIskanderCollisions(this.iskanderMissiles, bomberData)
-      .then((result) => {
-        this.handleIskanderCollisionResults(result.collisions);
-      })
-      .catch(() => {
-        // Worker failed - rely on next update cycle
-      });
-  }
-
-  private parseMissileIndex(missileId: string): number {
-    return parseInt(missileId.split('_')[1], 10);
-  }
-
-  private handleIskanderCollisionResults(collisions: any[]): void {
-    if (this.gameOver || this.bomber.isBomberDestroyed()) return;
-
-    for (const collision of collisions) {
-      const missileIndex = this.parseMissileIndex(collision.missileId);
-      const missile = this.iskanderMissiles[missileIndex];
-
-      if (missile && missile.isLaunched() && !missile.hasExploded()) {
+      if (Vector3.DistanceSquared(bomberPosition, missile.getPositionRef()) <= proximityRadiusSq) {
         // explode() applies its own distance-based proximity damage (≤25u) — that is
         // the single damage path. A direct hit means distance ≈ 0, i.e. max damage,
-        // so applying collision.damage here as well double-damaged the bomber.
+        // so applying extra damage here as well double-damaged the bomber.
         missile.explode();
       }
     }
@@ -636,7 +601,8 @@ export class Game {
         if (explodedAt === undefined) {
           this.defenseExplodedAt.set(missile, currentTime);
         } else if (currentTime - explodedAt > 1.5) {
-          missile.dispose();
+          // Back to the pool (not disposed) — launchers re-arm it on the next volley
+          missile.release();
           this.defenseExplodedAt.delete(missile);
           this.defenseMissiles.splice(i, 1);
         }
@@ -693,26 +659,19 @@ export class Game {
 
         const blastRadius = 75;
 
-        // Use promise-based callbacks instead of async/await
-        this.terrainManager
-          .getBuildingsInRadius(explosionPoint, blastRadius)
-          .then((nearbyBuildings) => {
-            nearbyBuildings.forEach((building) => {
-              const distance = Vector3.Distance(explosionPoint, building.getPosition());
-              const damage = Math.max(10, 50 - distance);
+        const nearbyBuildings = this.terrainManager.getBuildingsInRadiusSync(explosionPoint, blastRadius);
+        for (const building of nearbyBuildings) {
+          const distance = Vector3.Distance(explosionPoint, building.getPosition());
+          const damage = Math.max(10, 50 - distance);
 
-              const wasDestroyed = building.takeDamage(damage, true);
-              if (wasDestroyed) {
-                this.destroyedBuildings++;
-                if (building.isTarget()) {
-                  this.destroyedTargets++;
-                }
-              }
-            });
-          })
-          .catch(() => {
-            // Silent error handling - fallback to synchronous method if needed
-          });
+          const wasDestroyed = building.takeDamage(damage, true);
+          if (wasDestroyed) {
+            this.destroyedBuildings++;
+            if (building.isTarget()) {
+              this.destroyedTargets++;
+            }
+          }
+        }
 
         bomb.explode(explosionPoint);
         this.bombs.splice(i, 1);
@@ -767,36 +726,25 @@ export class Game {
     document.body.appendChild(gameOverDiv);
   }
 
+  // Inline synchronous check — same thresholds and damage curve the collision
+  // worker used (8u direct hit = 25 damage, 20u proximity = 5..20 falloff),
+  // minus the index-mismatch bug (see checkIskanderMissileCollisions).
   private checkDefenseMissileCollisions(): void {
     if (this.gameOver || this.bomber.isBomberDestroyed()) return;
 
-    if (this.defenseMissiles.length === 0) return;
+    const bomberPosition = this.bomber.getPositionRef();
+    const directHitRadiusSq = 8 * 8;
+    const proximityRadiusSq = 20 * 20;
 
-    // Use worker for collision detection (position is serialized synchronously)
-    const bomberData = {
-      position: this.bomber.getPositionRef(),
-      isDestroyed: this.bomber.isBomberDestroyed(),
-    };
+    for (const missile of this.defenseMissiles) {
+      if (!missile.isLaunched() || missile.hasExploded()) continue;
 
-    this.workerManager
-      .checkDefenseCollisions(this.defenseMissiles, bomberData)
-      .then((result) => {
-        this.handleDefenseCollisionResults(result.collisions, this.defenseMissiles);
-      })
-      .catch(() => {
-        // Worker failed - rely on next update cycle
-      });
-  }
-
-  private handleDefenseCollisionResults(collisions: any[], defenseMissiles: any[]): void {
-    if (this.gameOver || this.bomber.isBomberDestroyed()) return;
-
-    for (const collision of collisions) {
-      const missileIndex = this.parseMissileIndex(collision.missileId);
-      const missile = defenseMissiles[missileIndex];
-
-      if (missile && missile.isLaunched() && !missile.hasExploded()) {
-        this.bomber.takeDamage(collision.damage);
+      const distanceSq = Vector3.DistanceSquared(bomberPosition, missile.getPositionRef());
+      if (distanceSq <= directHitRadiusSq) {
+        this.bomber.takeDamage(25);
+        missile.explode();
+      } else if (distanceSq <= proximityRadiusSq) {
+        this.bomber.takeDamage(Math.max(5, 20 - Math.sqrt(distanceSq)));
         missile.explode();
       }
     }

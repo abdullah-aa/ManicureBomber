@@ -8,15 +8,27 @@
 //
 // Inputs/outputs are the same plain {x,y,z} payloads the worker consumed, so the
 // math is bit-identical to the worker implementation.
+//
+// Allocation discipline: this file runs every frame for every live missile, so
+// all vector math goes through the ToRef helpers into module-scope scratch
+// vectors, and each update function returns one reused module-scope result
+// object. That is safe because guidance is single-threaded, none of these
+// functions call each other across scratch owners, and both callers
+// (TomahawkMissile/IskanderMissile.applyPhysicsResult) copy every field out
+// synchronously before the next update runs. Inputs are never mutated — the
+// Iskander flareTargets array in particular is the bomber's live array
+// (read-only contract).
 
 import {
   Vector3,
-  vector3Add,
-  vector3Subtract,
-  vector3Scale,
-  vector3Normalize,
+  vector3AddToRef,
+  vector3SubtractToRef,
+  vector3ScaleToRef,
+  vector3NormalizeToRef,
+  vector3LerpToRef,
+  vector3CopyToRef,
   vector3Distance,
-  vector3Lerp,
+  vector3DistanceSquared,
   vector3Length,
 } from '../workers/worker-utils';
 
@@ -91,25 +103,29 @@ export interface IskanderMissileResult extends BaseMissileResult {
   lockOnTime: number;
   lockProgress: number;
   isTargetingFlare: boolean;
-  flareTargets: Vector3[];
   lockEstablished: boolean;
 }
 
 // Catmull-Rom spline interpolation helper for smooth curves
-function catmullRomSpline(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: number): Vector3 {
+function catmullRomSplineToRef(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: number, ref: Vector3): Vector3 {
   const t2 = t * t;
   const t3 = t2 * t;
 
-  return {
-    x: 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
-    y: 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
-    z: 0.5 * ((2 * p1.z) + (-p0.z + p2.z) * t + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 + (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * t3),
-  };
+  ref.x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+  ref.y = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+  ref.z = 0.5 * ((2 * p1.z) + (-p0.z + p2.z) * t + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 + (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * t3);
+  return ref;
 }
 
 // Tomahawk missile curved path calculation with multi-segment support
-function getCurvedPathPosition(waypoints: Vector3[], t: number): Vector3 {
-  if (waypoints.length < 2) return waypoints[0] || { x: 0, y: 0, z: 0 };
+function getCurvedPathPositionToRef(waypoints: Vector3[], t: number, ref: Vector3): Vector3 {
+  if (waypoints.length < 2) {
+    const only = waypoints[0];
+    ref.x = only ? only.x : 0;
+    ref.y = only ? only.y : 0;
+    ref.z = only ? only.z : 0;
+    return ref;
+  }
 
   // Terminal descent phase threshold (last 25% of path)
   const terminalDescentThreshold = 0.75;
@@ -132,10 +148,10 @@ function getCurvedPathPosition(waypoints: Vector3[], t: number): Vector3 {
       const p2 = waypoints[Math.min(waypoints.length - 1, segmentIndex + 1)];
       const p3 = waypoints[Math.min(waypoints.length - 1, segmentIndex + 2)];
 
-      return catmullRomSpline(p0, p1, p2, p3, segmentT);
+      return catmullRomSplineToRef(p0, p1, p2, p3, segmentT, ref);
     } else {
       // Fallback to simple interpolation for 2-3 waypoints
-      return vector3Lerp(waypoints[0], waypoints[1], flybyT);
+      return vector3LerpToRef(waypoints[0], waypoints[1], flybyT, ref);
     }
   } else {
     // Terminal descent phase: Sharp dive from waypoint 4 to target
@@ -148,113 +164,70 @@ function getCurvedPathPosition(waypoints: Vector3[], t: number): Vector3 {
 
     // Linear interpolation with exponential curve for dramatic dive
     const diveT = terminalT * terminalT; // Exponential curve for steeper descent
-    return vector3Lerp(terminalStart, target, diveT);
+    return vector3LerpToRef(terminalStart, target, diveT, ref);
   }
 }
 
 // Iskander missile curved path calculation with wider angles (optimized)
-function getIskanderCurvedPathPosition(waypoints: Vector3[], t: number): Vector3 {
-  if (waypoints.length < 2) return waypoints[0] || { x: 0, y: 0, z: 0 };
+function getIskanderCurvedPathPositionToRef(waypoints: Vector3[], t: number, ref: Vector3): Vector3 {
+  if (waypoints.length < 2) {
+    const only = waypoints[0];
+    ref.x = only ? only.x : 0;
+    ref.y = only ? only.y : 0;
+    ref.z = only ? only.z : 0;
+    return ref;
+  }
 
   const startPos = waypoints[0];
   const endPos = waypoints[1];
 
   // Linear interpolation for base path
-  const basePos = vector3Lerp(startPos, endPos, t);
+  vector3LerpToRef(startPos, endPos, t, ref);
 
   // Add curved deviation with wider angles for more unpredictable flight
   const distance = vector3Distance(startPos, endPos);
   const curveAmplitude = distance * 0.25; // Increased from 15% to 25% for wider angles
 
   // Create a more complex winding curve using multiple sine waves
-  const curveX = Math.sin(t * Math.PI * 3) * curveAmplitude * Math.cos(t * Math.PI);
-  const curveZ = Math.cos(t * Math.PI * 2.5) * curveAmplitude * Math.sin(t * Math.PI * 0.5);
-  const curveY = Math.sin(t * Math.PI * 1.5) * 40; // Increased height variation
+  ref.x += Math.sin(t * Math.PI * 3) * curveAmplitude * Math.cos(t * Math.PI);
+  ref.z += Math.cos(t * Math.PI * 2.5) * curveAmplitude * Math.sin(t * Math.PI * 0.5);
+  ref.y += Math.sin(t * Math.PI * 1.5) * 40; // Increased height variation
 
-  return {
-    x: basePos.x + curveX,
-    y: basePos.y + curveY,
-    z: basePos.z + curveZ,
-  };
+  return ref;
 }
 
-// Check for flare targets (optimized for performance)
-// Real seeker missiles are HIGHLY susceptible to flares - they're infrared decoys!
-function checkForFlareTargets(
-  position: Vector3,
-  flareTargets: Vector3[],
-  flareDetectionRange: number,
-  originalTargetPosition: Vector3,
-): { targetPosition: Vector3; isTargetingFlare: boolean; flareTargets: Vector3[] } {
-  // Clear old flare targets that are too far away (optimization)
-  // Use larger range to simulate realistic IR seeker behavior
-  const filteredFlareTargets = flareTargets.filter((flarePos) => {
-    const distanceToFlare = vector3Distance(position, flarePos);
-    return distanceToFlare <= flareDetectionRange * 5; // Expanded range for realistic behavior
-  });
+// Reused result for findClosestFlare — the caller copies both fields out before
+// any other guidance code runs.
+const flareSearch = { flare: null as Vector3 | null, distanceSq: Infinity };
 
-  // Check if any flares are within detection range
-  // Real seekers are VERY attracted to flares - they're often hotter than the target!
-  let closestFlare: Vector3 | null = null;
-  let closestDistance = Infinity;
+// Single squared-distance pass over the (read-only) flare list. Real seeker
+// missiles are HIGHLY susceptible to flares — they're infrared decoys, often
+// hotter than the target — so the closest flare inside the seeker's widened
+// detection radius always wins over the real target.
+function findClosestFlare(position: Vector3, flareTargets: Vector3[], flareDetectionRange: number): void {
+  // 1.5x detection range simulates realistic IR seeker sensitivity
+  const detectionRadius = flareDetectionRange * 1.5;
+  const detectionRadiusSq = detectionRadius * detectionRadius;
 
-  for (let i = 0; i < filteredFlareTargets.length; i++) {
-    const flarePos = filteredFlareTargets[i];
-    const distanceToFlare = vector3Distance(position, flarePos);
-
-    // Increased detection range to simulate realistic IR seeker sensitivity
-    if (distanceToFlare <= flareDetectionRange * 1.5 && distanceToFlare < closestDistance) {
-      closestFlare = flarePos;
-      closestDistance = distanceToFlare;
+  let closest: Vector3 | null = null;
+  let closestDistanceSq = Infinity;
+  for (let i = 0; i < flareTargets.length; i++) {
+    const distanceSq = vector3DistanceSquared(position, flareTargets[i]);
+    if (distanceSq <= detectionRadiusSq && distanceSq < closestDistanceSq) {
+      closest = flareTargets[i];
+      closestDistanceSq = distanceSq;
     }
   }
-
-  if (closestFlare) {
-    // Switch to targeting the closest flare - ALWAYS prefer flares when available
-    // This simulates how IR seekers are highly susceptible to decoys
-    return {
-      targetPosition: closestFlare,
-      isTargetingFlare: true,
-      flareTargets: filteredFlareTargets,
-    };
-  }
-
-  // If no flares in range, return to original target
-  return {
-    targetPosition: originalTargetPosition,
-    isTargetingFlare: false,
-    flareTargets: filteredFlareTargets,
-  };
+  flareSearch.flare = closest;
+  flareSearch.distanceSq = closestDistanceSq;
 }
 
-// Update Iskander lock-on system
-function updateIskanderLockOnSystem(
-  isLockedOn: boolean,
-  lockOnTime: number,
-  lockOnDuration: number,
-  deltaTime: number,
-): { isLockedOn: boolean; lockOnTime: number; lockEstablished: boolean } {
-  // Always allow lock establishment regardless of distance
-  let newLockOnTime = lockOnTime;
-  let newIsLockedOn = isLockedOn;
-  let lockEstablished = false;
+// Scratch owned by updateIskanderLockedOnGuidance
+const lockedDir: Vector3 = { x: 0, y: 0, z: 0 };
+const lockedVelChange: Vector3 = { x: 0, y: 0, z: 0 };
 
-  if (!isLockedOn) {
-    newLockOnTime += deltaTime;
-    if (newLockOnTime >= lockOnDuration) {
-      newIsLockedOn = true;
-      lockEstablished = true;
-    }
-  }
-
-  return {
-    isLockedOn: newIsLockedOn,
-    lockOnTime: newLockOnTime,
-    lockEstablished,
-  };
-}
-
-// Update Iskander guidance (locked on)
+// Update Iskander guidance (locked on). Mutates velocity in place and writes
+// the derived pose into rotation.
 function updateIskanderLockedOnGuidance(
   position: Vector3,
   velocity: Vector3,
@@ -263,52 +236,54 @@ function updateIskanderLockedOnGuidance(
   guidanceStrength: number,
   maxTurnRate: number,
   deltaTime: number,
-): { velocity: Vector3; rotation: Vector3 } {
-  // Calculate direction to target
-  const directionToTarget = vector3Normalize(vector3Subtract(targetPosition, position));
+  rotation: Vector3,
+): void {
+  // Desired velocity: straight toward the target at full speed
+  vector3SubtractToRef(targetPosition, position, lockedDir);
+  vector3NormalizeToRef(lockedDir, lockedDir);
+  vector3ScaleToRef(lockedDir, speed, lockedDir);
 
-  // Calculate desired velocity toward target
-  const desiredVelocity = vector3Scale(directionToTarget, speed);
-
-  // Calculate velocity change needed
-  const velocityChange = vector3Subtract(desiredVelocity, velocity);
-
-  // Apply guidance with turn rate limiting
+  // Velocity change needed, with turn rate limiting
+  vector3SubtractToRef(lockedDir, velocity, lockedVelChange);
   const maxVelocityChange = maxTurnRate * speed * deltaTime;
-  const velocityChangeMagnitude = vector3Length(velocityChange);
-
-  let finalVelocityChange = velocityChange;
+  const velocityChangeMagnitude = vector3Length(lockedVelChange);
   if (velocityChangeMagnitude > maxVelocityChange) {
-    finalVelocityChange = vector3Scale(vector3Normalize(velocityChange), maxVelocityChange);
+    vector3ScaleToRef(lockedVelChange, maxVelocityChange / velocityChangeMagnitude, lockedVelChange);
   }
 
   // Apply guidance strength
-  finalVelocityChange = vector3Scale(finalVelocityChange, guidanceStrength * deltaTime);
-
-  // Update velocity
-  const newVelocity = vector3Add(velocity, finalVelocityChange);
+  vector3ScaleToRef(lockedVelChange, guidanceStrength * deltaTime, lockedVelChange);
+  vector3AddToRef(velocity, lockedVelChange, velocity);
 
   // Ensure velocity doesn't exceed maximum speed
-  const velocityLength = vector3Length(newVelocity);
-  const finalVelocity = velocityLength > speed ? vector3Scale(vector3Normalize(newVelocity), speed) : newVelocity;
-
-  // Calculate rotation based on velocity
-  const rotation = { x: 0, y: 0, z: 0 };
-  if (finalVelocity.x * finalVelocity.x + finalVelocity.z * finalVelocity.z > 0.01) {
-    // Calculate yaw (horizontal rotation around Y axis)
-    rotation.y = Math.atan2(finalVelocity.x, finalVelocity.z);
-
-    // Calculate pitch (vertical rotation around X axis)
-    const horizontalSpeed = Math.sqrt(finalVelocity.x * finalVelocity.x + finalVelocity.z * finalVelocity.z);
-    if (horizontalSpeed > 0.001) {
-      rotation.x = Math.atan2(-finalVelocity.y, horizontalSpeed);
-    }
+  const velocityLength = vector3Length(velocity);
+  if (velocityLength > speed) {
+    vector3ScaleToRef(velocity, speed / velocityLength, velocity);
   }
 
-  return { velocity: finalVelocity, rotation };
+  // Calculate rotation based on velocity
+  rotation.x = 0;
+  rotation.y = 0;
+  rotation.z = 0;
+  if (velocity.x * velocity.x + velocity.z * velocity.z > 0.01) {
+    // Yaw (horizontal rotation around Y axis)
+    rotation.y = Math.atan2(velocity.x, velocity.z);
+
+    // Pitch (vertical rotation around X axis)
+    const horizontalSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+    if (horizontalSpeed > 0.001) {
+      rotation.x = Math.atan2(-velocity.y, horizontalSpeed);
+    }
+  }
 }
 
-// Update Iskander initial guidance (before lock-on)
+// Scratch owned by updateIskanderInitialGuidance
+const initialDir: Vector3 = { x: 0, y: 0, z: 0 };
+const initialVelChange: Vector3 = { x: 0, y: 0, z: 0 };
+
+// Update Iskander initial guidance (before lock-on): follow a ballistic
+// trajectory toward the target. Mutates velocity in place and writes the
+// derived pose into rotation.
 function updateIskanderInitialGuidance(
   position: Vector3,
   velocity: Vector3,
@@ -316,65 +291,77 @@ function updateIskanderInitialGuidance(
   speed: number,
   maxTurnRate: number,
   deltaTime: number,
-): { velocity: Vector3; rotation: Vector3 } {
-  // Initial guidance before lock-on - follow a ballistic trajectory toward target
-  const directionToTarget = vector3Normalize(vector3Subtract(targetPosition, position));
-  const desiredVelocity = vector3Scale(directionToTarget, speed);
+  rotation: Vector3,
+): void {
+  vector3SubtractToRef(targetPosition, position, initialDir);
+  vector3NormalizeToRef(initialDir, initialDir);
+  vector3ScaleToRef(initialDir, speed, initialDir);
 
   // Gradually turn toward target
   const turnRate = maxTurnRate * 0.5; // Slower initial turn rate
-  const velocityChange = vector3Subtract(desiredVelocity, velocity);
+  vector3SubtractToRef(initialDir, velocity, initialVelChange);
   const maxVelocityChange = turnRate * speed * deltaTime;
-
-  let finalVelocityChange = velocityChange;
-  if (vector3Length(velocityChange) > maxVelocityChange) {
-    finalVelocityChange = vector3Scale(vector3Normalize(velocityChange), maxVelocityChange);
+  const velocityChangeMagnitude = vector3Length(initialVelChange);
+  if (velocityChangeMagnitude > maxVelocityChange) {
+    vector3ScaleToRef(initialVelChange, maxVelocityChange / velocityChangeMagnitude, initialVelChange);
   }
-
-  const newVelocity = vector3Add(velocity, finalVelocityChange);
+  vector3AddToRef(velocity, initialVelChange, velocity);
 
   // Ensure velocity doesn't exceed maximum speed
-  const velocityLength = vector3Length(newVelocity);
-  const finalVelocity = velocityLength > speed ? vector3Scale(vector3Normalize(newVelocity), speed) : newVelocity;
-
-  // Calculate rotation based on velocity
-  const rotation = { x: 0, y: 0, z: 0 };
-  if (finalVelocity.x * finalVelocity.x + finalVelocity.z * finalVelocity.z > 0.01) {
-    // Calculate yaw (horizontal rotation around Y axis)
-    rotation.y = Math.atan2(finalVelocity.x, finalVelocity.z);
-
-    // Calculate pitch (vertical rotation around X axis)
-    const horizontalSpeed = Math.sqrt(finalVelocity.x * finalVelocity.x + finalVelocity.z * finalVelocity.z);
-    if (horizontalSpeed > 0.001) {
-      rotation.x = Math.atan2(-finalVelocity.y, horizontalSpeed);
-    }
+  const velocityLength = vector3Length(velocity);
+  if (velocityLength > speed) {
+    vector3ScaleToRef(velocity, speed / velocityLength, velocity);
   }
 
-  return { velocity: finalVelocity, rotation };
+  // Calculate rotation based on velocity
+  rotation.x = 0;
+  rotation.y = 0;
+  rotation.z = 0;
+  if (velocity.x * velocity.x + velocity.z * velocity.z > 0.01) {
+    rotation.y = Math.atan2(velocity.x, velocity.z);
+
+    const horizontalSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+    if (horizontalSpeed > 0.001) {
+      rotation.x = Math.atan2(-velocity.y, horizontalSpeed);
+    }
+  }
 }
+
+// Scratch and reused result owned by updateTomahawkMissilePhysics
+const tomCurveTarget: Vector3 = { x: 0, y: 0, z: 0 };
+const tomDir: Vector3 = { x: 0, y: 0, z: 0 };
+const tomahawkResult: TomahawkMissileResult = {
+  position: { x: 0, y: 0, z: 0 },
+  velocity: { x: 0, y: 0, z: 0 },
+  rotation: { x: 0, y: 0, z: 0 },
+  pathTime: 0,
+  reachedTarget: false,
+  shouldExplode: false,
+  distanceToTarget: 0,
+  lastSegmentChangeTime: 0,
+  flightPhase: 'FLYBY',
+};
 
 // Tomahawk missile physics handler
 export function updateTomahawkMissilePhysics(data: TomahawkMissileData): TomahawkMissileResult {
+  const result = tomahawkResult;
+  // The result's own vectors double as the working position/velocity/rotation —
+  // seeded from the inputs, then mutated in place.
+  const newPosition = vector3CopyToRef(data.position, result.position);
+  const newVelocity = vector3CopyToRef(data.velocity, result.velocity);
+  const newRotation = vector3CopyToRef(data.rotation, result.rotation);
+  result.pathTime = data.pathTime;
+  result.lastSegmentChangeTime = data.lastSegmentChangeTime;
+
   if (!data.launched || data.exploded) {
-    return {
-      position: data.position,
-      velocity: data.velocity,
-      rotation: data.rotation,
-      pathTime: data.pathTime,
-      reachedTarget: false,
-      shouldExplode: false,
-      distanceToTarget: vector3Distance(data.position, data.targetPosition),
-      lastSegmentChangeTime: data.lastSegmentChangeTime,
-      flightPhase: 'FLYBY',
-    };
+    result.reachedTarget = false;
+    result.shouldExplode = false;
+    result.distanceToTarget = vector3Distance(data.position, data.targetPosition);
+    result.flightPhase = 'FLYBY';
+    return result;
   }
 
-  const newPosition = { ...data.position };
-  let newVelocity = { ...data.velocity };
-  const newRotation = { ...data.rotation };
   let newPathTime = data.pathTime;
-  let reachedTarget = false;
-  let shouldExplode = false;
   const lastSegmentChangeTime = data.lastSegmentChangeTime;
 
   const currentTime = data.currentTime;
@@ -410,27 +397,30 @@ export function updateTomahawkMissilePhysics(data: TomahawkMissileData): Tomahaw
 
   if (newPathTime <= 1.0) {
     // Follow the curved path
-    const targetPosition = getCurvedPathPosition(data.waypoints, newPathTime);
-    const directionToTarget = vector3Normalize(vector3Subtract(targetPosition, newPosition));
+    getCurvedPathPositionToRef(data.waypoints, newPathTime, tomCurveTarget);
+    vector3SubtractToRef(tomCurveTarget, newPosition, tomDir);
+    vector3NormalizeToRef(tomDir, tomDir);
 
-    // Speed multiplier for terminal descent
+    // Speed multiplier for terminal descent; tomDir becomes the desired velocity
     const effectiveSpeed = flightPhase === 'TERMINAL' ? data.speed * 1.3 : data.speed;
-    const desiredVelocity = vector3Scale(directionToTarget, effectiveSpeed);
+    vector3ScaleToRef(tomDir, effectiveSpeed, tomDir);
 
     // Turn rate multiplier for terminal descent (more aggressive)
     const effectiveTurnRate = flightPhase === 'TERMINAL' ? data.turnRate * 2.0 : data.turnRate;
 
     // Smoothly interpolate velocity for curved movement
-    newVelocity.x = newVelocity.x + (desiredVelocity.x - newVelocity.x) * effectiveTurnRate * data.deltaTime;
-    newVelocity.y = newVelocity.y + (desiredVelocity.y - newVelocity.y) * effectiveTurnRate * data.deltaTime;
-    newVelocity.z = newVelocity.z + (desiredVelocity.z - newVelocity.z) * effectiveTurnRate * data.deltaTime;
+    newVelocity.x = newVelocity.x + (tomDir.x - newVelocity.x) * effectiveTurnRate * data.deltaTime;
+    newVelocity.y = newVelocity.y + (tomDir.y - newVelocity.y) * effectiveTurnRate * data.deltaTime;
+    newVelocity.z = newVelocity.z + (tomDir.z - newVelocity.z) * effectiveTurnRate * data.deltaTime;
 
-    // Update orientation with look-ahead if it's time (flyby only)
+    // Update orientation with look-ahead if it's time (flyby only); tomDir is
+    // free again once the velocity blend above has consumed it
     if (shouldUpdateOrientation) {
       const lookAheadDistance = data.lookAheadDistance;
       const lookAheadTime = Math.min(newPathTime + lookAheadDistance, 1.0);
-      const lookAheadPos = getCurvedPathPosition(data.waypoints, lookAheadTime);
-      const directionToLookAhead = vector3Normalize(vector3Subtract(lookAheadPos, newPosition));
+      getCurvedPathPositionToRef(data.waypoints, lookAheadTime, tomCurveTarget);
+      const directionToLookAhead = vector3SubtractToRef(tomCurveTarget, newPosition, tomDir);
+      vector3NormalizeToRef(directionToLookAhead, directionToLookAhead);
 
       if (directionToLookAhead.x * directionToLookAhead.x + directionToLookAhead.z * directionToLookAhead.z > 0.01) {
         // Calculate target rotation
@@ -465,9 +455,9 @@ export function updateTomahawkMissilePhysics(data: TomahawkMissileData): Tomahaw
     }
   } else {
     // Head directly to target when curve is complete
-    const directionToTarget = vector3Normalize(vector3Subtract(data.targetPosition, newPosition));
-    const effectiveSpeed = data.speed * 1.3;
-    newVelocity = vector3Scale(directionToTarget, effectiveSpeed);
+    vector3SubtractToRef(data.targetPosition, newPosition, tomDir);
+    vector3NormalizeToRef(tomDir, tomDir);
+    vector3ScaleToRef(tomDir, data.speed * 1.3, newVelocity);
     flightPhase = 'TERMINAL'; // Force terminal phase when path complete
   }
 
@@ -507,52 +497,63 @@ export function updateTomahawkMissilePhysics(data: TomahawkMissileData): Tomahaw
 
   // Check collision conditions
   const finalDistanceToTarget = vector3Distance(newPosition, data.targetPosition);
-  reachedTarget = finalDistanceToTarget <= 5 || newPosition.y <= 0;
-  shouldExplode = reachedTarget;
+  const reachedTarget = finalDistanceToTarget <= 5 || newPosition.y <= 0;
 
-  return {
-    position: newPosition,
-    velocity: newVelocity,
-    rotation: newRotation,
-    pathTime: newPathTime,
-    reachedTarget,
-    shouldExplode,
-    distanceToTarget: finalDistanceToTarget,
-    lastSegmentChangeTime,
-    flightPhase,
-  };
+  result.pathTime = newPathTime;
+  result.reachedTarget = reachedTarget;
+  result.shouldExplode = reachedTarget;
+  result.distanceToTarget = finalDistanceToTarget;
+  result.lastSegmentChangeTime = lastSegmentChangeTime;
+  result.flightPhase = flightPhase;
+  return result;
 }
+
+// Scratch and reused result owned by updateIskanderMissilePhysics
+const iskCurveTarget: Vector3 = { x: 0, y: 0, z: 0 };
+const iskBlendedTarget: Vector3 = { x: 0, y: 0, z: 0 };
+const iskDir: Vector3 = { x: 0, y: 0, z: 0 };
+const iskVelDir: Vector3 = { x: 0, y: 0, z: 0 };
+const iskanderResult: IskanderMissileResult = {
+  position: { x: 0, y: 0, z: 0 },
+  velocity: { x: 0, y: 0, z: 0 },
+  rotation: { x: 0, y: 0, z: 0 },
+  pathTime: 0,
+  reachedTarget: false,
+  shouldExplode: false,
+  distanceToTarget: 0,
+  isLockedOn: false,
+  lockOnTime: 0,
+  lockProgress: 0,
+  isTargetingFlare: false,
+  lockEstablished: false,
+};
 
 // Iskander missile physics handler
 export function updateIskanderMissilePhysics(data: IskanderMissileData): IskanderMissileResult {
+  const result = iskanderResult;
+  // The result's own vectors double as the working position/velocity/rotation —
+  // seeded from the inputs, then mutated in place.
+  const newPosition = vector3CopyToRef(data.position, result.position);
+  const newVelocity = vector3CopyToRef(data.velocity, result.velocity);
+  const newRotation = vector3CopyToRef(data.rotation, result.rotation);
+  result.pathTime = data.pathTime;
+
   if (!data.launched || data.exploded) {
-    return {
-      position: data.position,
-      velocity: data.velocity,
-      rotation: data.rotation,
-      pathTime: data.pathTime,
-      reachedTarget: false,
-      shouldExplode: false,
-      distanceToTarget: vector3Distance(data.position, data.targetPosition),
-      isLockedOn: false,
-      lockOnTime: 0,
-      lockProgress: 0,
-      isTargetingFlare: false,
-      flareTargets: [],
-      lockEstablished: false,
-    };
+    result.reachedTarget = false;
+    result.shouldExplode = false;
+    result.distanceToTarget = vector3Distance(data.position, data.targetPosition);
+    result.isLockedOn = false;
+    result.lockOnTime = 0;
+    result.lockProgress = 0;
+    result.isTargetingFlare = false;
+    result.lockEstablished = false;
+    return result;
   }
 
-  const newPosition = { ...data.position };
-  let newVelocity = { ...data.velocity };
-  let newRotation = { ...data.rotation };
   let newPathTime = data.pathTime;
-  let reachedTarget = false;
-  let shouldExplode = false;
   let isLockedOn = data.isLockedOn;
   let lockOnTime = data.lockOnTime;
   let isTargetingFlare = data.isTargetingFlare;
-  let flareTargets = data.flareTargets;
   let lockEstablished = false;
 
   // Initialize guidance parameters - will be adjusted based on targeting mode
@@ -562,22 +563,24 @@ export function updateIskanderMissilePhysics(data: IskanderMissileData): Iskande
   // Handle flare targeting if flare targets exist - check every frame for responsiveness
   // ALWAYS prioritize flares when detected - this is how real seeker missiles work!
   let currentTargetPosition = data.targetPosition;
+  let closestFlare: Vector3 | null = null;
   if (data.flareTargets && data.flareTargets.length > 0) {
-    const flareResult = checkForFlareTargets(
-      newPosition,
-      data.flareTargets,
-      data.flareDetectionRange,
-      data.originalTargetPosition,
-    );
-    currentTargetPosition = flareResult.targetPosition;
-    isTargetingFlare = flareResult.isTargetingFlare;
-    flareTargets = flareResult.flareTargets;
+    findClosestFlare(newPosition, data.flareTargets, data.flareDetectionRange);
+    closestFlare = flareSearch.flare;
+    if (closestFlare) {
+      // Switch to targeting the closest flare - ALWAYS prefer flares when available
+      // This simulates how IR seekers are highly susceptible to decoys
+      currentTargetPosition = closestFlare;
+      isTargetingFlare = true;
 
-    // When flare is detected, MASSIVELY increase guidance to chase it aggressively
-    // This simulates how IR seekers are extremely attracted to hot flares
-    if (isTargetingFlare) {
+      // When flare is detected, MASSIVELY increase guidance to chase it aggressively
+      // This simulates how IR seekers are extremely attracted to hot flares
       effectiveGuidanceStrength = data.guidanceStrength * 8.0; // 8x guidance when chasing flares!
       effectiveMaxTurnRate = data.maxTurnRate * 4.0; // 4x turn rate to aggressively pursue flares!
+    } else {
+      // No flares in range: return to the original target
+      currentTargetPosition = data.originalTargetPosition;
+      isTargetingFlare = false;
     }
   }
 
@@ -585,12 +588,10 @@ export function updateIskanderMissilePhysics(data: IskanderMissileData): Iskande
   // Check for overshoot condition - if we passed the target, increase turn rate dramatically
   // But ONLY if not already targeting a flare (flare guidance takes absolute priority)
   if (!isTargetingFlare) {
-    const directionToTarget = vector3Normalize(vector3Subtract(currentTargetPosition, newPosition));
-    const velocityDirection = vector3Normalize(newVelocity);
-    const dotProduct =
-      directionToTarget.x * velocityDirection.x +
-      directionToTarget.y * velocityDirection.y +
-      directionToTarget.z * velocityDirection.z;
+    vector3SubtractToRef(currentTargetPosition, newPosition, iskDir);
+    vector3NormalizeToRef(iskDir, iskDir);
+    vector3NormalizeToRef(newVelocity, iskVelDir);
+    const dotProduct = iskDir.x * iskVelDir.x + iskDir.y * iskVelDir.y + iskDir.z * iskVelDir.z;
     isOvershooting = dotProduct < 0.3; // If angle > 72 degrees, we're likely overshooting
 
     if (isOvershooting) {
@@ -604,23 +605,25 @@ export function updateIskanderMissilePhysics(data: IskanderMissileData): Iskande
 
   if (newPathTime <= 1.0 && !isLockedOn) {
     // Follow curved path during initial phase
-    const curvedTargetPosition = getIskanderCurvedPathPosition(data.waypoints, newPathTime);
+    getIskanderCurvedPathPositionToRef(data.waypoints, newPathTime, iskCurveTarget);
 
     // Blend curved path with target tracking
     const blendFactor = Math.min(newPathTime * 2, 1.0); // Gradually blend toward target
-    const blendedTarget = vector3Lerp(curvedTargetPosition, currentTargetPosition, blendFactor);
+    vector3LerpToRef(iskCurveTarget, currentTargetPosition, blendFactor, iskBlendedTarget);
 
-    const directionToTarget = vector3Normalize(vector3Subtract(blendedTarget, newPosition));
-    const desiredVelocity = vector3Scale(directionToTarget, data.speed);
+    // iskDir becomes the desired velocity toward the blended target
+    vector3SubtractToRef(iskBlendedTarget, newPosition, iskDir);
+    vector3NormalizeToRef(iskDir, iskDir);
+    vector3ScaleToRef(iskDir, data.speed, iskDir);
 
     // Smooth velocity interpolation for curved movement with effective turn rate
     const effectiveTurnRate = isOvershooting ? data.turnRate * 2.0 : data.turnRate;
-    newVelocity.x = newVelocity.x + (desiredVelocity.x - newVelocity.x) * effectiveTurnRate * data.deltaTime;
-    newVelocity.y = newVelocity.y + (desiredVelocity.y - newVelocity.y) * effectiveTurnRate * data.deltaTime;
-    newVelocity.z = newVelocity.z + (desiredVelocity.z - newVelocity.z) * effectiveTurnRate * data.deltaTime;
+    newVelocity.x = newVelocity.x + (iskDir.x - newVelocity.x) * effectiveTurnRate * data.deltaTime;
+    newVelocity.y = newVelocity.y + (iskDir.y - newVelocity.y) * effectiveTurnRate * data.deltaTime;
+    newVelocity.z = newVelocity.z + (iskDir.z - newVelocity.z) * effectiveTurnRate * data.deltaTime;
   } else if (isLockedOn) {
     // Use advanced guidance when locked on
-    const guidanceResult = updateIskanderLockedOnGuidance(
+    updateIskanderLockedOnGuidance(
       newPosition,
       newVelocity,
       currentTargetPosition,
@@ -628,34 +631,36 @@ export function updateIskanderMissilePhysics(data: IskanderMissileData): Iskande
       effectiveGuidanceStrength,
       effectiveMaxTurnRate,
       data.deltaTime,
+      newRotation,
     );
-    newVelocity = guidanceResult.velocity;
-    newRotation = guidanceResult.rotation;
   } else {
     // Use initial guidance before lock-on established
-    const guidanceResult = updateIskanderInitialGuidance(
+    updateIskanderInitialGuidance(
       newPosition,
       newVelocity,
       currentTargetPosition,
       data.speed,
       effectiveMaxTurnRate,
       data.deltaTime,
+      newRotation,
     );
-    newVelocity = guidanceResult.velocity;
-    newRotation = guidanceResult.rotation;
   }
 
-  // Update lock-on system
-  const lockResult = updateIskanderLockOnSystem(isLockedOn, lockOnTime, data.lockOnDuration, data.deltaTime);
-  isLockedOn = lockResult.isLockedOn;
-  lockOnTime = lockResult.lockOnTime;
-  lockEstablished = lockResult.lockEstablished;
+  // Update lock-on system: lock establishes after lockOnDuration, regardless of distance
+  if (!isLockedOn) {
+    lockOnTime += data.deltaTime;
+    if (lockOnTime >= data.lockOnDuration) {
+      isLockedOn = true;
+      lockEstablished = true;
+    }
+  }
 
   // Ensure minimum velocity for guaranteed movement
   const velocityLength = vector3Length(newVelocity);
   if (velocityLength < data.speed * 0.1) {
-    const directionToTarget = vector3Normalize(vector3Subtract(currentTargetPosition, newPosition));
-    newVelocity = vector3Scale(directionToTarget, data.speed * 0.5);
+    vector3SubtractToRef(currentTargetPosition, newPosition, iskDir);
+    vector3NormalizeToRef(iskDir, iskDir);
+    vector3ScaleToRef(iskDir, data.speed * 0.5, newVelocity);
   }
 
   // Update rotation if not already set by guidance system
@@ -691,15 +696,13 @@ export function updateIskanderMissilePhysics(data: IskanderMissileData): Iskande
     }
   }
 
-  // Also check active flare positions if any exist - prioritize flares over actual target
-  if (!flareExplosion && data.flareTargets && data.flareTargets.length > 0) {
-    for (const flarePos of data.flareTargets) {
-      const distanceToFlare = vector3Distance(newPosition, flarePos);
-      if (distanceToFlare <= flareExplosionDistance) {
-        // Missile explodes close to flare head when diverted
-        flareExplosion = true;
-        break;
-      }
+  // Proximity-detonate on the closest flare. One squared-distance check is
+  // equivalent to the old scan over every flare: if ANY flare is within the
+  // explosion radius, the closest one is too (detection radius >> 12u).
+  if (!flareExplosion && closestFlare) {
+    if (vector3DistanceSquared(newPosition, closestFlare) <= flareExplosionDistance * flareExplosionDistance) {
+      // Missile explodes close to flare head when diverted
+      flareExplosion = true;
     }
   }
 
@@ -711,22 +714,16 @@ export function updateIskanderMissilePhysics(data: IskanderMissileData): Iskande
     newPosition.y = groundHeight;
   }
 
-  reachedTarget = distanceToTarget <= 5 || hitGround || flareExplosion;
-  shouldExplode = reachedTarget;
+  const reachedTarget = distanceToTarget <= 5 || hitGround || flareExplosion;
 
-  return {
-    position: newPosition,
-    velocity: newVelocity,
-    rotation: newRotation,
-    pathTime: newPathTime,
-    reachedTarget,
-    shouldExplode,
-    distanceToTarget: vector3Distance(newPosition, data.targetPosition),
-    isLockedOn,
-    lockOnTime,
-    lockProgress: Math.min(lockOnTime / data.lockOnDuration, 1.0),
-    isTargetingFlare,
-    flareTargets,
-    lockEstablished,
-  };
+  result.pathTime = newPathTime;
+  result.reachedTarget = reachedTarget;
+  result.shouldExplode = reachedTarget;
+  result.distanceToTarget = vector3Distance(newPosition, data.targetPosition);
+  result.isLockedOn = isLockedOn;
+  result.lockOnTime = lockOnTime;
+  result.lockProgress = Math.min(lockOnTime / data.lockOnDuration, 1.0);
+  result.isTargetingFlare = isTargetingFlare;
+  result.lockEstablished = lockEstablished;
+  return result;
 }

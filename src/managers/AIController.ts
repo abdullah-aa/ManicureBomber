@@ -22,6 +22,9 @@ enum AIState {
  * existing weapon handlers keep enforcing every cooldown and safety gate.
  */
 export class AIController {
+  // Both fixed-rate turning circles; hoisted so isPositionReachable allocates nothing
+  private static readonly turnSides: readonly number[] = [1, -1];
+
   private game: Game;
   private bomber: Bomber;
   private terrainManager: TerrainManager;
@@ -31,6 +34,10 @@ export class AIController {
   private state: AIState = AIState.SEARCH;
   private currentTarget: Building | null = null;
   private lastTargetScanTime: number = -Infinity;
+  // Refreshed by each 1 Hz scan; gates the missile press so the launch handler's
+  // 60 Hz building query only runs when a launcher can actually be acquired.
+  // Up to 1 s stale either way, which is fine: the launch path re-validates.
+  private launcherInRange = false;
   private manualOverrideUntil: number = -Infinity;
   private sawRunActive: boolean = false;
   private extendAnchor: Vector3 | null = null;
@@ -183,11 +190,24 @@ export class AIController {
 
     const bomberPosition = this.bomber.getPositionRef();
     const buildings = this.terrainManager.getBuildingsInRadiusSync(bomberPosition, this.targetScanRadius);
+    // The scan radius (500) is a superset of the tomahawk acquisition range (300),
+    // so this pass also answers "is any launcher acquirable?" — launchers aren't
+    // necessarily isTarget() buildings, so check every building independently
+    const acquisitionRangeSq = this.bomber.getDefenseAcquisitionRange() ** 2;
+    this.launcherInRange = false;
     let nearest: Building | null = null;
     let nearestDistanceSq = Infinity;
     let nearestReachable: Building | null = null;
     let nearestReachableDistanceSq = Infinity;
     for (const building of buildings) {
+      if (
+        !this.launcherInRange &&
+        building.isDefenseLauncher() &&
+        !building.getIsDestroyed() &&
+        Vector3.DistanceSquared(bomberPosition, building.getPosition()) <= acquisitionRangeSq
+      ) {
+        this.launcherInRange = true;
+      }
       if (building.isTarget() && !building.getIsDestroyed()) {
         const distanceSq = Vector3.DistanceSquared(bomberPosition, building.getPosition());
         if (distanceSq < nearestDistanceSq) {
@@ -228,7 +248,7 @@ export class AIController {
     const perpX = Math.cos(yaw) * this.turnRadius;
     const perpZ = -Math.sin(yaw) * this.turnRadius;
     const minDistanceSq = (this.reachabilityMargin * this.turnRadius) ** 2;
-    for (const side of [1, -1]) {
+    for (const side of AIController.turnSides) {
       const dx = targetPosition.x - (position.x + perpX * side);
       const dz = targetPosition.z - (position.z + perpZ * side);
       if (dx * dx + dz * dz < minDistanceSq) {
@@ -239,7 +259,7 @@ export class AIController {
   }
 
   private handleTomahawk(): void {
-    if (this.state === AIState.BOMB_RUN || !this.bomber.canLaunchMissile()) {
+    if (this.state === AIState.BOMB_RUN || !this.launcherInRange || !this.bomber.canLaunchMissile()) {
       return;
     }
     // The launch handler self-acquires the nearest defense launcher within range;

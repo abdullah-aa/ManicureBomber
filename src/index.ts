@@ -54,6 +54,10 @@ if (new URLSearchParams(window.location.search).get('perf') === '1') {
 
 // Create the game instance
 const game = new Game(scene, canvas);
+if ((window as any).__perf) {
+  // Lets measurement drivers start the game and toggle AI mode programmatically
+  (window as any).__perf.game = game;
+}
 
 // Wire up the splash screen: gameplay stays paused until the player taps START
 const splashScreen = document.getElementById('splashScreen');

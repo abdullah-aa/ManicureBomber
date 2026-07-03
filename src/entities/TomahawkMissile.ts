@@ -3,8 +3,6 @@ import {
   Mesh,
   Vector3,
   MeshBuilder,
-  StandardMaterial,
-  Color3,
   ParticleSystem,
   Color4,
   TransformNode,
@@ -12,11 +10,12 @@ import {
   AnimationGroup,
 } from '@babylonjs/core';
 import { Building } from './Building';
+import { MissileAssets } from './MissileAssets';
 import { WorkerManager } from '../managers/WorkerManager';
 import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
 import { EffectTextures } from '../effects/EffectTextures';
 import { ExplosionPool } from '../effects/ExplosionPool';
-import { updateTomahawkMissilePhysics } from '../managers/MissileGuidance';
+import { updateTomahawkMissilePhysics, TomahawkMissileData } from '../managers/MissileGuidance';
 import { computeTomahawkLoopFraming, TomahawkLoopFraming } from '../workers/worker-utils';
 
 export class TomahawkMissile {
@@ -80,6 +79,14 @@ export class TomahawkMissile {
   // Target destruction callback
   private onTargetDestroyedCallback: ((building: Building) => void) | null = null;
 
+  // Reused per-frame guidance payload — updateTomahawkMissilePhysics reads it
+  // synchronously and never mutates it, so one object per missile replaces the
+  // fresh literal that was allocated every frame. The vector fields are live
+  // references; the ones this class ever REASSIGNS (position, rotation at the
+  // end of the launch animation; waypoints from the path worker) are re-pointed
+  // in update().
+  private readonly physicsData: TomahawkMissileData;
+
   constructor(
     scene: Scene,
     launchPosition: Vector3,
@@ -102,6 +109,25 @@ export class TomahawkMissile {
     this.rotation = launchRotation.clone();
     this.velocity = new Vector3(0, 0, 0); // Start stationary
     this.bomberVelocity = bomberVelocity ? bomberVelocity.clone() : new Vector3(0, 0, 0);
+
+    this.physicsData = {
+      position: this.position,
+      velocity: this.velocity,
+      rotation: this.rotation,
+      targetPosition: this.targetPosition,
+      speed: this.speed,
+      turnRate: this.turnRate,
+      deltaTime: 0,
+      pathTime: 0,
+      pathSpeed: this.pathSpeed,
+      waypoints: this.waypoints,
+      launched: false,
+      exploded: false,
+      lookAheadDistance: this.lookAheadDistance,
+      orientationUpdateThreshold: this.orientationUpdateThreshold,
+      lastSegmentChangeTime: 0,
+      currentTime: 0,
+    };
 
     // Create parent node that will follow bomber during launch animation
     this.launchParent = new TransformNode('tomahawkLaunchParent', this.scene);
@@ -141,6 +167,10 @@ export class TomahawkMissile {
   }
 
   private createMissileModel(): void {
+    // Part materials are shared frozen instances (MissileAssets) — one set for
+    // every Tomahawk ever launched instead of 7 fresh materials per missile.
+    const assets = MissileAssets.get(this.scene);
+
     // Main fuselage - sleek cruise missile body
     this.fuselage = MeshBuilder.CreateCylinder(
       'missileFuselage',
@@ -154,12 +184,7 @@ export class TomahawkMissile {
 
     this.fuselage.rotation.x = Math.PI / 2; // Orient horizontally pointing forward
     this.fuselage.parent = this.missileGroup;
-
-    const fuselageMaterial = new StandardMaterial('missileFuselage', this.scene);
-    fuselageMaterial.diffuseColor = new Color3(0.8, 0.8, 0.9); // Light gray
-    fuselageMaterial.specularColor = new Color3(0.5, 0.5, 0.6);
-    fuselageMaterial.emissiveColor = new Color3(0.1, 0.1, 0.12);
-    this.fuselage.material = fuselageMaterial;
+    this.fuselage.material = assets.getTomahawkFuselageMaterial();
 
     // Nose cone
     const noseCone = MeshBuilder.CreateCylinder(
@@ -176,11 +201,7 @@ export class TomahawkMissile {
     noseCone.position.z = 3.75; // Front of missile
     noseCone.rotation.x = Math.PI / 2;
     noseCone.parent = this.missileGroup;
-
-    const noseMaterial = new StandardMaterial('noseMaterial', this.scene);
-    noseMaterial.diffuseColor = new Color3(0.2, 0.2, 0.25);
-    noseMaterial.specularColor = new Color3(0.8, 0.8, 0.9);
-    noseCone.material = noseMaterial;
+    noseCone.material = assets.getTomahawkNoseMaterial();
 
     // Wings - small control surfaces
     this.createWings();
@@ -199,11 +220,7 @@ export class TomahawkMissile {
     engineNozzle.position.z = -3.5; // Rear of missile
     engineNozzle.rotation.x = Math.PI / 2;
     engineNozzle.parent = this.missileGroup;
-
-    const engineMaterial = new StandardMaterial('engineMaterial', this.scene);
-    engineMaterial.diffuseColor = new Color3(0.1, 0.1, 0.1);
-    engineMaterial.emissiveColor = new Color3(0.3, 0.1, 0.05);
-    engineNozzle.material = engineMaterial;
+    engineNozzle.material = assets.getTomahawkEngineMaterial();
 
     // Pooled missile light; follows the missile in world space (never parented)
     this.lightHandle = LightManager.get(this.scene).acquire(LightPriority.MEDIUM);
@@ -222,6 +239,7 @@ export class TomahawkMissile {
       { pos: new Vector3(0, 0, -0.3), rot: new Vector3(0, 0, -Math.PI / 2) },
     ];
 
+    const wingMaterial = MissileAssets.get(this.scene).getTomahawkWingMaterial();
     wingPositions.forEach((wingData, index) => {
       const wing = MeshBuilder.CreateBox(
         `wing${index}`,
@@ -236,10 +254,6 @@ export class TomahawkMissile {
       wing.position = wingData.pos;
       wing.rotation = wingData.rot;
       wing.parent = this.missileGroup;
-
-      const wingMaterial = new StandardMaterial(`wingMaterial${index}`, this.scene);
-      wingMaterial.diffuseColor = new Color3(0.7, 0.7, 0.8);
-      wingMaterial.specularColor = new Color3(0.4, 0.4, 0.5);
       wing.material = wingMaterial;
     });
   }
@@ -476,26 +490,20 @@ export class TomahawkMissile {
 
     // Per-frame guidance runs on the main thread (a few dozen flops; no
     // round-trip latency, no snap-on-apply). The episodic path generation
-    // stays in the worker (generateInitialPath).
-    const result = updateTomahawkMissilePhysics({
-      position: { x: this.position.x, y: this.position.y, z: this.position.z },
-      velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
-      rotation: { x: this.rotation.x, y: this.rotation.y, z: this.rotation.z },
-      targetPosition: { x: this.targetPosition.x, y: this.targetPosition.y, z: this.targetPosition.z },
-      speed: this.speed,
-      turnRate: this.turnRate,
-      deltaTime: deltaTime,
-      pathTime: this.pathTime,
-      pathSpeed: this.pathSpeed,
-      launched: this.launched,
-      exploded: this.exploded,
-      lookAheadDistance: this.lookAheadDistance,
-      orientationUpdateThreshold: this.orientationUpdateThreshold,
-      lastSegmentChangeTime: this.lastSegmentChangeTime,
-      currentTime: currentTime,
-      waypoints: this.waypoints,
-    });
-    this.applyPhysicsResult(result);
+    // stays in the worker (generateInitialPath). Only the mutable fields of
+    // the reused payload are refreshed here.
+    const d = this.physicsData;
+    d.position = this.position;
+    d.rotation = this.rotation;
+    d.waypoints = this.waypoints;
+    d.deltaTime = deltaTime;
+    d.pathTime = this.pathTime;
+    d.launched = this.launched;
+    d.exploded = this.exploded;
+    d.lastSegmentChangeTime = this.lastSegmentChangeTime;
+    d.currentTime = currentTime;
+
+    this.applyPhysicsResult(updateTomahawkMissilePhysics(d));
   }
 
   private applyPhysicsResult(result: any): void {
@@ -521,8 +529,8 @@ export class TomahawkMissile {
     }
 
     // Apply transforms
-    this.missileGroup.position = this.position.clone();
-    this.missileGroup.rotation = this.rotation.clone();
+    this.missileGroup.position.copyFrom(this.position);
+    this.missileGroup.rotation.copyFrom(this.rotation);
 
     // Check for explosion from worker
     if (result.shouldExplode) {
@@ -600,7 +608,8 @@ export class TomahawkMissile {
   }
 
   public dispose(): void {
-    // Dispose part materials with the hierarchy (they are per-missile instances).
+    // Part materials are shared frozen instances (MissileAssets) — plain
+    // dispose() (no disposeMaterialAndTextures) leaves them intact.
     // Flight particle textures are shared via EffectTextures — dispose(false).
     // Particle systems must go BEFORE the mesh hierarchy: disposing their emitter
     // mesh would auto-dispose them with disposeTexture=true, killing the shared
@@ -608,8 +617,8 @@ export class TomahawkMissile {
     if (this.trailParticles) this.trailParticles.dispose(false);
     if (this.exhaustParticles) this.exhaustParticles.dispose(false);
     if (this.flightSmokeParticles) this.flightSmokeParticles.dispose(false);
-    if (this.missileGroup) this.missileGroup.dispose(false, true);
-    if (this.launchParent) this.launchParent.dispose(false, true);
+    if (this.missileGroup) this.missileGroup.dispose();
+    if (this.launchParent) this.launchParent.dispose();
     this.lightHandle.release();
     if (this.launchAnimationGroup) this.launchAnimationGroup.dispose();
   }

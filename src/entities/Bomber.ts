@@ -8,7 +8,6 @@ import {
   MeshBuilder,
   TransformNode,
   ParticleSystem,
-  Texture,
   PointLight,
   DynamicTexture,
 } from '@babylonjs/core';
@@ -460,11 +459,9 @@ export class Bomber {
   private createEngineParticleSystem(enginePos: Vector3, index: number): void {
     const particleSystem = new ParticleSystem(`engineExhaust${index}`, 50, this.scene);
 
-    // Create a simple particle texture - using a basic white texture
-    particleSystem.particleTexture = new Texture(
-      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
-      this.scene,
-    );
+    // Shared 1x1 white pixel (tinted by particle colors) — replaces 4 identical
+    // per-engine base64 decodes/uploads. Dispose with dispose(false) only.
+    particleSystem.particleTexture = EffectTextures.get(this.scene).getPixelTexture();
 
     // Create a dummy mesh as emitter at the exact engine exhaust position
     const emitterMesh = MeshBuilder.CreateSphere(`emitter${index}`, { diameter: 0.1 }, this.scene);
@@ -857,6 +854,10 @@ export class Bomber {
   // must penetrate their engagement zone before it can return fire.
   private readonly defenseAcquisitionRange = 300;
 
+  public getDefenseAcquisitionRange(): number {
+    return this.defenseAcquisitionRange;
+  }
+
   public findClosestDefenseBuildingSync(): Building | null {
     if (!this.terrainManager) return null;
 
@@ -878,39 +879,31 @@ export class Bomber {
     return closestBuilding;
   }
 
-  /** Promise wrapper kept for callers written against the old async API. */
-  public findClosestDefenseBuilding(): Promise<Building | null> {
-    return Promise.resolve(this.findClosestDefenseBuildingSync());
-  }
-
-  public hasValidTarget(): Promise<boolean> {
-    return Promise.resolve(this.findClosestDefenseBuildingSync() !== null);
-  }
-
-  public launchMissile(): Promise<boolean> {
-    if (!this.canLaunchMissile()) return Promise.resolve(false);
+  /** Self-validates target and cooldown; safe to call every frame the key is held. */
+  public tryLaunchMissile(): boolean {
+    if (!this.canLaunchMissile()) return false;
 
     const targetBuilding = this.findClosestDefenseBuildingSync();
-    if (!targetBuilding) return Promise.resolve(false); // No valid target in range
+    if (!targetBuilding) return false; // No valid target in range
 
     // Check if bomb bay is ready for launch
     if (this.bombBayState === 'closed') {
       // Open bomb bay first, then launch missile when fully open
       this.missileLaunchPending = true;
       this.openBombBay();
-      return Promise.resolve(true); // Launch sequence started
+      return true; // Launch sequence started
     } else if (this.bombBayState === 'opening') {
       // Still opening, wait for it to complete
       this.missileLaunchPending = true;
-      return Promise.resolve(true); // Launch sequence in progress
+      return true; // Launch sequence in progress
     } else if (this.bombBayState === 'closing') {
       // Doors are closing, can't launch
-      return Promise.resolve(false);
+      return false;
     }
 
     // Bomb bay is open, proceed with launch
     this.executeMissileLaunch();
-    return Promise.resolve(true);
+    return true;
   }
 
   private executeMissileLaunch(): void {
@@ -1021,12 +1014,9 @@ export class Bomber {
   }
 
   private triggerDestructionEffects(): void {
-    // Create massive explosion effect
+    // Create massive explosion effect (shared pixel texture, tinted by particle colors)
     const explosionParticles = new ParticleSystem('bomberDestruction', 500, this.scene);
-    explosionParticles.particleTexture = new Texture(
-      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
-      this.scene,
-    );
+    explosionParticles.particleTexture = EffectTextures.get(this.scene).getPixelTexture();
 
     explosionParticles.emitter = this.bomberGroup.position;
     explosionParticles.minEmitBox = new Vector3(-10, -5, -15);
@@ -1062,8 +1052,8 @@ export class Bomber {
   }
 
   private setupDamageEffects(): void {
-    // Clear existing damage effects
-    this.damageEffects.forEach((ps) => ps.dispose());
+    // Clear existing damage effects (dispose(false): the pixel texture is shared)
+    this.damageEffects.forEach((ps) => ps.dispose(false));
     this.damageEffects = [];
 
     if (this.damageLight) {
@@ -1079,12 +1069,9 @@ export class Bomber {
     this.damageLight.range = 50;
     this.damageLight.parent = this.bomberGroup;
 
-    // Create smoke particles for damage
+    // Create smoke particles for damage (shared pixel texture, tinted by particle colors)
     const smokeParticles = new ParticleSystem('bomberSmoke', 100, this.scene);
-    smokeParticles.particleTexture = new Texture(
-      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
-      this.scene,
-    );
+    smokeParticles.particleTexture = EffectTextures.get(this.scene).getPixelTexture();
 
     smokeParticles.emitter = this.bomberGroup.position;
     smokeParticles.minEmitBox = new Vector3(-5, -2, -10);
@@ -1108,12 +1095,9 @@ export class Bomber {
     smokeParticles.gravity = new Vector3(0, 2, 0);
     smokeParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
 
-    // Create fire particles for critical damage
+    // Create fire particles for critical damage (shared pixel texture, tinted by particle colors)
     const fireParticles = new ParticleSystem('bomberFire', 150, this.scene);
-    fireParticles.particleTexture = new Texture(
-      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
-      this.scene,
-    );
+    fireParticles.particleTexture = EffectTextures.get(this.scene).getPixelTexture();
 
     fireParticles.emitter = this.bomberGroup.position;
     fireParticles.minEmitBox = new Vector3(-3, -1, -8);
@@ -1491,8 +1475,9 @@ export class Bomber {
     });
     this.flareParticleSystems = [];
 
-    // Clean up damage effects
-    this.damageEffects.forEach((ps) => ps.dispose());
+    // Clean up damage effects — dispose(false): their pixel texture is the shared
+    // EffectTextures instance, which other projectiles' exhausts still use
+    this.damageEffects.forEach((ps) => ps.dispose(false));
     this.damageEffects = [];
 
     if (this.damageLight) {
@@ -1500,8 +1485,9 @@ export class Bomber {
       this.damageLight = null;
     }
 
-    // Clean up engine particles
-    this.particleSystems.forEach((ps) => ps.dispose());
+    // Clean up engine particles (before bomberGroup below — their emitter meshes
+    // live in that hierarchy; dispose(false) keeps the shared pixel texture)
+    this.particleSystems.forEach((ps) => ps.dispose(false));
     this.particleSystems = [];
 
     // Clean up bomber mesh

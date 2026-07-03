@@ -5,6 +5,13 @@ export interface ExplodeOptions {
   smoke?: boolean;
   shockwave?: boolean;
   sparks?: boolean;
+  /**
+   * Emit through a box of ±these half-extents around `position` instead of the
+   * default near-point pad — building destructions use it to keep their old
+   * whole-volume burst look. Applies to fire/smoke/sparks; the shockwave stays
+   * a point ring (a volume-filling shockwave reads as noise).
+   */
+  emitHalfExtents?: Vector3;
 }
 
 interface ExplosionBundle {
@@ -181,18 +188,22 @@ export class ExplosionPool {
     bundle.emitter.copyFrom(position);
 
     const countScale = Math.min(1, scale);
+    const halfExtents = opts.emitHalfExtents ?? null;
 
+    ExplosionPool.setEmitBox(bundle.fire, halfExtents, 1.2);
     bundle.fire.minSize = ExplosionPool.FIRE_MIN_SIZE * scale;
     bundle.fire.maxSize = ExplosionPool.FIRE_MAX_SIZE * scale;
     bundle.fire.manualEmitCount = Math.round(ExplosionPool.FIRE_COUNT * countScale);
 
     if (opts.smoke !== false) {
+      ExplosionPool.setEmitBox(bundle.smoke, halfExtents, 2);
       bundle.smoke.minSize = ExplosionPool.SMOKE_MIN_SIZE * scale;
       bundle.smoke.maxSize = ExplosionPool.SMOKE_MAX_SIZE * scale;
       bundle.smoke.manualEmitCount = Math.round(ExplosionPool.SMOKE_COUNT * countScale);
     }
 
     if (opts.sparks !== false) {
+      ExplosionPool.setEmitBox(bundle.spark, halfExtents, 0.5);
       bundle.spark.minSize = ExplosionPool.SPARK_MIN_SIZE * scale;
       bundle.spark.maxSize = ExplosionPool.SPARK_MAX_SIZE * scale;
       bundle.spark.manualEmitCount = Math.round(ExplosionPool.SPARK_COUNT * countScale);
@@ -202,6 +213,22 @@ export class ExplosionPool {
       bundle.shockwave.minSize = ExplosionPool.SHOCKWAVE_MIN_SIZE * scale;
       bundle.shockwave.maxSize = ExplosionPool.SHOCKWAVE_MAX_SIZE * scale;
       bundle.shockwave.manualEmitCount = Math.round(ExplosionPool.SHOCKWAVE_COUNT * countScale);
+    }
+  }
+
+  /**
+   * Per-rent emit volume. Babylon samples the emit box at emission time, so the
+   * boxes are safely mutated in place; because every armed system passes through
+   * here on each rent, a volume burst can never leak into a later point
+   * explosion — absent halfExtents, the system's default ground pad is restored.
+   */
+  private static setEmitBox(ps: ParticleSystem, halfExtents: Vector3 | null, defaultPad: number): void {
+    if (halfExtents) {
+      ps.minEmitBox.set(-halfExtents.x, -halfExtents.y, -halfExtents.z);
+      ps.maxEmitBox.set(halfExtents.x, halfExtents.y, halfExtents.z);
+    } else {
+      ps.minEmitBox.set(-defaultPad, 0, -defaultPad);
+      ps.maxEmitBox.set(defaultPad, 0, defaultPad);
     }
   }
 }

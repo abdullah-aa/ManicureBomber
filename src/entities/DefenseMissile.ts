@@ -1,14 +1,5 @@
-import {
-  Scene,
-  Mesh,
-  Vector3,
-  MeshBuilder,
-  StandardMaterial,
-  Color3,
-  ParticleSystem,
-  Color4,
-  TransformNode,
-} from '@babylonjs/core';
+import { Scene, Mesh, Vector3, MeshBuilder, ParticleSystem, Color4, TransformNode } from '@babylonjs/core';
+import { MissileAssets } from './MissileAssets';
 import { WorkerManager } from '../managers/WorkerManager';
 import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
 import { EffectTextures } from '../effects/EffectTextures';
@@ -24,6 +15,36 @@ export class DefenseMissile {
    */
   public static readonly MIN_AIRBURST_ALTITUDE = 220;
 
+  /**
+   * Per-Scene free-list of PARKED missiles (in-flight ones live in
+   * Game.defenseMissiles). Defense missiles are the highest-frequency runtime
+   * mesh creation in the game — every 3-11s per launcher, several launchers in
+   * range at once — and each used to build 7 meshes + 6 materials + 1 particle
+   * system, all disposed ~1.5s after airburst. Pooled missiles keep their mesh
+   * hierarchy and exhaust system for the scene's lifetime: acquire() re-arms
+   * one, release() parks it disabled. A salvo deeper than POOL_RETAIN still
+   * works (extra missiles are built on demand and disposed on release).
+   */
+  private static pools: WeakMap<Scene, DefenseMissile[]> = new WeakMap();
+  private static readonly POOL_RETAIN = 6;
+
+  static acquire(
+    scene: Scene,
+    launchPosition: Vector3,
+    targetPosition: Vector3,
+    bomberVelocity: Vector3,
+    workerManager: WorkerManager,
+  ): DefenseMissile {
+    let pool = DefenseMissile.pools.get(scene);
+    if (!pool) {
+      pool = [];
+      DefenseMissile.pools.set(scene, pool);
+    }
+    const missile = pool.pop() ?? new DefenseMissile(scene, workerManager);
+    missile.arm(launchPosition, targetPosition, bomberVelocity);
+    return missile;
+  }
+
   private scene: Scene;
   private workerManager: WorkerManager;
   private missileGroup: TransformNode;
@@ -32,54 +53,92 @@ export class DefenseMissile {
   private velocity: Vector3;
   private targetPosition: Vector3;
   private bomberVelocity: Vector3;
-  private speed: number = 120 + Math.random() * 30; // Variable speed between 120-150 units/sec
+  private speed: number = 0; // Set per launch in arm() (variable 120-150 units/sec)
   private launched: boolean = false;
   private exploded: boolean = false;
   private exhaustParticles!: ParticleSystem;
   private lightHandle: LightHandle = LightHandle.inert();
   private targetSet: boolean = false; // Performance optimization flag
-  private maxAltitude: number =
-    DefenseMissile.MIN_AIRBURST_ALTITUDE +
-    Math.random() * (DefenseMissile.MAX_ALTITUDE - DefenseMissile.MIN_AIRBURST_ALTITUDE); // Airburst altitude per missile
+  private maxAltitude: number = 0; // Airburst altitude, randomized per launch in arm()
 
   // Trajectory calculation properties
   private trajectoryCalculated: boolean = false;
   private pendingTrajectoryCalculation: boolean = false;
 
-  constructor(
-    scene: Scene,
-    launchPosition: Vector3,
-    targetPosition: Vector3,
-    bomberVelocity: Vector3,
-    workerManager: WorkerManager,
-  ) {
+  /** Builds the reusable hull only; all per-launch state lives in arm(). Use acquire(). */
+  private constructor(scene: Scene, workerManager: WorkerManager) {
     this.scene = scene;
     this.workerManager = workerManager;
-    this.position = launchPosition.clone();
-    this.bomberVelocity = bomberVelocity.clone();
-
-    // Initialize with basic values - worker will calculate proper target and velocity
-    this.velocity = new Vector3(0, 0, 0);
-    this.targetPosition = targetPosition.clone();
+    this.position = new Vector3();
+    this.velocity = new Vector3();
+    this.targetPosition = new Vector3();
+    this.bomberVelocity = new Vector3();
 
     this.missileGroup = new TransformNode('defenseMissileGroup', this.scene);
-    this.missileGroup.position = this.position.clone();
+    this.createMissileModel();
+    this.setupParticleEffects();
+    this.missileGroup.getChildMeshes().forEach((m) => (m.isPickable = false));
+    this.missileGroup.setEnabled(false); // Parked until arm()
+  }
+
+  /** Re-arm a pooled missile for a fresh launch — resets every per-launch field. */
+  private arm(launchPosition: Vector3, targetPosition: Vector3, bomberVelocity: Vector3): void {
+    this.position.copyFrom(launchPosition);
+    this.targetPosition.copyFrom(targetPosition);
+    this.bomberVelocity.copyFrom(bomberVelocity);
+    this.velocity.set(0, 0, 0); // Stationary until the trajectory worker replies
+    this.launched = false;
+    this.exploded = false;
+    this.targetSet = false;
+    this.trajectoryCalculated = false;
+    this.pendingTrajectoryCalculation = false;
+    this.speed = 120 + Math.random() * 30; // Variable speed between 120-150 units/sec
+    this.maxAltitude =
+      DefenseMissile.MIN_AIRBURST_ALTITUDE +
+      Math.random() * (DefenseMissile.MAX_ALTITUDE - DefenseMissile.MIN_AIRBURST_ALTITUDE);
+
+    this.missileGroup.position.copyFrom(this.position);
 
     // Set initial orientation toward target
     const direction = this.targetPosition.subtract(this.position).normalize();
     const yaw = Math.atan2(direction.x, direction.z) + Math.PI; // Add 180° to flip missile
     const horizontalSpeed = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
     const pitch = Math.atan2(direction.y, horizontalSpeed) + Math.PI;
+    this.missileGroup.rotation.set(pitch, yaw, 0);
+    this.missileGroup.setEnabled(true);
 
-    this.missileGroup.rotation.y = yaw;
-    this.missileGroup.rotation.x = pitch;
+    // Pooled missile light; follows the missile in world space (never parented)
+    this.lightHandle = LightManager.get(this.scene).acquire(LightPriority.MEDIUM);
+    this.lightHandle.setColor(1, 0.8, 0.4);
+    this.lightHandle.setIntensity(1.5);
+    this.lightHandle.setRange(30);
+    this.lightHandle.setPosition(this.position);
+  }
 
-    this.createMissileModel();
-    this.setupParticleEffects();
-    this.missileGroup.getChildMeshes().forEach((m) => (m.isPickable = false));
+  /**
+   * Park this missile back in the pool instead of disposing (Game's sweep calls
+   * this ~1.5s after airburst so the blast finishes first). explode() already
+   * stopped the exhaust, hid the group, and released the light — repeating them
+   * here is harmless (all idempotent) and covers non-exploded teardown paths.
+   */
+  public release(): void {
+    this.exhaustParticles.stop();
+    this.missileGroup.setEnabled(false);
+    this.lightHandle.release();
+
+    const pool = DefenseMissile.pools.get(this.scene);
+    if (pool && pool.length < DefenseMissile.POOL_RETAIN) {
+      pool.push(this);
+    } else {
+      this.dispose();
+    }
   }
 
   private createMissileModel(): void {
+    // Part materials are shared frozen instances (MissileAssets); the meshes
+    // themselves are also reused across launches via the pool.
+    const assets = MissileAssets.get(this.scene);
+
     // Simple missile body
     this.fuselage = MeshBuilder.CreateCylinder(
       'defenseMissileFuselage',
@@ -93,12 +152,7 @@ export class DefenseMissile {
 
     this.fuselage.rotation.x = Math.PI / 2; // Orient horizontally
     this.fuselage.parent = this.missileGroup;
-
-    const fuselageMaterial = new StandardMaterial('defenseMissileFuselage', this.scene);
-    fuselageMaterial.diffuseColor = new Color3(0.7, 0.7, 0.6); // Light gray
-    fuselageMaterial.specularColor = new Color3(0.3, 0.3, 0.3);
-    fuselageMaterial.emissiveColor = new Color3(0.1, 0.1, 0.1);
-    this.fuselage.material = fuselageMaterial;
+    this.fuselage.material = assets.getDefenseFuselageMaterial();
 
     // Nose cone
     const noseCone = MeshBuilder.CreateCylinder(
@@ -115,11 +169,7 @@ export class DefenseMissile {
     noseCone.position.z = 2.5;
     noseCone.rotation.x = Math.PI / 2;
     noseCone.parent = this.missileGroup;
-
-    const noseMaterial = new StandardMaterial('defenseMissileNoseMaterial', this.scene);
-    noseMaterial.diffuseColor = new Color3(0.2, 0.2, 0.2);
-    noseMaterial.specularColor = new Color3(0.5, 0.5, 0.5);
-    noseCone.material = noseMaterial;
+    noseCone.material = assets.getDefenseNoseMaterial();
 
     // Simple fins
     const finPositions = [
@@ -143,19 +193,11 @@ export class DefenseMissile {
       fin.position = finData.pos;
       fin.rotation = finData.rot;
       fin.parent = this.missileGroup;
-
-      const finMaterial = new StandardMaterial(`defenseMissileFinMaterial${index}`, this.scene);
-      finMaterial.diffuseColor = new Color3(0.6, 0.6, 0.5);
-      fin.material = finMaterial;
+      fin.material = assets.getDefenseFinMaterial();
     });
 
-    // Add missile light
-    // Pooled missile light; follows the missile in world space (never parented)
-    this.lightHandle = LightManager.get(this.scene).acquire(LightPriority.MEDIUM);
-    this.lightHandle.setColor(1, 0.8, 0.4);
-    this.lightHandle.setIntensity(1.5);
-    this.lightHandle.setRange(30);
-    this.lightHandle.setPosition(this.position);
+    // The pooled scene light is acquired per launch in arm() — a parked missile
+    // must not hold a light slot.
   }
 
   private setupParticleEffects(): void {
@@ -263,9 +305,11 @@ export class DefenseMissile {
   }
 
   private updateStraightLineMovement(deltaTime: number): void {
-    // Simple position update - no complex calculations needed
-    this.position.addInPlace(this.velocity.scale(deltaTime));
-    this.missileGroup.position = this.position.clone();
+    // Component-wise integration — no per-frame Vector3 allocations
+    this.position.x += this.velocity.x * deltaTime;
+    this.position.y += this.velocity.y * deltaTime;
+    this.position.z += this.velocity.z * deltaTime;
+    this.missileGroup.position.copyFrom(this.position);
 
     // Airburst at the missile's ceiling — or on ground impact, so a downward-aimed
     // shot can never fly underground forever and leak its mesh/particles/light.
@@ -311,13 +355,18 @@ export class DefenseMissile {
     return this.exploded;
   }
 
+  /** Full teardown — only for missiles beyond the pool's retention cap (see release()). */
   public dispose(): void {
     if (this.exhaustParticles) {
-      // The pixel exhaust texture is shared via EffectTextures — keep it
+      // Particle system BEFORE its emitter mesh (the mesh hierarchy below) —
+      // disposing the emitter first would auto-dispose the system with
+      // disposeTexture=true, killing the shared EffectTextures pixel texture.
+      // dispose(false) keeps that shared texture.
       this.exhaustParticles.dispose(false);
     }
     this.lightHandle.release();
-    // Dispose part materials with the hierarchy (they are per-missile instances)
-    this.missileGroup.dispose(false, true);
+    // Part materials are shared frozen instances (MissileAssets) — plain
+    // dispose() (no disposeMaterialAndTextures) leaves them intact.
+    this.missileGroup.dispose();
   }
 }

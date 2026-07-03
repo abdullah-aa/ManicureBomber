@@ -3,19 +3,18 @@ import {
   Mesh,
   Vector3,
   MeshBuilder,
-  StandardMaterial,
-  Color3,
   ParticleSystem,
   Color4,
   TransformNode,
 } from '@babylonjs/core';
 import { Bomber } from './Bomber';
+import { MissileAssets } from './MissileAssets';
 import { WorkerManager } from '../managers/WorkerManager';
 import type { TerrainManager } from '../managers/TerrainManager';
 import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
 import { EffectTextures } from '../effects/EffectTextures';
 import { ExplosionPool } from '../effects/ExplosionPool';
-import { updateIskanderMissilePhysics } from '../managers/MissileGuidance';
+import { updateIskanderMissilePhysics, IskanderMissileData } from '../managers/MissileGuidance';
 
 export class IskanderMissile {
   private scene: Scene;
@@ -47,10 +46,6 @@ export class IskanderMissile {
   private pathSpeed: number = 0.4; // Speed along the curved path
   private waypoints: Vector3[] = [];
 
-  // Performance optimization: cached calculations
-  private lastUpdateTime: number = 0;
-  private updateInterval: number = 1 / 60; // 60 FPS max updates
-
   // Terrain-surface detonation: armed once the missile is clearly airborne so a
   // launch from raised terrain doesn't detonate on the pad
   private terrainManager: TerrainManager | null = null;
@@ -78,6 +73,13 @@ export class IskanderMissile {
   // Worker integration (kept for API stability; per-frame guidance is main-thread now)
   private workerManager: WorkerManager;
 
+  // Reused per-frame guidance payload — updateIskanderMissilePhysics reads it
+  // synchronously and never mutates it, so one object per missile replaces the
+  // ~25-field literal that was allocated every frame. The vector fields are live
+  // references; the ones this class ever REASSIGNS (targetPosition, waypoints,
+  // flareTargets, originalTargetPosition) are re-pointed in update().
+  private readonly physicsData: IskanderMissileData;
+
   constructor(scene: Scene, launchPosition: Vector3, bomber: Bomber, workerManager: WorkerManager) {
     this.scene = scene;
     this.position = launchPosition.clone();
@@ -87,6 +89,33 @@ export class IskanderMissile {
     this.rotation = new Vector3(0, 0, 0);
     this.velocity = new Vector3(0, 0, 0); // Start stationary
     this.workerManager = workerManager;
+
+    this.physicsData = {
+      position: this.position,
+      velocity: this.velocity,
+      rotation: this.rotation,
+      targetPosition: this.targetPosition,
+      speed: this.speed,
+      turnRate: this.turnRate,
+      deltaTime: 0,
+      pathTime: 0,
+      pathSpeed: this.pathSpeed,
+      waypoints: this.waypoints,
+      launched: false,
+      exploded: false,
+      currentTime: 0,
+      flareTargets: this.flareTargets,
+      flareDetectionRange: this.flareDetectionRange,
+      originalTargetPosition: this.originalTargetPosition,
+      isTargetingFlare: false,
+      lockOnRange: this.lockOnRange,
+      isLockedOn: false,
+      lockOnTime: this.lockOnTime,
+      lockOnDuration: this.lockOnDuration,
+      guidanceStrength: this.guidanceStrength,
+      maxTurnRate: this.maxTurnRate,
+      groundHeight: 0,
+    };
 
     this.missileGroup = new TransformNode('iskanderGroup', this.scene);
     this.missileGroup.position = this.position.clone();
@@ -104,6 +133,10 @@ export class IskanderMissile {
   }
 
   private createMissileModel(): void {
+    // Part materials are shared frozen instances (MissileAssets) — one set for
+    // every Iskander ever launched instead of 7 fresh materials per missile.
+    const assets = MissileAssets.get(this.scene);
+
     // Main fuselage - sleek ballistic missile body
     this.fuselage = MeshBuilder.CreateCylinder(
       'iskanderFuselage',
@@ -117,12 +150,7 @@ export class IskanderMissile {
 
     this.fuselage.rotation.x = Math.PI / 2; // Orient horizontally pointing forward
     this.fuselage.parent = this.missileGroup;
-
-    const fuselageMaterial = new StandardMaterial('iskanderFuselage', this.scene);
-    fuselageMaterial.diffuseColor = new Color3(0.6, 0.6, 0.7); // Dark gray
-    fuselageMaterial.specularColor = new Color3(0.4, 0.4, 0.5);
-    fuselageMaterial.emissiveColor = new Color3(0.05, 0.05, 0.08);
-    this.fuselage.material = fuselageMaterial;
+    this.fuselage.material = assets.getIskanderFuselageMaterial();
 
     // Nose cone
     const noseCone = MeshBuilder.CreateCylinder(
@@ -139,11 +167,7 @@ export class IskanderMissile {
     noseCone.position.z = 5.5; // Front of missile
     noseCone.rotation.x = Math.PI / 2;
     noseCone.parent = this.missileGroup;
-
-    const noseMaterial = new StandardMaterial('iskanderNoseMaterial', this.scene);
-    noseMaterial.diffuseColor = new Color3(0.3, 0.3, 0.35);
-    noseMaterial.specularColor = new Color3(0.7, 0.7, 0.8);
-    noseCone.material = noseMaterial;
+    noseCone.material = assets.getIskanderNoseMaterial();
 
     // Control fins
     this.createControlFins();
@@ -162,11 +186,7 @@ export class IskanderMissile {
     engineNozzle.position.z = -5.5; // Rear of missile
     engineNozzle.rotation.x = Math.PI / 2;
     engineNozzle.parent = this.missileGroup;
-
-    const engineMaterial = new StandardMaterial('iskanderEngineMaterial', this.scene);
-    engineMaterial.diffuseColor = new Color3(0.2, 0.2, 0.2);
-    engineMaterial.emissiveColor = new Color3(0.4, 0.15, 0.05);
-    engineNozzle.material = engineMaterial;
+    engineNozzle.material = assets.getIskanderEngineMaterial();
 
     // Add missile light with red tint
     // Pooled missile light; follows the missile in world space (never parented)
@@ -186,6 +206,7 @@ export class IskanderMissile {
       { pos: new Vector3(-0.4, 0, -4), rot: new Vector3(0, 0, -Math.PI / 2) },
     ];
 
+    const finMaterial = MissileAssets.get(this.scene).getIskanderFinMaterial();
     finPositions.forEach((finData, index) => {
       const fin = MeshBuilder.CreateBox(
         `iskanderFin${index}`,
@@ -200,10 +221,6 @@ export class IskanderMissile {
       fin.position = finData.pos;
       fin.rotation = finData.rot;
       fin.parent = this.missileGroup;
-
-      const finMaterial = new StandardMaterial(`iskanderFinMaterial${index}`, this.scene);
-      finMaterial.diffuseColor = new Color3(0.5, 0.5, 0.6);
-      finMaterial.specularColor = new Color3(0.3, 0.3, 0.4);
       fin.material = finMaterial;
     });
   }
@@ -349,12 +366,7 @@ export class IskanderMissile {
 
     this.lightHandle.setPosition(this.position);
 
-    // Performance optimization: limit update frequency
     const currentTime = performance.now() / 1000;
-    if (currentTime - this.lastUpdateTime < this.updateInterval) {
-      return;
-    }
-    this.lastUpdateTime = currentTime;
 
     // Update target position periodically for better performance
     if (currentTime - this.lastTargetUpdateTime > this.targetUpdateInterval) {
@@ -394,38 +406,26 @@ export class IskanderMissile {
     }
 
     // Per-frame guidance runs on the main thread (no round-trip latency — flare
-    // diversion and lock-on react within the same frame).
-    const result = updateIskanderMissilePhysics({
-      position: { x: this.position.x, y: this.position.y, z: this.position.z },
-      velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
-      rotation: { x: this.rotation.x, y: this.rotation.y, z: this.rotation.z },
-      targetPosition: { x: this.targetPosition.x, y: this.targetPosition.y, z: this.targetPosition.z },
-      speed: this.speed,
-      turnRate: this.turnRate,
-      deltaTime: deltaTime,
-      pathTime: this.pathTime,
-      pathSpeed: this.pathSpeed,
-      waypoints: this.waypoints,
-      launched: this.launched,
-      exploded: this.exploded,
-      currentTime: currentTime,
+    // diversion and lock-on react within the same frame). Only the mutable
+    // fields of the reused payload are refreshed here; flareTargets is the
+    // bomber's live array (read-only contract) — guidance only reads x/y/z and
+    // never mutates its inputs.
+    const d = this.physicsData;
+    d.targetPosition = this.targetPosition;
+    d.originalTargetPosition = this.originalTargetPosition;
+    d.waypoints = this.waypoints;
+    d.flareTargets = this.flareTargets;
+    d.deltaTime = deltaTime;
+    d.pathTime = this.pathTime;
+    d.launched = this.launched;
+    d.exploded = this.exploded;
+    d.currentTime = currentTime;
+    d.isTargetingFlare = this.isTargetingFlare;
+    d.isLockedOn = this.isLockedOn;
+    d.lockOnTime = this.lockOnTime;
+    d.groundHeight = groundHeight;
 
-      // Iskander-specific properties. flareTargets is the bomber's live array
-      // (read-only contract) — the guidance code only reads x/y/z and returns a
-      // filtered copy, never mutating the input.
-      flareTargets: this.flareTargets,
-      flareDetectionRange: this.flareDetectionRange,
-      originalTargetPosition: this.originalTargetPosition,
-      isTargetingFlare: this.isTargetingFlare,
-      lockOnRange: this.lockOnRange,
-      isLockedOn: this.isLockedOn,
-      lockOnTime: this.lockOnTime,
-      lockOnDuration: this.lockOnDuration,
-      guidanceStrength: this.guidanceStrength,
-      maxTurnRate: this.maxTurnRate,
-      groundHeight: groundHeight,
-    });
-    this.applyPhysicsResult(result);
+    this.applyPhysicsResult(updateIskanderMissilePhysics(d));
   }
 
   private applyPhysicsResult(result: any): void {
@@ -439,9 +439,6 @@ export class IskanderMissile {
     if (result.isLockedOn !== undefined) this.isLockedOn = result.isLockedOn;
     if (result.lockOnTime !== undefined) this.lockOnTime = result.lockOnTime;
     if (result.isTargetingFlare !== undefined) this.isTargetingFlare = result.isTargetingFlare;
-    if (result.flareTargets) {
-      this.flareTargets = result.flareTargets.map((ft: any) => new Vector3(ft.x, ft.y, ft.z));
-    }
 
     // Check for lock establishment
     if (result.lockEstablished && this.onLockEstablishedCallback) {
@@ -449,8 +446,8 @@ export class IskanderMissile {
     }
 
     // Update visual representation
-    this.missileGroup.position = this.position.clone();
-    this.missileGroup.rotation = this.rotation.clone();
+    this.missileGroup.position.copyFrom(this.position);
+    this.missileGroup.rotation.copyFrom(this.rotation);
 
     // Check for explosion conditions
     if (result.shouldExplode) {
@@ -525,6 +522,8 @@ export class IskanderMissile {
   }
 
   public dispose(): void {
+    // Part materials are shared frozen instances (MissileAssets) — plain
+    // dispose() (no disposeMaterialAndTextures) leaves them intact.
     // Flight particle textures are shared via EffectTextures — dispose(false).
     // Particle systems must go BEFORE the group: disposing their emitter mesh
     // would auto-dispose them with disposeTexture=true, killing the shared
@@ -532,7 +531,7 @@ export class IskanderMissile {
     if (this.trailParticles) this.trailParticles.dispose(false);
     if (this.exhaustParticles) this.exhaustParticles.dispose(false);
     if (this.flightSmokeParticles) this.flightSmokeParticles.dispose(false);
-    if (this.missileGroup) this.missileGroup.dispose(false, true);
+    if (this.missileGroup) this.missileGroup.dispose();
     this.lightHandle.release();
   }
 }

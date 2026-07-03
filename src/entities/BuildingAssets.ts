@@ -40,10 +40,8 @@ export class BuildingAssets {
   private launcherSource: Mesh | null = null;
   private fireTexture: DynamicTexture | null = null;
   private smokeTexture: DynamicTexture | null = null;
-  private explosionTexture: DynamicTexture | null = null;
-  private bombExplosionTexture: DynamicTexture | null = null;
-  private debrisTexture: DynamicTexture | null = null;
   private ringMaterial: StandardMaterial | null = null;
+  private ringSource: Mesh | null = null;
 
   private constructor(scene: Scene) {
     this.scene = scene;
@@ -64,13 +62,19 @@ export class BuildingAssets {
     }
   }
 
-  /** Shared material for a building type — one instance reused by every building of that type. */
+  /**
+   * Shared material for a building type — one instance reused by every building
+   * of that type. Frozen: nothing ever writes to it after creation (damage is
+   * particles-only), so Babylon can skip its per-frame material sync. Writes to
+   * a frozen material would silently no-op.
+   */
   getMaterial(type: string): StandardMaterial {
     let material = this.materials.get(type);
     if (!material) {
       material = new StandardMaterial(`buildingMaterial_${type}`, this.scene);
       material.diffuseColor = this.colorForType(type);
       material.specularColor = new Color3(0.1, 0.1, 0.1);
+      material.freeze();
       this.materials.set(type, material);
     }
     return material;
@@ -116,7 +120,11 @@ export class BuildingAssets {
     return this.smokestackSource;
   }
 
-  /** Shared animated launcher material — one flashing animation drives all launchers. */
+  /**
+   * Shared animated launcher material — one flashing animation drives all
+   * launchers. Deliberately NOT frozen: the animation writes emissiveColor
+   * every frame, which a frozen material would ignore.
+   */
   getLauncherMaterial(): StandardMaterial {
     if (!this.launcherMaterial) {
       const material = new StandardMaterial('launcherMaterial_shared', this.scene);
@@ -176,66 +184,29 @@ export class BuildingAssets {
     return this.fireTexture;
   }
 
-  /** Shared red target-ring material — one instance for every target building. */
+  /** Shared red target-ring material — one frozen instance for every target ring (never written after creation). */
   getRingMaterial(): StandardMaterial {
     if (!this.ringMaterial) {
       this.ringMaterial = new StandardMaterial('ringMaterial', this.scene);
       this.ringMaterial.emissiveColor = new Color3(1, 0, 0); // Red glow
       this.ringMaterial.diffuseColor = new Color3(0.8, 0, 0);
+      this.ringMaterial.freeze();
     }
     return this.ringMaterial;
   }
 
-  /** Shared explosion flash texture (buildings and defense missiles use the same gradient). */
-  getExplosionTexture(): DynamicTexture {
-    if (!this.explosionTexture) {
-      const texture = new DynamicTexture('explosionTexture', { width: 64, height: 64 }, this.scene);
-      const ctx = texture.getContext();
-      const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-      gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-      gradient.addColorStop(0.2, 'rgba(255, 255, 0, 0.9)');
-      gradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.6)');
-      gradient.addColorStop(0.8, 'rgba(255, 50, 0, 0.3)');
-      gradient.addColorStop(1, 'rgba(200, 0, 0, 0)');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, 64, 64);
-      texture.update();
-      this.explosionTexture = texture;
+  /**
+   * Hidden unit torus — target rings instance and uniformly scale this, so every
+   * ring batches into one draw call. Tube thickness (0.03 of the diameter) scales
+   * with the ring; at the typical ~35-unit diameter it matches the old fixed 1.
+   */
+  getRingSource(): Mesh {
+    if (!this.ringSource) {
+      this.ringSource = MeshBuilder.CreateTorus('buildingRingSource', { diameter: 1, thickness: 0.03 }, this.scene);
+      this.ringSource.material = this.getRingMaterial();
+      this.ringSource.isVisible = false;
     }
-    return this.explosionTexture;
-  }
-
-  /** Shared dramatic bomb-destruction explosion texture. */
-  getBombExplosionTexture(): DynamicTexture {
-    if (!this.bombExplosionTexture) {
-      const texture = new DynamicTexture('bombExplosionTexture', { width: 64, height: 64 }, this.scene);
-      const ctx = texture.getContext();
-      const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-      gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-      gradient.addColorStop(0.1, 'rgba(255, 255, 0, 1)');
-      gradient.addColorStop(0.3, 'rgba(255, 150, 0, 0.9)');
-      gradient.addColorStop(0.6, 'rgba(255, 50, 0, 0.7)');
-      gradient.addColorStop(0.9, 'rgba(200, 0, 0, 0.3)');
-      gradient.addColorStop(1, 'rgba(100, 0, 0, 0)');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, 64, 64);
-      texture.update();
-      this.bombExplosionTexture = texture;
-    }
-    return this.bombExplosionTexture;
-  }
-
-  /** Shared gray debris texture. */
-  getDebrisTexture(): DynamicTexture {
-    if (!this.debrisTexture) {
-      const texture = new DynamicTexture('debrisTexture', { width: 32, height: 32 }, this.scene);
-      const ctx = texture.getContext();
-      ctx.fillStyle = 'rgba(100, 100, 100, 1)';
-      ctx.fillRect(0, 0, 32, 32);
-      texture.update();
-      this.debrisTexture = texture;
-    }
-    return this.debrisTexture;
+    return this.ringSource;
   }
 
   /** Shared smoke particle texture (identical for every building). */

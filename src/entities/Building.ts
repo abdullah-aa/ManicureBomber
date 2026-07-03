@@ -1,24 +1,10 @@
-import {
-  Scene,
-  Vector3,
-  MeshBuilder,
-  StandardMaterial,
-  Color3,
-  Mesh,
-  AbstractMesh,
-  TransformNode,
-  ParticleSystem,
-  Texture,
-  Color4,
-  Animation,
-  AnimationGroup,
-  DynamicTexture,
-} from '@babylonjs/core';
+import { Scene, Vector3, Color3, AbstractMesh, TransformNode, ParticleSystem, Color4 } from '@babylonjs/core';
 import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
 import { WorkerManager } from '../managers/WorkerManager';
 import { Game } from '../managers/Game';
 import { DefenseMissile } from './DefenseMissile';
 import { BuildingAssets } from './BuildingAssets';
+import { ExplosionPool } from '../effects/ExplosionPool';
 
 export enum BuildingType {
   RESIDENTIAL = 'residential',
@@ -39,13 +25,23 @@ export interface BuildingConfig {
 }
 
 export class Building {
+  /**
+   * Global burning-building budget. AI-mode runs leave dozens of ignited
+   * buildings behind, each carrying a 200-particle fire + 150-particle smoke
+   * system that would otherwise animate until its chunk unloads. At the cap the
+   * OLDEST burning building is extinguished (systems disposed, lazy-init flag
+   * reset so a later hit rebuilds them), keeping scene.particleSystems bounded.
+   */
+  private static readonly MAX_BURNING = 10;
+  private static burning: Building[] = [];
+
   private scene: Scene;
   private workerManager: WorkerManager;
   private game: Game | null = null;
   private mesh: AbstractMesh;
   private parent: TransformNode;
   private config: BuildingConfig;
-  private targetRing: Mesh | null = null;
+  private targetRing: AbstractMesh | null = null;
   private damage: number = 0;
   private maxHealth: number = 100;
   private isDestroyed: boolean = false;
@@ -86,6 +82,11 @@ export class Building {
     for (const childMesh of this.parent.getChildMeshes()) {
       childMesh.isPickable = false;
       childMesh.freezeWorldMatrix();
+      // Each instance owns its BoundingInfo (built at createInstance), so sync it
+      // to world space once and opt out of the per-frame bounds sync — the frozen
+      // transform can never move the bounds again (terrain chunk's pattern).
+      childMesh.getBoundingInfo().update(childMesh.getWorldMatrix());
+      childMesh.doNotSyncBoundingInfo = true;
     }
 
     // Damage effects (fire/smoke particles, damage light) are created lazily on first
@@ -214,19 +215,14 @@ export class Building {
   }
 
   private createTargetIndicator(): void {
-    this.targetRing = MeshBuilder.CreateTorus(
-      'targetRing',
-      {
-        diameter: Math.max(this.config.width, this.config.depth) + 10,
-        thickness: 1,
-      },
-      this.scene,
-    );
-
-    this.targetRing.position.y = this.config.height + 5;
-    this.targetRing.parent = this.parent;
-
-    this.targetRing.material = BuildingAssets.get(this.scene).getRingMaterial();
+    // Instance of the shared unit torus, scaled uniformly to the target diameter —
+    // all rings batch into one draw call instead of a unique CreateTorus each.
+    // Tube thickness now scales with the diameter (unit-source tradeoff; accepted).
+    const ring = BuildingAssets.get(this.scene).getRingSource().createInstance('targetRing');
+    ring.scaling.setAll(Math.max(this.config.width, this.config.depth) + 10);
+    ring.position.y = this.config.height + 5;
+    ring.parent = this.parent;
+    this.targetRing = ring;
   }
 
   private createDefenseLauncher(): void {
@@ -240,7 +236,30 @@ export class Building {
   private ensureDamageEffects(): void {
     if (this.damageEffectsInitialized) return;
     this.damageEffectsInitialized = true;
+    // Claim a burning slot, stealing from the oldest at the cap.
+    if (Building.burning.length >= Building.MAX_BURNING) {
+      Building.burning.shift()!.extinguish();
+    }
+    Building.burning.push(this);
     this.setupDamageEffects();
+  }
+
+  /**
+   * Budget steal: stop and dispose the fire/smoke systems. Their emitters are
+   * this building's own position Vector3, so nothing is left pointing at freed
+   * state; dispose(false) keeps the shared BuildingAssets textures. Resetting
+   * damageEffectsInitialized lets a later hit rebuild the effects lazily.
+   */
+  private extinguish(): void {
+    if (this.fireParticles) {
+      this.fireParticles.dispose(false);
+      this.fireParticles = null;
+    }
+    if (this.smokeParticles) {
+      this.smokeParticles.dispose(false);
+      this.smokeParticles = null;
+    }
+    this.damageEffectsInitialized = false;
   }
 
   private setupDamageEffects(): void {
@@ -371,6 +390,17 @@ export class Building {
     this.flashDamageLight((this.damage / this.maxHealth) * 2);
   }
 
+  /** Building's volumetric center (parent sits at the base) — pooled-explosion anchor. */
+  private explosionCenter(): Vector3 {
+    const p = this.parent.position;
+    return new Vector3(p.x, p.y + this.config.height / 2, p.z);
+  }
+
+  /** Emit through the building's whole box so the burst keeps its old volume look. */
+  private explosionHalfExtents(): Vector3 {
+    return new Vector3(this.config.width / 2, this.config.height / 2, this.config.depth / 2);
+  }
+
   private destroyBuilding(): void {
     this.isDestroyed = true;
 
@@ -379,33 +409,14 @@ export class Building {
       this.onDestroyedCallback();
     }
 
-    // Create destruction explosion (texture shared across all buildings)
-    const explosionParticles = new ParticleSystem('buildingExplosion', 400, this.scene);
-    explosionParticles.particleTexture = BuildingAssets.get(this.scene).getExplosionTexture();
-    explosionParticles.emitter = this.parent.position;
-    explosionParticles.minEmitBox = new Vector3(-this.config.width / 2, 0, -this.config.depth / 2);
-    explosionParticles.maxEmitBox = new Vector3(this.config.width / 2, this.config.height, this.config.depth / 2);
-    explosionParticles.color1 = new Color4(1, 0.8, 0, 1.0);
-    explosionParticles.color2 = new Color4(1, 0.3, 0, 1.0);
-    explosionParticles.colorDead = new Color4(0.3, 0.1, 0, 0.0);
-    explosionParticles.minSize = 0.75;
-    explosionParticles.maxSize = 3.0;
-    explosionParticles.minLifeTime = 0.8;
-    explosionParticles.maxLifeTime = 2.0;
-    explosionParticles.emitRate = 400;
-    explosionParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-    explosionParticles.gravity = new Vector3(0, -5, 0);
-    explosionParticles.direction1 = new Vector3(-3, 3, -3);
-    explosionParticles.direction2 = new Vector3(3, 6, 3);
-    explosionParticles.minEmitPower = 1.5;
-    explosionParticles.maxEmitPower = 3.8;
-    explosionParticles.manualEmitCount = 400;
-    explosionParticles.start();
-
-    // Dispose of explosion particles after time (keep the shared texture)
-    setTimeout(() => {
-      explosionParticles.dispose(false);
-    }, 5000);
+    // Pooled explosion instead of a fresh 400-particle system + timed dispose.
+    // Fire only, matching the original single-system missile-kill look; taller
+    // buildings get a bigger burst.
+    ExplosionPool.get(this.scene).explode(
+      this.explosionCenter(),
+      Math.min(2, Math.max(1, 0.9 + this.config.height / 50)),
+      { smoke: false, shockwave: false, sparks: false, emitHalfExtents: this.explosionHalfExtents() },
+    );
 
     // Fade out and dispose building
     setTimeout(() => {
@@ -421,57 +432,14 @@ export class Building {
       this.onDestroyedCallback();
     }
 
-    // Create dramatic bomb destruction explosion (texture shared across all buildings)
-    const bombExplosionParticles = new ParticleSystem('buildingBombExplosion', 800, this.scene); // More particles
-    bombExplosionParticles.particleTexture = BuildingAssets.get(this.scene).getBombExplosionTexture();
-    bombExplosionParticles.emitter = this.parent.position;
-    bombExplosionParticles.minEmitBox = new Vector3(-this.config.width / 2, 0, -this.config.depth / 2);
-    bombExplosionParticles.maxEmitBox = new Vector3(this.config.width / 2, this.config.height, this.config.depth / 2);
-    bombExplosionParticles.color1 = new Color4(1, 0.9, 0, 1.0); // Brighter yellow
-    bombExplosionParticles.color2 = new Color4(1, 0.4, 0, 1.0); // Brighter orange
-    bombExplosionParticles.colorDead = new Color4(0.3, 0.1, 0, 0.0);
-    bombExplosionParticles.minSize = 1.5; // Larger particles
-    bombExplosionParticles.maxSize = 4.5; // Larger particles
-    bombExplosionParticles.minLifeTime = 1.2; // Longer duration
-    bombExplosionParticles.maxLifeTime = 2.5; // Longer duration
-    bombExplosionParticles.emitRate = 800; // Higher emission rate
-    bombExplosionParticles.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-    bombExplosionParticles.gravity = new Vector3(0, -5, 0);
-    bombExplosionParticles.direction1 = new Vector3(-5, 5, -5); // More spread
-    bombExplosionParticles.direction2 = new Vector3(5, 10, 5); // More spread
-    bombExplosionParticles.minEmitPower = 3; // More power
-    bombExplosionParticles.maxEmitPower = 6; // More power
-    bombExplosionParticles.manualEmitCount = 800;
-    bombExplosionParticles.start();
-
-    // Create additional debris particles for bomb destruction (shared texture)
-    const debrisParticles = new ParticleSystem('buildingDebris', 300, this.scene);
-    debrisParticles.particleTexture = BuildingAssets.get(this.scene).getDebrisTexture();
-    debrisParticles.emitter = this.parent.position;
-    debrisParticles.minEmitBox = new Vector3(-this.config.width / 2, 0, -this.config.depth / 2);
-    debrisParticles.maxEmitBox = new Vector3(this.config.width / 2, this.config.height, this.config.depth / 2);
-    debrisParticles.color1 = new Color4(0.6, 0.6, 0.6, 1.0);
-    debrisParticles.color2 = new Color4(0.4, 0.4, 0.4, 0.8);
-    debrisParticles.colorDead = new Color4(0.2, 0.2, 0.2, 0.0);
-    debrisParticles.minSize = 0.4;
-    debrisParticles.maxSize = 1.5;
-    debrisParticles.minLifeTime = 2.0;
-    debrisParticles.maxLifeTime = 4.0;
-    debrisParticles.emitRate = 300;
-    debrisParticles.blendMode = ParticleSystem.BLENDMODE_STANDARD;
-    debrisParticles.gravity = new Vector3(0, -15, 0); // Stronger gravity for debris
-    debrisParticles.direction1 = new Vector3(-8, 3, -8);
-    debrisParticles.direction2 = new Vector3(8, 8, 8);
-    debrisParticles.minEmitPower = 2.3;
-    debrisParticles.maxEmitPower = 4.5;
-    debrisParticles.manualEmitCount = 300;
-    debrisParticles.start();
-
-    // Dispose of explosion particles after time (keep the shared textures)
-    setTimeout(() => {
-      bombExplosionParticles.dispose(false);
-      debrisParticles.dispose(false);
-    }, 6000); // Longer duration for bomb effects
+    // Bomb kills get the full pooled treatment at a larger scale — the pool's
+    // smoke/sparks/shockwave stand in for the old separate 300-particle debris
+    // system (was 800+300 fresh particles per kill).
+    ExplosionPool.get(this.scene).explode(
+      this.explosionCenter(),
+      Math.min(2.5, Math.max(1.25, 1.1 + this.config.height / 40)),
+      { emitHalfExtents: this.explosionHalfExtents() },
+    );
 
     // Fade out and dispose building
     setTimeout(() => {
@@ -527,8 +495,9 @@ export class Building {
     const launchPosition = this.getPosition().clone();
     launchPosition.y += this.config.height + 3; // Launch from top of launcher
 
-    // Pass bomber data to missile for worker-based target calculation
-    const missile = new DefenseMissile(this.scene, launchPosition, bomberPosition, bomberVelocity, this.workerManager);
+    // Pooled: re-arms a parked missile instead of building a fresh mesh/material/
+    // particle set every 3-11s (Game's sweep releases it back after airburst)
+    const missile = DefenseMissile.acquire(this.scene, launchPosition, bomberPosition, bomberVelocity, this.workerManager);
     missile.launch();
     this.game.addDefenseMissile(missile);
   }
@@ -538,6 +507,10 @@ export class Building {
   }
 
   public dispose(): void {
+    // Free this building's burning-budget slot
+    const burnIdx = Building.burning.indexOf(this);
+    if (burnIdx !== -1) Building.burning.splice(burnIdx, 1);
+
     if (this.targetRing) this.targetRing.dispose();
     // dispose(false): their textures are the shared BuildingAssets fire/smoke textures
     if (this.fireParticles) this.fireParticles.dispose(false);

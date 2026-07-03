@@ -34,7 +34,6 @@ export class TerrainManager {
   private maxChunksPerUpdate: number = 6;
   private terrainMaterial!: StandardMaterial;
   private lastTerrainUpdateTime: number = 0;
-  private heightmapCache: Map<string, Float32Array> = new Map();
   private subdivisions = 48;
   private bomber: any = null;
 
@@ -67,7 +66,7 @@ export class TerrainManager {
   /**
    * Rendered-terrain surface height at world (x, z); 0 when the chunk isn't
    * loaded. Reads the chunk's GroundMesh directly (getHeightAtCoordinates) — the
-   * worker's heightmapCache rows are z-flipped relative to CreateGround's vertex
+   * worker's heightmap rows are z-flipped relative to CreateGround's vertex
    * order, so the mesh is the only source guaranteed to match what's drawn.
    */
   public getTerrainHeightAt(x: number, z: number): number {
@@ -237,7 +236,11 @@ export class TerrainManager {
         ground.getBoundingInfo().update(ground.getWorldMatrix());
         ground.doNotSyncBoundingInfo = true;
 
-        this.heightmapCache.set(chunkKey, heightmap);
+        // Prewarm Babylon's lazy _heightQuads: the first getHeightAtCoordinates
+        // on a chunk otherwise builds ~2,304 quads mid-combat (missile ground
+        // checks); one throwaway read moves that cost into this frame-spread
+        // chunk pipeline.
+        ground.getHeightAtCoordinates(chunkX * this.chunkSize, chunkZ * this.chunkSize);
 
         const chunk: TerrainChunk = {
           mesh: ground,
@@ -340,6 +343,10 @@ export class TerrainManager {
     this.terrainMaterial.diffuseTexture = groundTexture;
     this.terrainMaterial.diffuseColor = new Color3(0.9, 0.8, 0.7);
     this.terrainMaterial.specularColor = new Color3(0.2, 0.2, 0.2);
+    // Static for the scene's lifetime (texture assigned above; lights are a fixed
+    // pool and fog is set once at startup, both before first render): freeze so
+    // Babylon skips its per-frame material sync. Writes would silently no-op.
+    this.terrainMaterial.freeze();
   }
 
   private createClearSky(): void {
@@ -463,7 +470,6 @@ export class TerrainManager {
         chunk.buildings.forEach((building) => building.dispose());
         chunk.buildings.length = 0;
 
-        this.heightmapCache.delete(key);
         chunk.mesh.dispose();
         this.chunks.delete(key);
         chunksProcessed++;
@@ -497,11 +503,6 @@ export class TerrainManager {
       }
     }
     return result;
-  }
-
-  /** Promise wrapper kept for callers written against the old async API. */
-  public getBuildingsInRadius(position: Vector3, radius: number): Promise<Building[]> {
-    return Promise.resolve(this.getBuildingsInRadiusSync(position, radius));
   }
 
   public updateDefenseLaunchers(
@@ -564,7 +565,6 @@ export class TerrainManager {
 
       // Clear all maps
       this.chunks.clear();
-      this.heightmapCache.clear();
 
       // Dispose of terrain material
       if (this.terrainMaterial) {
