@@ -60,7 +60,7 @@ export class Game {
   // Launcher pre-selected this many seconds before the scheduled launch so Rocket
   // View can dwell on it; re-validated per-frame in handleIskanderLaunch.
   private pendingIskanderLauncher: Building | null = null;
-  private readonly iskanderPreselectLead = 4;
+  private readonly iskanderPreselectLead = 1;
 
   // Defense missile system - centralized management
   private defenseMissiles: DefenseMissile[] = [];

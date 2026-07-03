@@ -46,7 +46,6 @@ enum RocketSubState {
   TomahawkBelly,       // Beat 1: belly cam on the bomber through door-open + drop
   TomahawkMaster,      // Beat 2: wide master shot framing both loops + target
   TomahawkZoom,        // Beat 3: same pose, FOV zooms onto the target for the dive
-  DefensePad,          // frame the launcher pad until the trajectory solve arrives
   DefenseFollow,
   ExplosionHold,
 }
@@ -102,38 +101,38 @@ export class CameraController {
   private explosionPoint: Vector3 = new Vector3();
   private explosionHoldTimer: number = 0;
   private readonly explosionHoldDuration: number = 1.5;
-  // Launch framing: a wide STATIC establishing shot capturing the whole vertical launch
-  // column (launcher base → climb apex) so both stay in frame the entire climb. Captured
-  // once when IskanderLaunch begins; no bomber reference. TUNABLE.
-  private readonly LAUNCH_APEX_Y = 90;             // mirrors IskanderMissile.CLIMB_ALTITUDE
-  private readonly LAUNCH_MIN_EXTENT = 45;         // floor on column height for the distance calc
-  private readonly LAUNCH_V_MARGIN = 12;           // world-unit padding above apex / below base
-  private readonly LAUNCH_MIN_DIST = 55;
-  private readonly LAUNCH_MAX_DIST = 140;          // fits (90/2+12)/tan(0.4)=134.8
-  private readonly LAUNCH_HALF_VFOV_TAN = 0.42279; // tan(0.4) — Babylon default 0.8rad vertical FOV
+  // Launch framing: a STATIC elevated down-shot on the launcher — near enough to read
+  // the vehicle, high enough that a slice of horizon stays in frame (see the pitch
+  // math in beginLauncherDownShot). Captured once when the prelaunch dwell begins;
+  // IskanderLaunch then dollies in from it toward the chase pose. TUNABLE.
+  private readonly DOWNSHOT_DIST = 120;            // horizontal standoff from the launcher
+  private readonly DOWNSHOT_HEIGHT = 70;           // camera height above the launcher base
+  private readonly DOWNSHOT_LOOKAT_UP = 35;        // aim point this far above the base
+  private readonly launchDollySmoothing = 3.0;     // dolly-in position rate (chase runs 5.0)
   private launchCamPos: Vector3 = new Vector3();   // captured static camera pose (reused)
   private launchLookAt: Vector3 = new Vector3();   // captured static look-at (reused)
-  // Column anchor x/z captured by beginColumnFraming — compared against the provider's
+  // Column anchor x/z captured by beginLauncherDownShot — compared against the provider's
   // anchor each frame during IskanderPrelaunch so a swapped launcher re-frames.
   private columnAnchorX: number = 0;
   private columnAnchorZ: number = 0;
   // Tomahawk cinematic: Beat 1 is a stiff belly cam riding with the bomber while the bay
-  // doors open and the missile drops; Beat 2 sweeps to a FIXED wide master shot framing
-  // both loops + target; Beat 3 keeps the pose and FOV-zooms onto the target for the
-  // terminal dive; the shared ExplosionHold then falls close for the kill. TUNABLE.
+  // doors open and the missile drops; Beat 2 hard-cuts to a FIXED wide master shot fitted
+  // so the entire remaining path (both loops, run, dive) is on screen; Beat 3 keeps the
+  // pose and FOV-zooms onto the target for the terminal dive; the shared ExplosionHold
+  // then falls close for the kill. TUNABLE.
   // Belly pose — bomber-local offsets: beside, below and behind the bomb bay.
   private readonly BELLY_SIDE = 8;
   private readonly BELLY_DOWN = 12;
   private readonly BELLY_BACK = 18;
   private readonly bellySmoothing = 10.0;          // stiff — the pose tracks a moving bomber
   private readonly bellyTargetSmoothing = 8.0;
-  // Master pose — placed above-and-behind the loop start; offsets scale with the loop→target
-  // span so near and far targets both frame. See beginTomahawkMaster.
-  private readonly TOMA_LOCK_BACK_K = 0.5;         // pull back behind loop-start by this * span
-  private readonly TOMA_LOCK_UP_K = 0.55;          // raise above cruise altitude by this * span
-  private readonly TOMA_LOCK_SIDE_K = 1.2;         // lateral offset in loop-radius units (sign TUNABLE)
-  private readonly TOMA_LOCK_LOOK_BIAS = 0.45;     // look-at: 0 = loop center, 1 = target
-  private readonly masterTransitionSmoothing = 1.5; // slow position lerp = the Beat 1→2 sweep (~2s)
+  // Master pose — sphere-tangency fit over the remaining path. See beginTomahawkMaster.
+  private readonly TOMA_FIT_MARGIN = 1.18;         // headroom over the exact tangency fit
+  private readonly TOMA_SIN_HALF_VFOV = 0.38942;   // sin(0.4) — Babylon default 0.8rad vertical FOV
+  private readonly TOMA_WP10_OVERSHOOT = 160;      // wp10 = target + axis·150, padded
+  private readonly TOMA_MASTER_ELEV_SIN = 0.309;   // 18° elevation above the bounding center
+  private readonly TOMA_MASTER_ELEV_COS = 0.951;
+  private readonly masterTransitionSmoothing = 1.5; // self-healing only — the Beat 1→2 handoff hard-cuts
   private readonly masterTargetSmoothing = 2.0;
   // Zoom — FOV narrows once the missile is inside the trigger radius of the target
   // (mirrors the guidance terminal flip) and restores on every exit path (see updateFov).
@@ -236,7 +235,7 @@ export class CameraController {
                 Math.abs(candidate.anchorX - this.columnAnchorX) +
                   Math.abs(candidate.anchorZ - this.columnAnchorZ) > 0.5
               ) {
-                this.beginColumnFraming(candidate.anchorX, candidate.anchorZ);
+                this.beginLauncherDownShot(candidate.anchorX, candidate.anchorZ);
               }
             } else {
               // Anchor lost (launcher destroyed with no replacement, or the
@@ -256,29 +255,25 @@ export class CameraController {
 
       if (this.hasFollow()) {
         const followed = this.followedMissile;
-        // Hand off from launch framing to the chase once the Iskander tops out.
+        // Hand off from the launch dolly-in to the chase once the Iskander tops out.
+        // lastChaseDir is already live from the heading slew, so the handoff is a
+        // pure smoothing-rate change (launchDollySmoothing → missileChaseSmoothing).
         if (
           this.rocketSubState === RocketSubState.IskanderLaunch &&
           followed &&
           followed.isClimbing?.() === false
         ) {
           this.rocketSubState = RocketSubState.IskanderChase;
-          // Seed the chase heading to the current (vertical) velocity so the heading
-          // slew eases from straight-up rather than from a stale direction.
-          const v = followed.getVelocityRef();
-          if (v.lengthSquared() > 25) {
-            const vl = v.length();
-            this.lastChaseDir.set(v.x / vl, v.y / vl, v.z / vl);
-          }
         } else if (
           this.rocketSubState === RocketSubState.TomahawkBelly &&
           followed &&
           followed.isInLaunchPhase?.() === false
         ) {
-          // Beat 1 → Beat 2: the drop is done; sweep to the wide master shot.
-          // seedTarget=false so the look-at lerps off the missile instead of cutting.
+          // Beat 1 → Beat 2: the drop is done; hard cut to the fitted master shot
+          // (position and look-at together — a real cut, not a sweep).
           this.rocketSubState = RocketSubState.TomahawkMaster;
-          this.beginTomahawkMaster(followed, false);
+          this.beginTomahawkMaster(followed);
+          this.camera.position.copyFrom(this.tomahawkCamPos);
         } else if (this.rocketSubState === RocketSubState.TomahawkMaster && followed && this.tomahawkTargetRef) {
           // Beat 2 → Beat 3: FOV zoom once the missile enters its terminal dive.
           const p = followed.getPositionRef();
@@ -292,14 +287,6 @@ export class CameraController {
             this.rocketSubState = RocketSubState.TomahawkZoom;
             // Retarget the pan onto the impact point; the pose itself never moves.
             this.tomahawkLookAt.copyFrom(this.tomahawkTargetRef);
-          }
-        } else if (this.rocketSubState === RocketSubState.DefensePad && followed) {
-          // The async trajectory solve landed and the missile is off the pad.
-          const v = followed.getVelocityRef();
-          if (v.lengthSquared() > 1) {
-            this.rocketSubState = RocketSubState.DefenseFollow;
-            const vl = v.length();
-            this.lastChaseDir.set(v.x / vl, v.y / vl, v.z / vl);
           }
         }
         // Locked follow: free-look drags are intentionally ignored.
@@ -390,7 +377,7 @@ export class CameraController {
     this.camera.setTarget(bomberPos);
   }
 
-  private updateMissileChase(missile: FollowableMissile, deltaTime: number, snap: boolean): void {
+  private updateMissileChase(missile: FollowableMissile, deltaTime: number, snap: boolean, posRate: number = this.missileChaseSmoothing): void {
     const missilePos = missile.getPositionRef();
     const velocity = missile.getVelocityRef();
     // Trust velocity as the heading only when the missile is actually moving
@@ -442,7 +429,7 @@ export class CameraController {
     if (snap) {
       this.camera.position.copyFrom(this.tempVector1);
     } else {
-      const lerpFactor = Math.min(this.missileChaseSmoothing * deltaTime, 1.0);
+      const lerpFactor = Math.min(posRate * deltaTime, 1.0);
       const invLerpFactor = 1.0 - lerpFactor;
       this.camera.position.x = this.camera.position.x * invLerpFactor + this.tempVector1.x * lerpFactor;
       this.camera.position.y = this.camera.position.y * invLerpFactor + this.tempVector1.y * lerpFactor;
@@ -488,14 +475,17 @@ export class CameraController {
     // its narrowed FOV into the new shot.
     this.camera.fov = this.defaultFov;
     if (candidate.kind === RocketViewKind.IskanderPrelaunch) {
-      // Dwell on the pre-selected launcher: the same column framing the launch
-      // uses, so the later prelaunch→launch preemption lands where we already are.
+      // Dwell on the pre-selected launcher: the same down-shot the launch dollies
+      // in from, so the later prelaunch→launch preemption lands where we already are.
       this.rocketSubState = RocketSubState.IskanderPrelaunch;
-      this.beginColumnFraming(candidate.anchorX, candidate.anchorZ);
+      this.beginLauncherDownShot(candidate.anchorX, candidate.anchorZ);
     } else if (candidate.kind === RocketViewKind.Iskander && candidate.missile) {
       if (candidate.missile.isClimbing?.()) {
         this.rocketSubState = RocketSubState.IskanderLaunch;
         this.beginLaunchFraming(candidate.missile); // captures the static pose + seeds smoothedTarget
+        // The boost is straight up; seeding the heading vertical makes the dolly-in
+        // borrow its azimuth from the camera position from the first frame.
+        this.lastChaseDir.set(0, 1, 0);
       } else {
         this.rocketSubState = RocketSubState.IskanderChase;
         this.smoothedTarget.copyFrom(candidate.missile.getPositionRef());
@@ -524,17 +514,22 @@ export class CameraController {
         this.beginTomahawkMaster(candidate.missile); // computes the pose + seeds smoothedTarget
       }
     } else if (candidate.missile) {
-      if (candidate.missile.getVelocityRef().lengthSquared() < 1) {
-        // On-pad (velocity still zero awaiting the trajectory solve): frame the
-        // pad like a launch column instead of chasing from a stale heading.
-        this.rocketSubState = RocketSubState.DefensePad;
-        const p = candidate.missile.getPositionRef();
-        this.beginColumnFraming(p.x, p.z);
+      // One immediate cut straight into the chase pose — no pad-framing beat.
+      this.rocketSubState = RocketSubState.DefenseFollow;
+      const v = candidate.missile.getVelocityRef();
+      if (v.lengthSquared() < 1) {
+        // On-pad (velocity still zero awaiting the trajectory solve): the missile
+        // rises vertically, so seed the heading straight up. The vertical clamp
+        // then borrows its azimuth from the camera position — and the snapped
+        // chase pose is a fixed point of that borrow, so the shot holds still
+        // through the climb instead of corkscrewing.
+        this.lastChaseDir.set(0, 1, 0);
       } else {
-        this.rocketSubState = RocketSubState.DefenseFollow;
-        this.smoothedTarget.copyFrom(candidate.missile.getPositionRef());
-        this.smoothedTargetValid = true;
+        const vl = v.length();
+        this.lastChaseDir.set(v.x / vl, v.y / vl, v.z / vl);
       }
+      this.smoothedTarget.copyFrom(candidate.missile.getPositionRef());
+      this.smoothedTargetValid = true;
     }
   }
 
@@ -555,15 +550,27 @@ export class CameraController {
 
   /**
    * Dispatch the per-frame pose for the current sub-state. Anchor-only states
-   * (IskanderPrelaunch, DefensePad column framing, missile-less TomahawkBelly)
-   * work without a followed missile.
+   * (IskanderPrelaunch, missile-less TomahawkBelly) work without a followed
+   * missile.
    */
   private applyRocketPose(deltaTime: number, snap: boolean): void {
     switch (this.rocketSubState) {
       case RocketSubState.IskanderPrelaunch:
-      case RocketSubState.IskanderLaunch:
-      case RocketSubState.DefensePad:
         this.updateLaunchFraming(deltaTime, snap);
+        break;
+      case RocketSubState.IskanderLaunch:
+        // Snap frame (the prelaunch→launch preemption): cut to the down-shot pose,
+        // which is where the settled prelaunch camera already sits, with an EASED
+        // look-at — an invisible cut. Every frame after, dolly in toward the chase
+        // pose. The climb is vertical, so the chase offset borrows its azimuth
+        // from the camera position and the camera flies radially inward along its
+        // own bearing — a fixed point of the borrow, so no corkscrew.
+        if (snap) {
+          this.camera.position.copyFrom(this.launchCamPos);
+          this.applySmoothedTarget(this.launchLookAt, deltaTime, false);
+        } else if (this.followedMissile) {
+          this.updateMissileChase(this.followedMissile, deltaTime, false, this.launchDollySmoothing);
+        }
         break;
       case RocketSubState.TomahawkBelly:
         this.updateTomahawkBelly(deltaTime, snap);
@@ -582,43 +589,42 @@ export class CameraController {
   }
 
   /**
-   * Capture the static wide establishing shot for a launch column, ONCE when the
-   * framing state begins (Iskander prelaunch dwell, Iskander launch, defense pad).
-   * The column sits at the anchor x,z with its base at terrain height and apex at
-   * LAUNCH_APEX_Y. The camera is placed far enough to fit the whole column
-   * vertically in the FOV, on a bomber-free bearing taken from where the camera
-   * already is. No per-frame recompute — the pose is held static. Because the
-   * missile spawns at the same x,z the prelaunch dwelled on, re-running this at
-   * launch reproduces ~the settled pose and the handoff is seamless.
+   * Capture the static elevated down-shot on a launcher, ONCE when the framing
+   * state begins (Iskander prelaunch dwell, Iskander launch). The camera stands
+   * DOWNSHOT_DIST out and DOWNSHOT_HEIGHT above the launcher base, aiming at a
+   * point DOWNSHOT_LOOKAT_UP above it: pitch-down = atan((70−35)/120) ≈ 16.3°,
+   * inside the 22.9° half-VFOV — so the horizon sits near the top of the frame
+   * with the launcher in the lower half. The bearing is taken from where the
+   * camera already is (fallback +Z), so the establishing cut doesn't swing far.
+   * No per-frame recompute — the pose is held static. Because the missile spawns
+   * at the same x,z the prelaunch dwelled on, re-running this at launch
+   * reproduces ~the settled pose and the handoff is seamless.
    */
-  private beginColumnFraming(ax: number, az: number): void {
+  private beginLauncherDownShot(ax: number, az: number): void {
     this.columnAnchorX = ax;
     this.columnAnchorZ = az;
     const baseY = this.terrainManager.getTerrainHeightAt(ax, az); // 0 over unloaded chunks — fine
-    const columnMidY = (baseY + this.LAUNCH_APEX_Y) * 0.5;
-    const extent = Math.max(this.LAUNCH_APEX_Y - baseY, this.LAUNCH_MIN_EXTENT);
-    // Fit half the column (+ margin) within the vertical half-FOV at distance D.
-    let dist = (extent * 0.5 + this.LAUNCH_V_MARGIN) / this.LAUNCH_HALF_VFOV_TAN;
-    dist = Math.max(this.LAUNCH_MIN_DIST, Math.min(this.LAUNCH_MAX_DIST, dist));
-    // Bomber-free bearing: horizontal direction from the column to the current camera,
-    // so the establishing cut doesn't swing far. Fallback to +Z if degenerate.
     let dirX = this.camera.position.x - ax;
     let dirZ = this.camera.position.z - az;
     const dl = Math.sqrt(dirX * dirX + dirZ * dirZ);
     if (dl > 0.001) { dirX /= dl; dirZ /= dl; } else { dirX = 0; dirZ = 1; }
-    this.launchCamPos.set(ax + dirX * dist, columnMidY, az + dirZ * dist);
+    this.launchCamPos.set(
+      ax + dirX * this.DOWNSHOT_DIST,
+      baseY + this.DOWNSHOT_HEIGHT,
+      az + dirZ * this.DOWNSHOT_DIST,
+    );
     const camGround = this.terrainManager.getTerrainHeightAt(this.launchCamPos.x, this.launchCamPos.z);
     this.launchCamPos.y = Math.max(this.launchCamPos.y, camGround + 5, 10);
-    this.launchLookAt.set(ax, columnMidY, az);
+    this.launchLookAt.set(ax, baseY + this.DOWNSHOT_LOOKAT_UP, az);
     // Seed the smoothed look-at so the first setTarget isn't aimed at the origin.
     this.smoothedTarget.copyFrom(this.launchLookAt);
     this.smoothedTargetValid = true;
   }
 
-  /** Frame the launch column at the missile's x,z (frozen during the vertical climb). */
+  /** Frame the down-shot at the missile's x,z — the launcher it is climbing off. */
   private beginLaunchFraming(missile: FollowableMissile): void {
     const iPos = missile.getPositionRef();
-    this.beginColumnFraming(iPos.x, iPos.z);
+    this.beginLauncherDownShot(iPos.x, iPos.z);
   }
 
   /** Ease the camera's look-at toward a target instead of snapping it. */
@@ -637,12 +643,10 @@ export class CameraController {
   }
 
   /**
-   * Hold the static wide establishing shot captured in beginColumnFraming: a fixed
-   * side-on view that contains the whole launch column so the launcher and the rising
-   * missile both stay framed for the entire vertical climb. The pose is constant, so
-   * the lerp settles within ~0.3s and the camera is then genuinely still (smoothest).
-   * No missile needed — framing is anchored to the captured column, so this also
-   * drives the anchor-only IskanderPrelaunch dwell and the DefensePad wait.
+   * Hold the static down-shot captured in beginLauncherDownShot. The pose is
+   * constant, so the lerp settles within ~0.3s and the camera is then genuinely
+   * still (smoothest). No missile needed — framing is anchored to the captured
+   * launcher, so this drives the anchor-only IskanderPrelaunch dwell.
    */
   private updateLaunchFraming(deltaTime: number, snap: boolean): void {
     if (snap) {
@@ -700,16 +704,20 @@ export class CameraController {
   }
 
   /**
-   * Beat 2: plant the fixed master shot — a pose high above-and-behind the loop start, angled so
-   * the full loop excursions AND the distant target stay framed. Offsets scale with the
-   * loop→target span (padded by both loop excursions) so near and far targets both fit. The
-   * look-at is biased between the loop center and the target. Also aims lastChaseDir down the
-   * flight axis so the later ExplosionHold sits behind the approach. Falls back to a
-   * launch→target plant if the loop framing isn't available (it is computed synchronously at
-   * construction, so this is rare). seedTarget=false makes the look-at lerp from wherever the
-   * smoother currently points (the Beat 1→2 sweep) instead of hard-cutting.
+   * Beat 2: plant the fitted master shot — a static pose fitted so the WHOLE
+   * remaining path is on screen: both loops, the run to the target, the terminal
+   * dive, and the wp10 overshoot past it. The path extents are bounded in flight-
+   * axis coordinates, wrapped in a bounding sphere, and the camera backs off to
+   * dist = margin·rb / sin(halfVFOV) — the distance at which the sphere exactly
+   * fits the vertical FOV (the horizontal FOV is wider at aspect > 1, so vertical
+   * binds). The look-at is the bounding center and never moves, so containment is
+   * guaranteed without per-frame recompute. Also aims lastChaseDir down the flight
+   * axis so the later ExplosionHold sits behind the approach. Falls back to a
+   * raised launch→target plant if the loop framing isn't available (it is computed
+   * synchronously at construction, so this is rare). Always seeds the smoothed
+   * look-at: the caller cuts position to tomahawkCamPos, and the look-at cuts with it.
    */
-  private beginTomahawkMaster(missile: FollowableMissile, seedTarget: boolean = true): void {
+  private beginTomahawkMaster(missile: FollowableMissile): void {
     const m = missile as unknown as {
       getLoopFraming(): TomahawkLoopFraming | null;
       getTargetPosition(): Vector3;
@@ -722,25 +730,50 @@ export class CameraController {
 
     if (f) {
       const ls = f.loopStart, lc = f.loopCenter, tgt = f.target;
-      // Horizontal axis loop-start → target.
+      // Horizontal flight axis loop-start → target; p is its lateral perpendicular.
       let ax = tgt.x - ls.x, az = tgt.z - ls.z;
       const run = Math.sqrt(ax * ax + az * az);
       if (run > 0.001) { ax /= run; az /= run; } else { ax = 0; az = 1; }
-      const px = -az, pz = ax; // lateral for the 3/4 angle
-      // Loop 1 extends ±R beyond the run's ends (loop 2 is 0.7R inside it), so pad
-      // the span by a full loop excursion on each side.
-      const span = run + 2 * f.loopRadius;
-
+      const px = -az, pz = ax;
+      // Loop 2 mirrors the worker's path: radius 0.7R around lerp(loopCenter, target, 0.4).
+      const r1 = f.loopRadius;
+      const r2 = 0.7 * r1;
+      const c2x = lc.x + (tgt.x - lc.x) * 0.4;
+      const c2z = lc.z + (tgt.z - lc.z) * 0.4;
+      // Project the loop centers to (s, q) along axis/perp relative to loopStart and
+      // take the bounding box over: loopStart, both loop circles, the target (at
+      // s = run), and the wp10 overshoot beyond it.
+      const s1 = (lc.x - ls.x) * ax + (lc.z - ls.z) * az;
+      const q1 = (lc.x - ls.x) * px + (lc.z - ls.z) * pz;
+      const s2 = (c2x - ls.x) * ax + (c2z - ls.z) * az;
+      const q2 = (c2x - ls.x) * px + (c2z - ls.z) * pz;
+      const sMin = Math.min(0, s1 - r1, s2 - r2);
+      const sMax = Math.max(run + this.TOMA_WP10_OVERSHOOT, s1 + r1, s2 + r2);
+      const qMin = Math.min(0, q1 - r1, q2 - r2);
+      const qMax = Math.max(0, q1 + r1, q2 + r2);
+      // Vertical extent: the loops fly AT cruise altitude, but at the Beat 1→2 cut
+      // the missile still sits above it (drop-end), so include its current height —
+      // it is on screen from the first master frame.
+      const yMin = tgt.y;
+      const yMax = Math.max(f.cruiseAltitude, missile.getPositionRef().y + 10);
+      // Bounding sphere of the box, then the sphere-tangency fit (see doc above).
+      const sMid = (sMin + sMax) * 0.5, qMid = (qMin + qMax) * 0.5, yMid = (yMin + yMax) * 0.5;
+      const hs = (sMax - sMin) * 0.5, hq = (qMax - qMin) * 0.5, hy = (yMax - yMin) * 0.5;
+      const rb = Math.sqrt(hs * hs + hq * hq + hy * hy);
+      const dist = this.TOMA_FIT_MARGIN * rb / this.TOMA_SIN_HALF_VFOV;
+      const cx = ls.x + ax * sMid + px * qMid;
+      const cz = ls.z + az * sMid + pz * qMid;
+      // Stand off laterally on whichever side the camera already is (stable cut
+      // direction), elevated 18° above the bounding center.
+      const camQ = (this.camera.position.x - ls.x) * px + (this.camera.position.z - ls.z) * pz;
+      const side = camQ >= 0 ? 1 : -1;
+      const horiz = dist * this.TOMA_MASTER_ELEV_COS * side;
       this.tomahawkCamPos.set(
-        ls.x - ax * (span * this.TOMA_LOCK_BACK_K) + px * (f.loopRadius * this.TOMA_LOCK_SIDE_K),
-        f.cruiseAltitude + span * this.TOMA_LOCK_UP_K,
-        ls.z - az * (span * this.TOMA_LOCK_BACK_K) + pz * (f.loopRadius * this.TOMA_LOCK_SIDE_K),
+        cx + px * horiz,
+        yMid + dist * this.TOMA_MASTER_ELEV_SIN,
+        cz + pz * horiz,
       );
-      this.tomahawkLookAt.set(
-        lc.x + (tgt.x - lc.x) * this.TOMA_LOCK_LOOK_BIAS,
-        f.cruiseAltitude * 0.5,
-        lc.z + (tgt.z - lc.z) * this.TOMA_LOCK_LOOK_BIAS,
-      );
+      this.tomahawkLookAt.set(cx, yMid, cz);
       this.lastChaseDir.set(ax, 0, az);
     } else {
       // Fallback: anchor a raised plant behind the missile along the launch→target bearing.
@@ -749,7 +782,7 @@ export class CameraController {
       let ax = target.x - pos.x, az = target.z - pos.z;
       const run = Math.sqrt(ax * ax + az * az);
       if (run > 0.001) { ax /= run; az /= run; } else { ax = 0; az = 1; }
-      this.tomahawkCamPos.set(pos.x - ax * 80, pos.y + 120, pos.z - az * 80);
+      this.tomahawkCamPos.set(pos.x - ax * 150, pos.y + 250, pos.z - az * 150);
       this.tomahawkLookAt.copyFrom(target);
       this.lastChaseDir.set(ax, 0, az);
     }
@@ -757,18 +790,16 @@ export class CameraController {
     const camGround = this.terrainManager.getTerrainHeightAt(this.tomahawkCamPos.x, this.tomahawkCamPos.z);
     this.tomahawkCamPos.y = Math.max(this.tomahawkCamPos.y, camGround + 5, 10);
 
-    if (seedTarget) {
-      this.smoothedTarget.copyFrom(this.tomahawkLookAt);
-      this.smoothedTargetValid = true;
-    }
+    this.smoothedTarget.copyFrom(this.tomahawkLookAt);
+    this.smoothedTargetValid = true;
   }
 
   /**
-   * Hold the fixed pose captured in beginTomahawkMaster: the slow position lerp IS the
-   * cinematic Beat 1→2 sweep, after which the camera is genuinely still with the loops +
-   * target framed. TomahawkZoom reuses this pose unchanged — only the FOV (updateFov) and
-   * the look-at (retargeted to the impact point at zoom entry) differ. The shared
-   * ExplosionHold takes over for the kill.
+   * Hold the fixed pose captured in beginTomahawkMaster. The Beat 1→2 handoff hard-cuts
+   * the camera onto the pose, so in the normal path the lerp is inert self-healing (the
+   * defensive mid-flight acquire is the only entry that converges through it). TomahawkZoom
+   * reuses this pose unchanged — only the FOV (updateFov) and the look-at (retargeted to
+   * the impact point at zoom entry) differ. The shared ExplosionHold takes over for the kill.
    */
   private updateTomahawkMaster(deltaTime: number, snap: boolean): void {
     if (snap) {
