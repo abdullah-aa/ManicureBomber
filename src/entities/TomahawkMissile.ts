@@ -480,11 +480,13 @@ export class TomahawkMissile {
     // During launch animation phase, move parent node with bomber's velocity
     // The animation runs on missileGroup (child), so it naturally combines with parent movement
     if (this.inLaunchAnimationPhase) {
-      // Apply bomber's velocity to parent node to maintain position relative to bomber
-      const velocityDelta = this.bomberVelocity.scale(deltaTime);
-      this.position.addInPlace(velocityDelta);
-      this.launchParent.position.addInPlace(velocityDelta);
-      // Don't update missileGroup position - let animation handle it
+      // Ride the launch rail with the bomber.
+      this.bomberVelocity.scaleAndAddToRef(deltaTime, this.launchParent.position);
+      // Keep the reported position honest: sync to the VISIBLE mesh (parent follow +
+      // Babylon drop animation). scene.animate() runs before this before-render
+      // callback, so this is the exact position rendered this frame — the belly cam
+      // aims at getPositionRef() and now tracks the drop.
+      this.position.copyFrom(this.missileGroup.getAbsolutePosition());
       return; // Don't update physics during launch animation
     }
 
