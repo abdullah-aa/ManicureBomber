@@ -1,6 +1,6 @@
 # ManicureBomber
 
-A browser-based WebGL bomber game built with [Babylon.js](https://www.babylonjs.com/), TypeScript, and webpack. You fly a strategic bomber over procedurally generated terrain, destroy ground targets and SAM launchers, and survive incoming Iskander and defense-missile threats. Flight is **touch-first** (swipe to fly) with a mouse/touch free-camera; the game also ships an **autopilot AI** and a **cinematic missile-chase camera** ("Rocket View").
+A browser-based WebGL bomber game built with [Babylon.js](https://www.babylonjs.com/), TypeScript, and webpack. You fly a strategic bomber over procedurally generated terrain, destroy ground targets and SAM launchers — red-ring target buildings are the objective, and each one destroyed restores bomber health — and survive incoming Iskander and defense-missile threats. Flight is **touch-first** (swipe to fly) with a mouse/touch free-camera; the game also ships an **autopilot AI** and a **cinematic missile-chase camera** ("Rocket View").
 
 It is a single-player, client-only application — there is no backend, no networking, and (currently) no audio.
 
@@ -11,7 +11,7 @@ It is a single-player, client-only application — there is no backend, no netwo
 | 3D engine | `@babylonjs/core` ^8.14 (+ `@babylonjs/inspector` in development) |
 | Language | TypeScript ^5, `strict` mode, ES2020 target |
 | Bundler | webpack 5 + `ts-loader` + `html-webpack-plugin` |
-| Concurrency | three Web Workers (terrain, missile physics, collision) |
+| Concurrency | two Web Workers (terrain, missile physics) |
 | Procedural data | custom `NoiseGenerator` (`src/utils/NoiseGenerator.ts`) |
 
 No external game engine, ECS framework, physics library, or asset pipeline is used — meshes, textures, and particle systems are generated procedurally at runtime.
@@ -42,12 +42,12 @@ The dev server runs on `http://localhost:8080`. Development-only extras:
 - **F12** opens the Babylon.js Inspector (wired only when `NODE_ENV === 'development'`, `src/index.ts`).
 - Append **`?perf=1`** to the URL to attach Babylon `SceneInstrumentation`/`EngineInstrumentation` to `window.__perf` for frame/draw-call profiling (`src/index.ts`).
 
-### Build, lint, format
+### Build, check, format
 
 ```bash
-npm run build   # webpack --mode=production -> dist/ (code-split bundles)
-npm run lint    # eslint . --ext .ts
-npm run format  # prettier --write .
+npm run build     # webpack --mode=production -> dist/ (code-split bundles)
+npx tsc --noEmit  # type-check
+npm run format    # prettier --write .
 ```
 
 > **Build-script caveat:** the `build` script currently also copies the output to `pages/` **and** to a hardcoded absolute path (`~/projects/ManicureBomber/`). The hardcoded copy is specific to one machine and should be removed before other contributors rely on `npm run build`.
@@ -60,7 +60,7 @@ The game is **touch/mouse only — there are no gameplay keyboard controls.** (T
 |---|---|
 | **Swipe** the canvas (PLANE mode, default) | Fly: left/right turns & banks, up/down dives/climbs. 20px dead-zone. |
 | **🕹️ Bomb** button (bottom-right) | Start a bombing run. |
-| **🚀 Missile** button | Fire a Tomahawk at the locked ground target (lights green when a target is locked). |
+| **🚀 Missile** button | Fire a Tomahawk at the nearest SAM launcher within 300 units (lights green when one is in range). |
 | **🔥 Flare** button | Release a flare volley (active only while an Iskander is locked on). |
 | **🎯 Crosshair** button | Toggle the ground targeting reticle. |
 | **⚙️ Settings** gear (top-right) | Open the settings modal (below). Game keeps running. |
@@ -78,14 +78,15 @@ Tuning constants below are taken directly from the source; file references point
 
 - **Flight** (`src/entities/Bomber.ts`) — banking turns up to **30°**, altitude clamped to **150–200** units (spawns at 175), velocity-based movement with smoothing.
 - **Bombing** (`src/managers/Game.ts`) — a run drops **9 bombs**, one per second, after a **1s** bomb-bay door animation; **15s** cooldown. Bombing and missile launches are mutually exclusive.
-- **Tomahawk** (`src/entities/TomahawkMissile.ts`) — player cruise missile with a worker-generated curved path and main-thread terminal guidance; **10s** cooldown; fires only at a valid locked target.
+- **Red-ring targets** (`Game.updateBombs`, `Bomber.heal`) — special target buildings marked with a red ring. Destroying one increments the radar's target counter **and restores 5% of max health** (the health bar flashes green).
+- **Tomahawk** (`src/entities/TomahawkMissile.ts`) — player cruise missile launched from the bomb bay (doors animate open) at the **nearest live SAM launcher within 300 units** — deliberately shorter than the launchers' 450-unit radar, so they get to shoot first; worker-generated curved/looping path with main-thread terminal guidance; **10s** cooldown.
 - **Flares / countermeasures** (`src/entities/Bomber.ts`) — an **8-flare** volley with a **7s** life and **8s** cooldown; flares are the counter to Iskanders, whose IR seeker detects them within **150** units.
 - **Iskander threat** (`src/entities/IskanderMissile.ts`, launch in `Game.ts`) — launched every **30–75s** from the defense launcher **farthest** from the bomber; vertical boost to a **chase altitude of 90** before guidance/lock; **4s** lock-on; proximity damage within **25** units (`max(15, 50 − distance)` on a 100-HP bomber). Defeated by flares, not maneuvering.
 - **Defense missiles** (`src/entities/DefenseMissile.ts`) — SAMs fired from launcher buildings; airburst between **220–280** units (deliberately above the bomber's 200 ceiling so you can't out-climb them), speed **120–150** u/s. Velocity stays zero until an async worker trajectory reply arrives (the brief "on-pad" window).
 - **Autopilot AI** (`src/managers/AIController.ts`) — a state machine (search / navigate / standoff / extend / bomb-run) that flies to targets, runs bombing passes, fires Tomahawks at launchers, and pops flares when Iskanders close in. It issues commands through the same `InputManager` virtual controls as the player, so all cooldowns and safety gates still apply; manual input yields a short grace-period suspend rather than a hard toggle-off.
-- **Rocket View** (`src/managers/CameraController.ts`, candidate selection in `Game.ts`) — an Autopilot-only cinematic camera with a sub-state machine: frames an Iskander launch, hands off to a tail chase once it reaches chase altitude, follows defense missiles caught at the launch instant, and holds on the explosion (~1.5s) before reverting to the bomber.
+- **Rocket View** (`src/managers/CameraController.ts`, candidate selection in `Game.ts`) — an Autopilot-only cinematic camera covering all three missile types. Iskanders: the camera centers on the launcher **~4s before launch**, frames the vertical boost, then hands off to a tail chase. Tomahawks: a three-beat cinematic — belly cam under the bomber through the bay-door open and drop, a fixed wide master shot framing the looping flight path, then an FOV zoom onto the terminal dive. Defense missiles: caught on the pad at the launch instant, then chased. Every shot ends holding on the explosion (~1.5s) before reverting to the bomber.
 - **World** (`src/managers/TerrainManager.ts`, `src/entities/Building.ts`) — procedural terrain in **900-unit chunks** (48 subdivisions) kept within a Chebyshev radius of 2 around the bomber, sized so the loaded edge always sits beyond `fogEnd = 1500`. Buildings include residential/commercial/industrial/skyscraper types plus destructible SAM launchers with health and destruction states.
-- **Health / damage** — the bomber has a health value shown in the top-right bar (green → yellow → red); damage comes from missile proximity (`src/ui/UIManager.ts`).
+- **Health / damage** — the bomber has a health value shown in the top-right bar (green → yellow → red); damage comes from missile proximity, and heals (red-ring target kills) flash the bar green (`src/ui/UIManager.ts`). Below 30% health the bomber trails fire. The top-left radar HUD tracks targets, launchers, and incoming missiles, and counts destroyed targets; destroying the bomber shows a game-over screen with the tally.
 
 ## Architecture
 
@@ -101,18 +102,19 @@ src/
 ├── effects/                    # ExplosionPool, EffectTextures
 ├── ui/                         # UIManager, RadarManager
 ├── utils/                      # NoiseGenerator
-└── workers/                    # terrain, missile-physics, collision-detection (+ worker-utils)
+└── workers/                    # terrain, missile-physics (+ worker-utils)
 ```
 
 The design is a conventional **entity / manager separation** (OOP), not an ECS. Entities own their meshes and per-frame state; managers own cross-cutting systems (input, camera, terrain, workers, AI, UI) and are coordinated by `Game`.
 
 ### Web Workers (`src/managers/WorkerManager.ts`)
 
-Three workers handle work that is genuinely heavy or batchable:
+Two workers handle work that is genuinely heavy or batchable:
 
 - **terrain.worker** — generates chunk heightmaps; the main thread reads back per-coordinate heights.
 - **missile-physics.worker** — **one-shot only**: `GENERATE_TOMAHAWK_PATH` and `CALCULATE_DEFENSE_TRAJECTORY`. Per-frame Tomahawk/Iskander guidance was deliberately moved **back onto the main thread** (`src/managers/MissileGuidance.ts`) because the worker round-trip cost more than the math itself.
-- **collision-detection.worker** — Iskander and defense-missile collision checks against the bomber.
+
+Missile-vs-bomber collision checks likewise moved **back onto the main thread** (inline in `Game.ts`, every ~16ms) — the old collision worker's round-trip latency and index-mapping races outweighed a few distance checks.
 
 Workers communicate via structured-clone `postMessage` (no `SharedArrayBuffer`, so no cross-origin-isolation / COOP-COEP requirement).
 
@@ -134,7 +136,7 @@ Possible future work: audio, additional aircraft, mission/campaign objectives, r
 
 ## License
 
-MIT — see the `LICENSE` file.
+MIT.
 
 ## Contributing
 
