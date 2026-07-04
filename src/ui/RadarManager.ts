@@ -280,6 +280,12 @@ export class RadarManager {
     // Add building markers to radar (limited by pool size); only targets and
     // defense launchers are shown
     for (const building of this.cachedBuildings) {
+      // Destroyed buildings linger in chunk.buildings until the chunk unloads and
+      // isTarget() is a static config flag, so gate on live state here like every
+      // other consumer does.
+      if (building.getIsDestroyed()) {
+        continue;
+      }
       if (!building.isTarget() && !building.isDefenseLauncher()) {
         continue;
       }

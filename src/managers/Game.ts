@@ -290,6 +290,8 @@ export class Game {
         // same-frame, with no grace period)
         this.cameraController.update(safeDeltaTime, this.inputManager);
         this.updateGroundCrosshair();
+        // Cloud drift is per-frame (smooth), unlike the 10Hz terrain streaming below
+        this.terrainManager.updateClouds(safeDeltaTime);
 
         // Check for defense missile collisions (high frequency for responsive damage)
         if (currentTime - this.lastCollisionCheckTime > this.collisionCheckInterval) {
@@ -448,12 +450,8 @@ export class Game {
 
     if (farthestLauncher) {
       const launchPosition = farthestLauncher.getPosition().clone();
-      // Buildings are pinned to world y=0 while terrain rises to ~60, so the roof
-      // alone can sit below the local ground and the missile would climb buried.
-      // Spawn above BOTH the roof and the terrain so it's visible from liftoff.
-      const terrainY = this.terrainManager.getTerrainHeightAt(launchPosition.x, launchPosition.z);
-      const roofY = launchPosition.y + farthestLauncher.getMaxHeight(); // parent.y == 0
-      launchPosition.y = Math.max(roofY, terrainY) + 5;
+      // Buildings ride the terrain now, so the rooftop is always above ground.
+      launchPosition.y += farthestLauncher.getMaxHeight() + 5;
 
       const missile = new IskanderMissile(this.scene, launchPosition, this.bomber, this.workerManager);
       missile.setTerrainManager(this.terrainManager);
@@ -611,21 +609,25 @@ export class Game {
    * open. Returns a single reused descriptor (the camera copies its fields out).
    */
   private getRocketViewCandidate(): RocketViewCandidate | null {
-    for (const missile of this.iskanderMissiles) {
-      if (missile.isLaunched() && !missile.hasExploded()) {
-        this.rocketCandidate.missile = missile;
-        this.rocketCandidate.kind = RocketViewKind.Iskander;
+    // While the camera is committed to a Tomahawk sequence, withhold Iskander
+    // candidates: the tomahawk story plays to impact + explosion hold first.
+    if (!this.cameraController.isInTomahawkSequence()) {
+      for (const missile of this.iskanderMissiles) {
+        if (missile.isLaunched() && !missile.hasExploded()) {
+          this.rocketCandidate.missile = missile;
+          this.rocketCandidate.kind = RocketViewKind.Iskander;
+          return this.rocketCandidate;
+        }
+      }
+      // Nulled at fire time, so the dwell ends the instant the real missile exists.
+      if (this.pendingIskanderLauncher && !this.pendingIskanderLauncher.getIsDestroyed()) {
+        const p = this.pendingIskanderLauncher.getPosition();
+        this.rocketCandidate.missile = null;
+        this.rocketCandidate.kind = RocketViewKind.IskanderPrelaunch;
+        this.rocketCandidate.anchorX = p.x;
+        this.rocketCandidate.anchorZ = p.z;
         return this.rocketCandidate;
       }
-    }
-    // Nulled at fire time, so the dwell ends the instant the real missile exists.
-    if (this.pendingIskanderLauncher && !this.pendingIskanderLauncher.getIsDestroyed()) {
-      const p = this.pendingIskanderLauncher.getPosition();
-      this.rocketCandidate.missile = null;
-      this.rocketCandidate.kind = RocketViewKind.IskanderPrelaunch;
-      this.rocketCandidate.anchorX = p.x;
-      this.rocketCandidate.anchorZ = p.z;
-      return this.rocketCandidate;
     }
     for (const missile of this.bomber.getMissiles()) {
       // Catch the Tomahawk only during its launch pop-up, then the follow persists.
@@ -717,14 +719,23 @@ export class Game {
 
       const bombPosition = bomb.getPosition();
 
-      if (bombPosition.y <= 0) {
-        const explosionPoint = new Vector3(bombPosition.x, 0, bombPosition.z);
+      // Detonate at the rendered surface, not sea level — buildings sit at terrain
+      // height, so an underground burst would eat up to 60u of the blast radius
+      // (and the explosion would render inside the hill).
+      const terrainY = this.terrainManager.getTerrainHeightAt(bombPosition.x, bombPosition.z);
+      if (bombPosition.y <= terrainY) {
+        const explosionPoint = new Vector3(bombPosition.x, terrainY, bombPosition.z);
 
         const blastRadius = 75;
 
         const nearbyBuildings = this.terrainManager.getBuildingsInRadiusSync(explosionPoint, blastRadius);
         for (const building of nearbyBuildings) {
-          const distance = Vector3.Distance(explosionPoint, building.getPosition());
+          // XZ falloff: identical to the old flat-world numbers (dy was always 0),
+          // and hillside buildings aren't short-changed by the vertical term.
+          const buildingPosition = building.getPosition();
+          const dx = explosionPoint.x - buildingPosition.x;
+          const dz = explosionPoint.z - buildingPosition.z;
+          const distance = Math.sqrt(dx * dx + dz * dz);
           const damage = Math.max(10, 50 - distance);
 
           const wasDestroyed = building.takeDamage(damage, true);

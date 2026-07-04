@@ -29,8 +29,8 @@ export class TomahawkMissile {
   private targetPosition: Vector3;
   private launchOrigin: Vector3; // immutable copy of the launch point (position mutates after launch); for Rocket View framing
   private targetBuilding: Building | null = null;
-  private speed: number = 150; // Cruise missile speed
-  private turnRate: number = 2.0; // How fast the missile can turn
+  private speed: number = 90; // Cruise missile speed
+  private turnRate: number = 1.2; // How fast the missile can turn
   private launched: boolean = false;
   private exploded: boolean = false;
 
@@ -46,7 +46,7 @@ export class TomahawkMissile {
 
   // Simple curved path following
   private pathTime: number = 0;
-  private pathSpeed: number = 0.5; // Speed along the curved path
+  private pathSpeed: number = 0.3; // Speed along the curved path
 
   // Look-ahead orientation properties
   private lookAheadDistance: number = 0.4; // How far ahead to look on the curve (0-1) - increased for better path following
@@ -549,9 +549,7 @@ export class TomahawkMissile {
     // Knock out only the launcher and set the building ablaze; full destruction is reserved for
     // bombing. The missile is dedicated to one target, so ignite whenever it detonates near that
     // building's footprint, measured horizontally (XZ) so a ground-level OR rooftop detonation
-    // both count. The old sphere was centered on the top-of-building target point, so a missile
-    // that dove into the ground (worker explodes on y<=0) was already >20 units below it on tall
-    // buildings — which is why only the first/closest launcher ever lit up and farther ones didn't.
+    // both count.
     if (this.targetBuilding) {
       const base = this.targetBuilding.getPosition();
       const dx = this.position.x - base.x;

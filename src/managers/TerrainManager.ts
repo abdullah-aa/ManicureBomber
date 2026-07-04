@@ -9,12 +9,14 @@ import {
   DynamicTexture,
 } from '@babylonjs/core';
 import { Building, BuildingConfig } from '../entities/Building';
+import { Cloud, CLOUD_BAND_MIN_Y, CLOUD_BAND_MAX_Y } from '../entities/Cloud';
 import { WorkerManager } from './WorkerManager';
 import { Game } from './Game';
 
 interface TerrainChunk {
   mesh: GroundMesh;
   buildings: Building[];
+  clouds: Cloud[];
   x: number;
   z: number;
 }
@@ -40,6 +42,11 @@ export class TerrainManager {
   private workerManager: WorkerManager;
 
   private isDisposing: boolean = false;
+
+  // Clouds whose home chunk unloaded while they were (possibly) still in view —
+  // they shrink out over CLOUD_FADE_SECONDS instead of popping, then dispose.
+  private dyingClouds: Cloud[] = [];
+  private readonly createdAt: number = performance.now();
 
   // Track active worker calls to prevent overlapping requests
   private activeWorkerCalls: Set<string> = new Set();
@@ -245,11 +252,13 @@ export class TerrainManager {
         const chunk: TerrainChunk = {
           mesh: ground,
           buildings: [],
+          clouds: [],
           x: chunkX,
           z: chunkZ,
         };
 
         this.chunks.set(chunkKey, chunk);
+        this.spawnCloudsForChunk(chunk);
 
         // Process buildings in the next frame to further spread the work
         requestAnimationFrame(() => {
@@ -456,6 +465,43 @@ export class TerrainManager {
     });
   }
 
+  /**
+   * Sparse decorative clouds, spawned synchronously with the chunk record (a
+   * cloud is ~14 cheap instances, no frame-spreading or orphan guard needed).
+   * The initial keep-set seed spawns fully grown so mission start isn't one
+   * synchronized mass grow-in; streamed chunks grow in beyond the fog anyway.
+   */
+  private spawnCloudsForChunk(chunk: TerrainChunk): void {
+    const count = Math.random() < 0.55 ? (Math.random() < 0.25 ? 2 : 1) : 0;
+    const fullGrown = performance.now() - this.createdAt < 8000;
+    for (let i = 0; i < count; i++) {
+      const position = new Vector3(
+        (chunk.x + Math.random() - 0.5) * this.chunkSize,
+        CLOUD_BAND_MIN_Y + Math.random() * (CLOUD_BAND_MAX_Y - CLOUD_BAND_MIN_Y),
+        (chunk.z + Math.random() - 0.5) * this.chunkSize,
+      );
+      chunk.clouds.push(new Cloud(this.scene, position, fullGrown ? 1 : 0));
+    }
+  }
+
+  /** Per-frame cloud drift/fade — called every frame by Game, unlike the 10Hz streaming update. */
+  public updateClouds(deltaTime: number): void {
+    if (this.isDisposing) return;
+    this.chunks.forEach((chunk) => {
+      if (chunk) {
+        for (const cloud of chunk.clouds) {
+          cloud.update(deltaTime);
+        }
+      }
+    });
+    for (let i = this.dyingClouds.length - 1; i >= 0; i--) {
+      this.dyingClouds[i].update(deltaTime);
+      if (this.dyingClouds[i].isDisposed()) {
+        this.dyingClouds.splice(i, 1);
+      }
+    }
+  }
+
   private removeChunks(chunksToRemove: string[]): void {
     let chunksProcessed = 0;
     // Match the generation rate so retired (off-screen) chunks free their slots fast enough not to
@@ -469,6 +515,14 @@ export class TerrainManager {
       if (chunk) {
         chunk.buildings.forEach((building) => building.dispose());
         chunk.buildings.length = 0;
+
+        // A cloud may have drifted into view even though its home chunk is far
+        // behind — fade it out via the dying list instead of popping it.
+        for (const cloud of chunk.clouds) {
+          cloud.beginFadeOut();
+          this.dyingClouds.push(cloud);
+        }
+        chunk.clouds.length = 0;
 
         chunk.mesh.dispose();
         this.chunks.delete(key);
@@ -559,9 +613,13 @@ export class TerrainManager {
         if (chunk) {
           chunk.buildings.forEach((building) => building.dispose());
           chunk.buildings.length = 0;
+          chunk.clouds.forEach((cloud) => cloud.dispose());
+          chunk.clouds.length = 0;
           chunk.mesh.dispose();
         }
       });
+      this.dyingClouds.forEach((cloud) => cloud.dispose());
+      this.dyingClouds.length = 0;
 
       // Clear all maps
       this.chunks.clear();

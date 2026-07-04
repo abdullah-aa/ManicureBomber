@@ -431,7 +431,7 @@ export function updateTomahawkMissilePhysics(data: TomahawkMissileData): Tomahaw
         const targetPitch = horizontalSpeed > 0.001 ? Math.atan2(-directionToLookAhead.y, horizontalSpeed) : 0;
 
         // Smooth rotation interpolation
-        const rotationSpeed = 3.0; // How fast the missile can rotate
+        const rotationSpeed = 1.8; // How fast the missile can rotate
         const maxRotationChange = rotationSpeed * data.deltaTime;
 
         // Handle yaw wrapping (shortest rotation path)
@@ -469,7 +469,7 @@ export function updateTomahawkMissilePhysics(data: TomahawkMissileData): Tomahaw
     const targetPitch = horizontalSpeed > 0.001 ? Math.atan2(-newVelocity.y, horizontalSpeed) : 0;
 
     // Enhanced rotation speed for terminal descent
-    const rotationSpeed = flightPhase === 'TERMINAL' ? 5.0 : 3.0;
+    const rotationSpeed = flightPhase === 'TERMINAL' ? 3.0 : 1.8;
     const maxRotationChange = rotationSpeed * data.deltaTime;
 
     // Handle yaw wrapping

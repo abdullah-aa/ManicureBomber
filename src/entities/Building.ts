@@ -181,7 +181,10 @@ export class Building {
   private positionBuilding(): void {
     this.parent.position.x = this.config.position.x;
     this.parent.position.z = this.config.position.z;
-    this.parent.position.y = 0;
+    // Terrain height sampled by the worker at placement. The box is origin-centered
+    // (spans -h/2..+h/2), so the bottom half sits in the ground uniformly instead of
+    // whole buildings vanishing under hills at the old hard-coded y=0.
+    this.parent.position.y = this.config.position.y;
   }
 
   public getPosition(): Vector3 {

@@ -107,13 +107,17 @@ function generateBuildings(
     const buildingX = worldX + localX;
     const buildingZ = worldZ + localZ;
 
-    const terrainHeight = getHeightAtPosition(localX, localZ, heightmap, chunkSize, subdivisions);
+    // The heightmap rows are z-flipped relative to CreateGround's vertex order
+    // (see TerrainManager.getTerrainHeightAt), so sample at -z to read the ground
+    // that is actually rendered under the building.
+    const sampleZ = -localZ;
+    const terrainHeight = getHeightAtPosition(localX, sampleZ, heightmap, chunkSize, subdivisions);
 
     const sampleDistance = 5;
-    const heightNorth = getHeightAtPosition(localX, localZ - sampleDistance, heightmap, chunkSize, subdivisions);
-    const heightSouth = getHeightAtPosition(localX, localZ + sampleDistance, heightmap, chunkSize, subdivisions);
-    const heightEast = getHeightAtPosition(localX + sampleDistance, localZ, heightmap, chunkSize, subdivisions);
-    const heightWest = getHeightAtPosition(localX - sampleDistance, localZ, heightmap, chunkSize, subdivisions);
+    const heightNorth = getHeightAtPosition(localX, sampleZ + sampleDistance, heightmap, chunkSize, subdivisions);
+    const heightSouth = getHeightAtPosition(localX, sampleZ - sampleDistance, heightmap, chunkSize, subdivisions);
+    const heightEast = getHeightAtPosition(localX + sampleDistance, sampleZ, heightmap, chunkSize, subdivisions);
+    const heightWest = getHeightAtPosition(localX - sampleDistance, sampleZ, heightmap, chunkSize, subdivisions);
 
     const maxSlope = Math.max(
       Math.abs(heightNorth - terrainHeight),

@@ -56,10 +56,10 @@ export class Bomber {
   private bankSpeed: number = 2.5; // How quickly the bomber banks into turns (slightly faster for responsiveness)
   private currentBankAngle: number = 0; // Current roll angle
   private targetBankAngle: number = 0; // Target roll angle
-  // Floor sits well above any defense-missile launch point: launchers top out at
-  // 63 (building height <= 60, pinned to ground y=0, + 3 muzzle offset) and aim
-  // points carry up to +-40 error, so 150 keeps every launched missile climbing
-  // toward the bomber — no altitude slips under the threat envelope.
+  // Floor sits above any defense-missile launch point: launchers top out at ~126
+  // (terrain <= 60 + building height <= 60 + 3 muzzle offset) and aim points carry
+  // up to +-40 error, so 150 keeps every launched missile climbing toward the
+  // bomber — no altitude slips under the threat envelope.
   private minimumAltitude: number = 150;
   // Ceiling matches the defense missiles' former airburst altitude; they now fly
   // higher than this before bursting, so there is no safe altitude above the

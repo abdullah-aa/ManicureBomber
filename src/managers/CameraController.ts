@@ -811,6 +811,14 @@ export class CameraController {
     return this.followedMissile !== null;
   }
 
+  /** True while Rocket View is committed to a Tomahawk story (bay/belly, chase, or its explosion hold). */
+  public isInTomahawkSequence(): boolean {
+    return (
+      this.followedKind === RocketViewKind.Tomahawk ||
+      this.followedKind === RocketViewKind.TomahawkBay
+    );
+  }
+
   public toggleGroundCrosshairs(): void {
     this.showGroundCrosshairs = !this.showGroundCrosshairs;
   }
