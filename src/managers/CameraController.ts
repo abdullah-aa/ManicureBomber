@@ -2,13 +2,13 @@ import { Bomber } from '../entities/Bomber';
 import { FreeCamera, Vector3 } from '@babylonjs/core';
 import { InputManager } from './InputManager';
 import { TerrainManager } from './TerrainManager';
-import { TomahawkLoopFraming } from '../workers/worker-utils';
 
 /**
  * Minimal surface a missile must expose for Rocket View to chase it.
  * IskanderMissile and DefenseMissile satisfy this structurally. Only the
  * Iskander implements isClimbing(); only the Tomahawk implements
- * isInLaunchPhase(); where undefined they are treated as false.
+ * isInLaunchPhase() and getTargetPosition(); where undefined they are
+ * treated as false / absent.
  */
 export interface FollowableMissile {
   getPositionRef(): Vector3;
@@ -16,6 +16,7 @@ export interface FollowableMissile {
   hasExploded(): boolean;
   isClimbing?(): boolean;
   isInLaunchPhase?(): boolean;
+  getTargetPosition?(): Vector3;
 }
 
 export enum RocketViewKind {
@@ -44,8 +45,7 @@ enum RocketSubState {
   IskanderLaunch,
   IskanderChase,
   TomahawkBelly,       // Beat 1: belly cam on the bomber through door-open + drop
-  TomahawkMaster,      // Beat 2: wide master shot framing both loops + target
-  TomahawkZoom,        // Beat 3: same pose, FOV zooms onto the target for the dive
+  TomahawkChase,       // Beat 2: bearing-anchored chase framing missile + target, to impact
   DefenseFollow,
   ExplosionHold,
 }
@@ -116,39 +116,33 @@ export class CameraController {
   private columnAnchorX: number = 0;
   private columnAnchorZ: number = 0;
   // Tomahawk cinematic: Beat 1 is a stiff belly cam riding with the bomber while the bay
-  // doors open and the missile drops; Beat 2 hard-cuts to a FIXED wide master shot fitted
-  // so the entire remaining path (both loops, run, dive) is on screen; Beat 3 keeps the
-  // pose and FOV-zooms onto the target for the terminal dive; the shared ExplosionHold
-  // then falls close for the kill. TUNABLE.
+  // doors open and the missile drops; Beat 2 eases out to a chase pose hung above the
+  // missile on the far side from the target and rides it through the loops and the
+  // terminal dive to impact; the shared ExplosionHold then falls close for the kill.
+  // TUNABLE.
   // Belly pose — bomber-local offsets: beside, below and behind the bomb bay.
   private readonly BELLY_SIDE = 8;
   private readonly BELLY_DOWN = 12;
   private readonly BELLY_BACK = 18;
   private readonly bellySmoothing = 10.0;          // stiff — the pose tracks a moving bomber
   private readonly bellyTargetSmoothing = 8.0;
-  // Master pose — sphere-tangency fit over the remaining path. See beginTomahawkMaster.
-  private readonly TOMA_FIT_MARGIN = 1.18;         // headroom over the exact tangency fit
-  private readonly TOMA_SIN_HALF_VFOV = 0.38942;   // sin(0.4) — Babylon default 0.8rad vertical FOV
-  private readonly TOMA_WP10_OVERSHOOT = 160;      // wp10 = target + axis·150, padded
-  private readonly TOMA_MASTER_ELEV_SIN = 0.309;   // 18° elevation above the bounding center
-  private readonly TOMA_MASTER_ELEV_COS = 0.951;
-  private readonly masterTransitionSmoothing = 1.5; // self-healing only — the Beat 1→2 handoff hard-cuts
-  private readonly masterTargetSmoothing = 2.0;
-  // Zoom — FOV narrows once the missile is inside the trigger radius of the target
-  // (mirrors the guidance terminal flip) and restores on every exit path (see updateFov).
-  private readonly TOMA_ZOOM_FOV = 0.3;
-  private readonly TOMA_ZOOM_TRIGGER_DIST_SQ = 300 * 300;
-  // Proximity alone can't gate the zoom: the bomber only fires within its 300u
-  // acquisition range, so the missile is already "close" when the master shot
-  // starts. The loops fly AT cruise altitude — only the terminal dive descends —
-  // so also require the missile to be meaningfully below cruise.
-  private readonly TOMA_ZOOM_DIVE_DROP = 20;
-  private tomahawkCruiseAlt = 0; // cruise altitude of the followed Tomahawk's path
-  private readonly fovZoomRate = 2.0;
-  private readonly fovRestoreRate = 2.5;
-  private readonly defaultFov: number;             // captured from the camera at construction
-  private tomahawkCamPos: Vector3 = new Vector3(); // captured static camera pose (reused)
-  private tomahawkLookAt: Vector3 = new Vector3(); // locked look-at (reused)
+  // Chase pose — anchored to the horizontal missile→target bearing, NOT the velocity
+  // (the loops swing the velocity through full turns; the bearing drifts slowly). The
+  // camera hangs behind/above the missile away from the target and aims between the
+  // two so both stay in frame while the missile swings beneath it — the offset is
+  // anchored to the missile, so bearing error never moves the missile in frame, only
+  // (transiently) the target. See updateTomahawkChase.
+  private readonly TOMA_CHASE_BACK = 75;           // horizontal standoff behind the missile
+  private readonly TOMA_CHASE_UP = 35;             // height above the missile (≈25° depression)
+  private readonly TOMA_LOOKAT_BLEND = 0.3;        // aim at missile + blend·(target − missile)
+  private readonly tomaBearingSmoothing = 1.5;     // bearing slew — low-passes the loop wobble
+  private readonly tomaChaseSmoothing = 4.0;       // position rate; the lag IS the string-swing
+  private readonly tomaChaseTargetSmoothing = 5.0; // look-at rate
+  // Inside this horizontal radius the bearing freezes: covers the loop-2 close pass,
+  // the overfly flip, and the terminal dive — the camera holds its offset and rides down.
+  private readonly TOMA_BEARING_FREEZE_DIST = 120;
+  // Unit horizontal target→missile bearing the chase offset hangs from.
+  private tomahawkBearing: Vector3 = new Vector3(0, 0, 1);
   private tomahawkTargetRef: Vector3 | null = null; // followed Tomahawk's impact point (ref)
   // Chase de-jerk: slew the heading toward velocity and smooth the look-at instead of
   // snapping each frame, so the camera follows the arc but not every guidance wag. TUNABLE.
@@ -161,18 +155,12 @@ export class CameraController {
     this.camera = camera;
     this.bomber = bomber;
     this.terrainManager = terrainManager;
-    // The FOV zoom always restores to whatever the camera started with (Babylon default 0.8).
-    this.defaultFov = camera.fov;
 
     // Store initial value for the snap-behind-bomber action
     this.initialFollowHeightOffset = this.followHeightOffset;
   }
 
   public update(deltaTime: number, inputManager: InputManager): void {
-    // FOV runs first, every frame, all modes — so every exit path out of the
-    // Tomahawk zoom (hold, preemption, revert to bomber chase) self-heals.
-    this.updateFov(deltaTime);
-
     // Rocket View state machine. Falls through to the normal bomber chase when
     // there is nothing to follow (that fall-through IS the revert view).
     if (this.rocketViewEnabled) {
@@ -269,25 +257,11 @@ export class CameraController {
           followed &&
           followed.isInLaunchPhase?.() === false
         ) {
-          // Beat 1 → Beat 2: the drop is done; hard cut to the fitted master shot
-          // (position and look-at together — a real cut, not a sweep).
-          this.rocketSubState = RocketSubState.TomahawkMaster;
-          this.beginTomahawkMaster(followed);
-          this.camera.position.copyFrom(this.tomahawkCamPos);
-        } else if (this.rocketSubState === RocketSubState.TomahawkMaster && followed && this.tomahawkTargetRef) {
-          // Beat 2 → Beat 3: FOV zoom once the missile enters its terminal dive.
-          const p = followed.getPositionRef();
-          const dx = p.x - this.tomahawkTargetRef.x;
-          const dy = p.y - this.tomahawkTargetRef.y;
-          const dz = p.z - this.tomahawkTargetRef.z;
-          if (
-            dx * dx + dy * dy + dz * dz < this.TOMA_ZOOM_TRIGGER_DIST_SQ &&
-            p.y < this.tomahawkCruiseAlt - this.TOMA_ZOOM_DIVE_DROP
-          ) {
-            this.rocketSubState = RocketSubState.TomahawkZoom;
-            // Retarget the pan onto the impact point; the pose itself never moves.
-            this.tomahawkLookAt.copyFrom(this.tomahawkTargetRef);
-          }
+          // Beat 1 → Beat 2: the drop is done; ease out from the belly pose into
+          // the chase (the belly cam already sits roughly on the away-from-target
+          // side of the just-dropped missile, so the lerp reads as a crane-out).
+          this.rocketSubState = RocketSubState.TomahawkChase;
+          this.beginTomahawkChase(followed);
         }
         // Locked follow: free-look drags are intentionally ignored.
         this.applyRocketPose(deltaTime, false);
@@ -451,29 +425,10 @@ export class CameraController {
     this.rocketSubState = RocketSubState.None;
   }
 
-  /**
-   * Ease the FOV toward the sub-state's goal: narrowed during the Tomahawk zoom,
-   * the native FOV everywhere else. Runs unconditionally every frame so every
-   * exit path out of the zoom (hold, preemption, revert, toggle) un-zooms itself.
-   */
-  private updateFov(deltaTime: number): void {
-    const goal = this.rocketSubState === RocketSubState.TomahawkZoom ? this.TOMA_ZOOM_FOV : this.defaultFov;
-    const f = this.camera.fov;
-    if (Math.abs(f - goal) < 0.0005) {
-      if (f !== goal) this.camera.fov = goal;
-      return;
-    }
-    const rate = goal < f ? this.fovZoomRate : this.fovRestoreRate;
-    this.camera.fov = f + (goal - f) * Math.min(rate * deltaTime, 1.0);
-  }
-
   /** Record a freshly acquired (or preempted) target and pick the sub-state. */
   private acquire(candidate: RocketViewCandidate): void {
     this.followedMissile = candidate.missile;
     this.followedKind = candidate.kind;
-    // Acquisition is a hard cut, so a preempted mid-zoom Tomahawk must not bleed
-    // its narrowed FOV into the new shot.
-    this.camera.fov = this.defaultFov;
     if (candidate.kind === RocketViewKind.IskanderPrelaunch) {
       // Dwell on the pre-selected launcher: the same down-shot the launch dollies
       // in from, so the later prelaunch→launch preemption lands where we already are.
@@ -505,13 +460,14 @@ export class CameraController {
       this.smoothedTargetValid = true;
     } else if (candidate.kind === RocketViewKind.Tomahawk && candidate.missile) {
       if (candidate.missile.isInLaunchPhase?.()) {
-        // Keep the belly cam through the drop; the master pose is computed at the
+        // Keep the belly cam through the drop; the chase bearing is seeded at the
         // Beat 1→2 transition, not here.
         this.rocketSubState = RocketSubState.TomahawkBelly;
       } else {
-        // Defensive: acquired outside the launch window — go straight to the master shot.
-        this.rocketSubState = RocketSubState.TomahawkMaster;
-        this.beginTomahawkMaster(candidate.missile); // computes the pose + seeds smoothedTarget
+        // Defensive: acquired outside the launch window — go straight to the chase
+        // (the caller's snap frame lands the pose immediately).
+        this.rocketSubState = RocketSubState.TomahawkChase;
+        this.beginTomahawkChase(candidate.missile);
       }
     } else if (candidate.missile) {
       // One immediate cut straight into the chase pose — no pad-framing beat.
@@ -575,10 +531,14 @@ export class CameraController {
       case RocketSubState.TomahawkBelly:
         this.updateTomahawkBelly(deltaTime, snap);
         break;
-      case RocketSubState.TomahawkMaster:
-      case RocketSubState.TomahawkZoom:
-        // The zoom keeps the master pose; only the FOV goal and look-at differ.
-        this.updateTomahawkMaster(deltaTime, snap);
+      case RocketSubState.TomahawkChase:
+        // Belt-and-braces: without an impact point the bearing chase can't aim,
+        // so fall back to the plain velocity chase.
+        if (this.followedMissile && this.tomahawkTargetRef) {
+          this.updateTomahawkChase(this.followedMissile, deltaTime, snap);
+        } else if (this.followedMissile) {
+          this.updateMissileChase(this.followedMissile, deltaTime, snap);
+        }
         break;
       default:
         // IskanderChase and DefenseFollow share the chase machinery.
@@ -704,114 +664,88 @@ export class CameraController {
   }
 
   /**
-   * Beat 2: plant the fitted master shot — a static pose fitted so the WHOLE
-   * remaining path is on screen: both loops, the run to the target, the terminal
-   * dive, and the wp10 overshoot past it. The path extents are bounded in flight-
-   * axis coordinates, wrapped in a bounding sphere, and the camera backs off to
-   * dist = margin·rb / sin(halfVFOV) — the distance at which the sphere exactly
-   * fits the vertical FOV (the horizontal FOV is wider at aspect > 1, so vertical
-   * binds). The look-at is the bounding center and never moves, so containment is
-   * guaranteed without per-frame recompute. Also aims lastChaseDir down the flight
-   * axis so the later ExplosionHold sits behind the approach. Falls back to a
-   * raised launch→target plant if the loop framing isn't available (it is computed
-   * synchronously at construction, so this is rare). Always seeds the smoothed
-   * look-at: the caller cuts position to tomahawkCamPos, and the look-at cuts with it.
+   * Beat 2 setup: cache the impact point and seed the chase bearing — horizontal
+   * target→missile, falling back to the camera's own bearing off the missile
+   * (prior art: the vertical-heading borrow in updateMissileChase), then +Z.
+   * The smoothed look-at is deliberately left alive from the belly cam so the
+   * pan into the new aim point is continuous — the handoff is an ease, not a cut.
+   * lastChaseDir is aimed at the target so the shared ExplosionHold later sits
+   * behind the approach, on the same side the chase camera already is.
    */
-  private beginTomahawkMaster(missile: FollowableMissile): void {
-    const m = missile as unknown as {
-      getLoopFraming(): TomahawkLoopFraming | null;
-      getTargetPosition(): Vector3;
-    };
-    const f = m.getLoopFraming();
-    this.tomahawkTargetRef = m.getTargetPosition();
-    // Fallback (no framing): treat the current altitude as cruise so the dive
-    // check still keys off a real descent.
-    this.tomahawkCruiseAlt = f ? f.cruiseAltitude : missile.getPositionRef().y;
-
-    if (f) {
-      const ls = f.loopStart, lc = f.loopCenter, tgt = f.target;
-      // Horizontal flight axis loop-start → target; p is its lateral perpendicular.
-      let ax = tgt.x - ls.x, az = tgt.z - ls.z;
-      const run = Math.sqrt(ax * ax + az * az);
-      if (run > 0.001) { ax /= run; az /= run; } else { ax = 0; az = 1; }
-      const px = -az, pz = ax;
-      // Loop 2 mirrors the worker's path: radius 0.7R around lerp(loopCenter, target, 0.4).
-      const r1 = f.loopRadius;
-      const r2 = 0.7 * r1;
-      const c2x = lc.x + (tgt.x - lc.x) * 0.4;
-      const c2z = lc.z + (tgt.z - lc.z) * 0.4;
-      // Project the loop centers to (s, q) along axis/perp relative to loopStart and
-      // take the bounding box over: loopStart, both loop circles, the target (at
-      // s = run), and the wp10 overshoot beyond it.
-      const s1 = (lc.x - ls.x) * ax + (lc.z - ls.z) * az;
-      const q1 = (lc.x - ls.x) * px + (lc.z - ls.z) * pz;
-      const s2 = (c2x - ls.x) * ax + (c2z - ls.z) * az;
-      const q2 = (c2x - ls.x) * px + (c2z - ls.z) * pz;
-      const sMin = Math.min(0, s1 - r1, s2 - r2);
-      const sMax = Math.max(run + this.TOMA_WP10_OVERSHOOT, s1 + r1, s2 + r2);
-      const qMin = Math.min(0, q1 - r1, q2 - r2);
-      const qMax = Math.max(0, q1 + r1, q2 + r2);
-      // Vertical extent: the loops fly AT cruise altitude, but at the Beat 1→2 cut
-      // the missile still sits above it (drop-end), so include its current height —
-      // it is on screen from the first master frame.
-      const yMin = tgt.y;
-      const yMax = Math.max(f.cruiseAltitude, missile.getPositionRef().y + 10);
-      // Bounding sphere of the box, then the sphere-tangency fit (see doc above).
-      const sMid = (sMin + sMax) * 0.5, qMid = (qMin + qMax) * 0.5, yMid = (yMin + yMax) * 0.5;
-      const hs = (sMax - sMin) * 0.5, hq = (qMax - qMin) * 0.5, hy = (yMax - yMin) * 0.5;
-      const rb = Math.sqrt(hs * hs + hq * hq + hy * hy);
-      const dist = this.TOMA_FIT_MARGIN * rb / this.TOMA_SIN_HALF_VFOV;
-      const cx = ls.x + ax * sMid + px * qMid;
-      const cz = ls.z + az * sMid + pz * qMid;
-      // Stand off laterally on whichever side the camera already is (stable cut
-      // direction), elevated 18° above the bounding center.
-      const camQ = (this.camera.position.x - ls.x) * px + (this.camera.position.z - ls.z) * pz;
-      const side = camQ >= 0 ? 1 : -1;
-      const horiz = dist * this.TOMA_MASTER_ELEV_COS * side;
-      this.tomahawkCamPos.set(
-        cx + px * horiz,
-        yMid + dist * this.TOMA_MASTER_ELEV_SIN,
-        cz + pz * horiz,
-      );
-      this.tomahawkLookAt.set(cx, yMid, cz);
-      this.lastChaseDir.set(ax, 0, az);
+  private beginTomahawkChase(missile: FollowableMissile): void {
+    this.tomahawkTargetRef = missile.getTargetPosition?.() ?? null;
+    const pos = missile.getPositionRef();
+    let bx: number, bz: number;
+    if (this.tomahawkTargetRef) {
+      bx = pos.x - this.tomahawkTargetRef.x;
+      bz = pos.z - this.tomahawkTargetRef.z;
     } else {
-      // Fallback: anchor a raised plant behind the missile along the launch→target bearing.
-      const pos = missile.getPositionRef();
-      const target = m.getTargetPosition();
-      let ax = target.x - pos.x, az = target.z - pos.z;
-      const run = Math.sqrt(ax * ax + az * az);
-      if (run > 0.001) { ax /= run; az /= run; } else { ax = 0; az = 1; }
-      this.tomahawkCamPos.set(pos.x - ax * 150, pos.y + 250, pos.z - az * 150);
-      this.tomahawkLookAt.copyFrom(target);
-      this.lastChaseDir.set(ax, 0, az);
+      bx = this.camera.position.x - pos.x;
+      bz = this.camera.position.z - pos.z;
     }
-
-    const camGround = this.terrainManager.getTerrainHeightAt(this.tomahawkCamPos.x, this.tomahawkCamPos.z);
-    this.tomahawkCamPos.y = Math.max(this.tomahawkCamPos.y, camGround + 5, 10);
-
-    this.smoothedTarget.copyFrom(this.tomahawkLookAt);
-    this.smoothedTargetValid = true;
+    const bl = Math.sqrt(bx * bx + bz * bz);
+    if (bl > 0.001) { bx /= bl; bz /= bl; } else { bx = 0; bz = 1; }
+    this.tomahawkBearing.set(bx, 0, bz);
+    this.lastChaseDir.set(-bx, 0, -bz);
   }
 
   /**
-   * Hold the fixed pose captured in beginTomahawkMaster. The Beat 1→2 handoff hard-cuts
-   * the camera onto the pose, so in the normal path the lerp is inert self-healing (the
-   * defensive mid-flight acquire is the only entry that converges through it). TomahawkZoom
-   * reuses this pose unchanged — only the FOV (updateFov) and the look-at (retargeted to
-   * the impact point at zoom entry) differ. The shared ExplosionHold takes over for the kill.
+   * Beat 2 per-frame: hang the camera TOMA_CHASE_BACK behind / TOMA_CHASE_UP
+   * above the missile along the slewed horizontal target→missile bearing and aim
+   * between missile and target (TOMA_LOOKAT_BLEND — missile lower-center, target
+   * upper-center). The offset is anchored to the missile, so however wrong the
+   * bearing transiently is (loop 2 can spin it faster than any slew tracks), the
+   * missile itself never leaves frame — it just swings beneath the camera as it
+   * flies the loops, hanging as if from a string. Inside TOMA_BEARING_FREEZE_DIST
+   * the bearing freezes: the camera keeps its offset through the overfly flip and
+   * rides it down the terminal dive to impact.
    */
-  private updateTomahawkMaster(deltaTime: number, snap: boolean): void {
-    if (snap) {
-      this.camera.position.copyFrom(this.tomahawkCamPos);
-    } else {
-      const lerpFactor = Math.min(this.masterTransitionSmoothing * deltaTime, 1.0);
-      const invLerpFactor = 1.0 - lerpFactor;
-      this.camera.position.x = this.camera.position.x * invLerpFactor + this.tomahawkCamPos.x * lerpFactor;
-      this.camera.position.y = this.camera.position.y * invLerpFactor + this.tomahawkCamPos.y * lerpFactor;
-      this.camera.position.z = this.camera.position.z * invLerpFactor + this.tomahawkCamPos.z * lerpFactor;
+  private updateTomahawkChase(missile: FollowableMissile, deltaTime: number, snap: boolean): void {
+    const tgt = this.tomahawkTargetRef;
+    if (!tgt) return; // dispatch guards this; keep the pose if it ever slips through
+    const m = missile.getPositionRef();
+    const b = this.tomahawkBearing;
+
+    const dx = m.x - tgt.x;
+    const dz = m.z - tgt.z;
+    const dHoriz = Math.sqrt(dx * dx + dz * dz);
+    if (dHoriz > this.TOMA_BEARING_FREEZE_DIST) {
+      const lf = Math.min(this.tomaBearingSmoothing * deltaTime, 1.0);
+      const nx = b.x + (dx / dHoriz - b.x) * lf;
+      const nz = b.z + (dz / dHoriz - b.z) * lf;
+      const nl = Math.sqrt(nx * nx + nz * nz);
+      // Near-opposite bearings can cancel to ~zero — keep the old bearing then.
+      if (nl > 0.0001) b.set(nx / nl, 0, nz / nl);
     }
-    this.applySmoothedTarget(this.tomahawkLookAt, deltaTime, snap, this.masterTargetSmoothing);
+
+    this.tempVector1.set(
+      m.x + b.x * this.TOMA_CHASE_BACK,
+      m.y + this.TOMA_CHASE_UP,
+      m.z + b.z * this.TOMA_CHASE_BACK,
+    );
+    const groundHeight = this.terrainManager.getTerrainHeightAt(this.tempVector1.x, this.tempVector1.z);
+    this.tempVector1.y = Math.max(this.tempVector1.y, groundHeight + 5, 10);
+
+    if (snap) {
+      this.camera.position.copyFrom(this.tempVector1);
+    } else {
+      const lerpFactor = Math.min(this.tomaChaseSmoothing * deltaTime, 1.0);
+      const invLerpFactor = 1.0 - lerpFactor;
+      this.camera.position.x = this.camera.position.x * invLerpFactor + this.tempVector1.x * lerpFactor;
+      this.camera.position.y = this.camera.position.y * invLerpFactor + this.tempVector1.y * lerpFactor;
+      this.camera.position.z = this.camera.position.z * invLerpFactor + this.tempVector1.z * lerpFactor;
+    }
+
+    this.tempVector2.set(
+      m.x + (tgt.x - m.x) * this.TOMA_LOOKAT_BLEND,
+      m.y + (tgt.y - m.y) * this.TOMA_LOOKAT_BLEND,
+      m.z + (tgt.z - m.z) * this.TOMA_LOOKAT_BLEND,
+    );
+    this.applySmoothedTarget(this.tempVector2, deltaTime, snap, this.tomaChaseTargetSmoothing);
+
+    // Keep the hold seed live: at impact the ExplosionHold backs off along
+    // -lastChaseDir — the same side of the blast the chase camera is already on.
+    this.lastChaseDir.set(-b.x, 0, -b.z);
   }
 
   /**
@@ -861,9 +795,6 @@ export class CameraController {
         this.explosionHoldTimer = 0;
         this.snapBehindBomber();
       }
-      // Backstop: game-over and AI-off can land here mid-zoom, after which the
-      // camera may never update again — never leave a narrowed FOV behind.
-      this.camera.fov = this.defaultFov;
     }
   }
 
