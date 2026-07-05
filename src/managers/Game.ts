@@ -23,6 +23,7 @@ import { WorkerManager } from './WorkerManager';
 import { Building } from '../entities/Building';
 import { AIController } from './AIController';
 import { ExplosionPool } from '../effects/ExplosionPool';
+import { createSun, SUN_DIRECTION } from '../entities/Sun';
 
 export class Game {
   private readonly scene: Scene;
@@ -171,9 +172,13 @@ export class Game {
     const hemisphericLight = new HemisphericLight('hemisphericLight', new Vector3(0, 1, 0), this.scene);
     hemisphericLight.intensity = 0.3;
 
-    const directionalLight = new DirectionalLight('directionalLight', new Vector3(-1, -1, -1), this.scene);
+    // Direction is the negated SUN_DIRECTION (~25° elevation) so shading always
+    // agrees with the visible sun disc.
+    const directionalLight = new DirectionalLight('directionalLight', SUN_DIRECTION.scale(-1), this.scene);
     directionalLight.intensity = 0.8;
     directionalLight.diffuse = new Color3(1, 0.9, 0.7);
+
+    createSun(this.scene);
 
     // Pre-warm the shared explosion pool (and its effect textures) before combat
     // so no particle systems or textures are ever built mid-fight.
