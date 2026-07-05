@@ -72,9 +72,8 @@ export class TerrainManager {
 
   /**
    * Rendered-terrain surface height at world (x, z); 0 when the chunk isn't
-   * loaded. Reads the chunk's GroundMesh directly (getHeightAtCoordinates) — the
-   * worker's heightmap rows are z-flipped relative to CreateGround's vertex
-   * order, so the mesh is the only source guaranteed to match what's drawn.
+   * loaded. Reads the chunk's GroundMesh directly (getHeightAtCoordinates), so it
+   * always matches what's drawn regardless of how the heightmap was copied in.
    */
   public getTerrainHeightAt(x: number, z: number): number {
     const chunkX = Math.round(x / this.chunkSize);
@@ -185,13 +184,18 @@ export class TerrainManager {
     const worldX = chunkX * this.chunkSize;
     const worldZ = chunkZ * this.chunkSize;
 
-    // Split mesh creation into smaller operations
+    // Split mesh creation into smaller operations.
+    // updatable is REQUIRED: Babylon's Buffer.update() on a non-updatable buffer is
+    // a silent no-op on the GPU — the CPU-side array still reads back the new
+    // heights (getVerticesData/getHeightAtCoordinates), so the bug is invisible to
+    // any code that asks the mesh, while the screen keeps showing the flat plane.
     const ground = MeshBuilder.CreateGround(
       `ground_${chunkKey}`,
       {
         width: this.chunkSize,
         height: this.chunkSize,
         subdivisions: this.subdivisions,
+        updatable: true,
       },
       this.scene,
     );
@@ -201,6 +205,8 @@ export class TerrainManager {
     ground.position.z = worldZ;
     ground.material = this.terrainMaterial;
     ground.isPickable = false; // nothing in the game picks terrain (input reads raw pointer coords)
+    // Keep the flat placeholder off-screen until the heights are applied.
+    ground.setEnabled(false);
 
     // Process vertex data in batches to prevent frame drops
     this.updateVertexDataInBatches(ground, heightmap, chunkKey, chunkX, chunkZ, buildingConfigs);
@@ -221,12 +227,19 @@ export class TerrainManager {
     const batchSize = Math.min(this.maxVerticesPerFrame, heightmap.length);
     let processedVertices = 0;
 
+    const rowLength = this.subdivisions + 1;
     const processBatch = () => {
       const endIndex = Math.min(processedVertices + batchSize, heightmap.length);
 
-      // Update vertex heights for this batch
+      // Update vertex heights for this batch. The worker heightmap's row 0 is the
+      // -z edge, but CreateGround's row 0 is the +z edge, so copy rows flipped —
+      // the rendered surface then equals the worker's continuous noise field and
+      // chunks join seamlessly (a straight copy z-mirrors every chunk and cliffs
+      // at the seams).
       for (let i = processedVertices; i < endIndex; i++) {
-        positions[i * 3 + 1] = heightmap[i];
+        const row = Math.floor(i / rowLength);
+        const col = i - row * rowLength;
+        positions[i * 3 + 1] = heightmap[(this.subdivisions - row) * rowLength + col];
       }
 
       processedVertices = endIndex;
@@ -235,6 +248,7 @@ export class TerrainManager {
         // Finished processing all vertices
         ground.updateVerticesData('position', positions);
         ground.createNormals(false);
+        ground.setEnabled(true);
 
         // The chunk never moves again: freeze its transform, sync its (hill-aware)
         // bounding box to world space once, then opt out of per-frame bounds sync.

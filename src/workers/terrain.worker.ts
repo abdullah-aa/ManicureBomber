@@ -107,17 +107,16 @@ function generateBuildings(
     const buildingX = worldX + localX;
     const buildingZ = worldZ + localZ;
 
-    // The heightmap rows are z-flipped relative to CreateGround's vertex order
-    // (see TerrainManager.getTerrainHeightAt), so sample at -z to read the ground
-    // that is actually rendered under the building.
-    const sampleZ = -localZ;
-    const terrainHeight = getHeightAtPosition(localX, sampleZ, heightmap, chunkSize, subdivisions);
+    // TerrainManager copies the heightmap rows z-flipped to match CreateGround's
+    // vertex order, so the rendered ground equals this noise field directly —
+    // sample it at the building's own local position.
+    const terrainHeight = getHeightAtPosition(localX, localZ, heightmap, chunkSize, subdivisions);
 
     const sampleDistance = 5;
-    const heightNorth = getHeightAtPosition(localX, sampleZ + sampleDistance, heightmap, chunkSize, subdivisions);
-    const heightSouth = getHeightAtPosition(localX, sampleZ - sampleDistance, heightmap, chunkSize, subdivisions);
-    const heightEast = getHeightAtPosition(localX + sampleDistance, sampleZ, heightmap, chunkSize, subdivisions);
-    const heightWest = getHeightAtPosition(localX - sampleDistance, sampleZ, heightmap, chunkSize, subdivisions);
+    const heightNorth = getHeightAtPosition(localX, localZ + sampleDistance, heightmap, chunkSize, subdivisions);
+    const heightSouth = getHeightAtPosition(localX, localZ - sampleDistance, heightmap, chunkSize, subdivisions);
+    const heightEast = getHeightAtPosition(localX + sampleDistance, localZ, heightmap, chunkSize, subdivisions);
+    const heightWest = getHeightAtPosition(localX - sampleDistance, localZ, heightmap, chunkSize, subdivisions);
 
     const maxSlope = Math.max(
       Math.abs(heightNorth - terrainHeight),
@@ -131,6 +130,22 @@ function generateBuildings(
     }
 
     const buildingConfig = generateRandomBuildingConfig({ x: buildingX, y: 0, z: buildingZ }, terrainHeight);
+
+    // The base spans the whole footprint, so rest it on the LOWEST ground under the
+    // four corners — a center-height base shows air under the downhill edge on any
+    // slope.
+    const halfWidth = buildingConfig.width / 2;
+    const halfDepth = buildingConfig.depth / 2;
+    let minCornerHeight = terrainHeight;
+    for (const cornerX of [localX - halfWidth, localX + halfWidth]) {
+      for (const cornerZ of [localZ - halfDepth, localZ + halfDepth]) {
+        minCornerHeight = Math.min(
+          minCornerHeight,
+          getHeightAtPosition(cornerX, cornerZ, heightmap, chunkSize, subdivisions),
+        );
+      }
+    }
+    buildingConfig.position.y = minCornerHeight;
 
     buildingConfig.isTarget = Math.random() < 0.1;
     buildingConfigs.push(buildingConfig);

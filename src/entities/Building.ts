@@ -35,6 +35,15 @@ export class Building {
   private static readonly MAX_BURNING = 10;
   private static burning: Building[] = [];
 
+  /**
+   * The base sits this far below the sampled terrain height. The worker already
+   * rests the base on the lowest ground under the footprint corners
+   * (terrain.worker.ts, minCornerHeight); this margin covers the residual
+   * difference between the worker's heightmap samples and the rendered mesh's
+   * triangle interpolation, so no downhill edge ever shows air under the box.
+   */
+  private static readonly TERRAIN_SINK = 2;
+
   private scene: Scene;
   private workerManager: WorkerManager;
   private game: Game | null = null;
@@ -114,10 +123,14 @@ export class Building {
   // Instances inherit the source's shared material and batch into a single draw call,
   // so building count no longer multiplies draw calls / materials. (config.color is no
   // longer honored at the mesh level — it is never set by the terrain generator.)
+  // The source box is origin-centered, so lift each instance by height/2: every box's
+  // BASE rests on local y = 0 (it spans 0..height above the parent). Rooftop callers
+  // (roof slab, skyscraper tiers) overwrite position.y after the call.
   private boxInstance(name: string, width: number, height: number, depth: number): AbstractMesh {
     const source = BuildingAssets.get(this.scene).getBoxSource(this.config.type);
     const instance = source.createInstance(name);
     instance.scaling.set(width, height, depth);
+    instance.position.y = height / 2;
     instance.parent = this.parent;
     return instance;
   }
@@ -131,7 +144,7 @@ export class Building {
 
     // Add a simple roof
     const roof = this.boxInstance(`roof`, width + 2, 2, depth + 2);
-    roof.position.y = height / 2 + 1;
+    roof.position.y = height + 1;
 
     return building;
   }
@@ -141,7 +154,7 @@ export class Building {
 
     // Add antenna or signage on top (fixed-size instance of the shared antenna source)
     const antenna = BuildingAssets.get(this.scene).getAntennaSource().createInstance(`antenna`);
-    antenna.position.y = height / 2 + 2;
+    antenna.position.y = height + 2;
     antenna.parent = this.parent;
 
     return building;
@@ -158,7 +171,7 @@ export class Building {
       stack.scaling.set(2, height * 0.8, 2);
       stack.position.x = (Math.random() - 0.5) * width * 0.6;
       stack.position.z = (Math.random() - 0.5) * depth * 0.6;
-      stack.position.y = height / 2 + (height * 0.8) / 2;
+      stack.position.y = height + (height * 0.8) / 2;
       stack.parent = this.parent;
     }
 
@@ -172,8 +185,8 @@ export class Building {
     const tier1 = this.boxInstance(`tier1`, width * 0.8, height * 0.3, depth * 0.8);
     const tier2 = this.boxInstance(`tier2`, width * 0.6, height * 0.2, depth * 0.6);
 
-    tier1.position.y = height / 2 + (height * 0.3) / 2;
-    tier2.position.y = height / 2 + height * 0.3 + (height * 0.2) / 2;
+    tier1.position.y = height + (height * 0.3) / 2;
+    tier2.position.y = height + height * 0.3 + (height * 0.2) / 2;
 
     return building;
   }
@@ -181,10 +194,11 @@ export class Building {
   private positionBuilding(): void {
     this.parent.position.x = this.config.position.x;
     this.parent.position.z = this.config.position.z;
-    // Terrain height sampled by the worker at placement. The box is origin-centered
-    // (spans -h/2..+h/2), so the bottom half sits in the ground uniformly instead of
-    // whole buildings vanishing under hills at the old hard-coded y=0.
-    this.parent.position.y = this.config.position.y;
+    // config.position.y is the terrain height sampled by the worker at placement.
+    // The box spans 0..height above the parent (see boxInstance), so buildings stand
+    // full height on the terrain; the parent is sunk TERRAIN_SINK below the sampled
+    // height so downhill corners on sloped ground never show air under the box.
+    this.parent.position.y = this.config.position.y - Building.TERRAIN_SINK;
   }
 
   public getPosition(): Vector3 {
@@ -197,8 +211,8 @@ export class Building {
     const halfDepth = this.config.depth / 2;
 
     return {
-      min: new Vector3(pos.x - halfWidth, pos.y - this.config.height / 2, pos.z - halfDepth),
-      max: new Vector3(pos.x + halfWidth, pos.y + this.config.height / 2, pos.z + halfDepth),
+      min: new Vector3(pos.x - halfWidth, pos.y, pos.z - halfDepth),
+      max: new Vector3(pos.x + halfWidth, pos.y + this.config.height, pos.z + halfDepth),
     };
   }
 

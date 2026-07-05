@@ -136,7 +136,9 @@ export function computeTomahawkLoopFraming(
   const directionToTarget = vector3Normalize(vector3Subtract(targetPosition, predictedStartPos));
 
   const cruiseAltitude = Math.max(predictedStartPos.y, targetPosition.y) - 80;
-  const safeCruiseAltitude = Math.max(cruiseAltitude, 100);
+  // Floor above the tallest possible building top (~118: terrain 60 + full-height
+  // building 60 − 2 sink) so the cruise leg never visually clips a skyscraper.
+  const safeCruiseAltitude = Math.max(cruiseAltitude, 125);
 
   const horizontalDistance = Math.sqrt(
     (targetPosition.x - predictedStartPos.x) ** 2 +
