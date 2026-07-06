@@ -4,6 +4,7 @@ import { WorkerManager } from '../managers/WorkerManager';
 import { Game } from '../managers/Game';
 import { DefenseMissile } from './DefenseMissile';
 import { BuildingAssets } from './BuildingAssets';
+import { buildingApexHeight } from '../workers/worker-utils';
 import { ExplosionPool } from '../effects/ExplosionPool';
 
 export enum BuildingType {
@@ -104,6 +105,13 @@ export class Building {
 
   private createBuildingMesh(): AbstractMesh {
     const { width, height, depth, type } = this.config;
+
+    // Launcher buildings get a flat roof (no slab/antenna/stacks/tiers): the
+    // launcher owns the rooftop, so it is never enclosed by rooftop features and
+    // the Tomahawk aim point (base + getMaxHeight()) is exactly where it sits.
+    if (this.config.isDefenseLauncher) {
+      return this.boxInstance(`building_${type}`, width, height, depth);
+    }
 
     switch (type) {
       case BuildingType.RESIDENTIAL:
@@ -237,7 +245,7 @@ export class Building {
     // Tube thickness now scales with the diameter (unit-source tradeoff; accepted).
     const ring = BuildingAssets.get(this.scene).getRingSource().createInstance('targetRing');
     ring.scaling.setAll(Math.max(this.config.width, this.config.depth) + 10);
-    ring.position.y = this.config.height + 5;
+    ring.position.y = this.getApexHeight() + 5;
     ring.parent = this.parent;
     this.targetRing = ring;
   }
@@ -246,7 +254,10 @@ export class Building {
     // Instance of the shared launcher source (fixed 3x2x3); the shared material carries the
     // flashing animation, so all launchers share one animated material and batch together.
     this.launcherMesh = BuildingAssets.get(this.scene).getLauncherSource().createInstance(`launcher_${Date.now()}`);
-    this.launcherMesh.position.y = this.config.height;
+    // The source box is origin-centered and 2 tall, so +1 rests its base on the
+    // building's flat roof (launcher buildings skip rooftop features — see
+    // createBuildingMesh); it spans height..height+2.
+    this.launcherMesh.position.y = this.config.height + 1;
     this.launcherMesh.parent = this.parent;
   }
 
@@ -484,6 +495,19 @@ export class Building {
     return this.config.height;
   }
 
+  /**
+   * Local-space height of the visible summit: rooftop features (tiers, stacks,
+   * antenna, roof slab) for normal buildings, the launcher box top for launcher
+   * buildings (flat roof, see createBuildingMesh). Keyed on config.isDefenseLauncher
+   * (permanent geometry), NOT the live isDefenseLauncher() method, which flips
+   * false when the launcher is destroyed. getMaxHeight() stays the main box top —
+   * the Tomahawk aim point and the launcher's roof.
+   */
+  public getApexHeight(): number {
+    if (this.config.isDefenseLauncher) return this.config.height + 2;
+    return buildingApexHeight(this.config.type, this.config.height);
+  }
+
   public updateDefenseLauncher(
     bomberPosition: Vector3,
     bomberVelocity: Vector3,
@@ -510,7 +534,7 @@ export class Building {
     if (!this.isDefenseLauncher() || this.isDestroyed || !this.game) return;
 
     const launchPosition = this.getPosition().clone();
-    launchPosition.y += this.config.height + 3; // Launch from top of launcher
+    launchPosition.y += this.config.height + 3; // 1 above the launcher box top (roof..roof+2)
 
     // Pooled: re-arms a parked missile instead of building a fresh mesh/material/
     // particle set every 3-11s (Game's sweep releases it back after airburst)

@@ -455,8 +455,8 @@ export class Game {
 
     if (farthestLauncher) {
       const launchPosition = farthestLauncher.getPosition().clone();
-      // Buildings ride the terrain and span 0..height above their base, so this
-      // is exactly 5 above the rooftop.
+      // Launcher buildings have flat roofs with the 2-tall launcher box on top
+      // (Building.createBuildingMesh), so this is 3 above the launcher.
       launchPosition.y += farthestLauncher.getMaxHeight() + 5;
 
       const missile = new IskanderMissile(this.scene, launchPosition, this.bomber, this.workerManager);

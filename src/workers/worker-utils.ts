@@ -136,9 +136,15 @@ export function computeTomahawkLoopFraming(
   const directionToTarget = vector3Normalize(vector3Subtract(targetPosition, predictedStartPos));
 
   const cruiseAltitude = Math.max(predictedStartPos.y, targetPosition.y) - 80;
-  // Floor above the tallest possible building top (~118: terrain 60 + full-height
-  // building 60 − 2 sink) so the cruise leg never visually clips a skyscraper.
-  const safeCruiseAltitude = Math.max(cruiseAltitude, 125);
+  // Floor above the tallest possible visible building top: terrain height clamp 60
+  // (terrain.worker.ts) − TERRAIN_SINK 2 (Building.ts — not importable here, it
+  // would drag Babylon into the worker bundle) + skyscraper apex 1.5·60 = 148,
+  // plus the target ring at apex+5 (153), plus clearance. The terminal dive
+  // interpolates from an early cruise-altitude waypoint down to the aim point
+  // (MissileGuidance), so raising the floor steepens the dive but never moves
+  // the impact.
+  const maxBuildingTop = 60 - 2 + buildingApexHeight(BuildingType.SKYSCRAPER, 60); // 148
+  const safeCruiseAltitude = Math.max(cruiseAltitude, maxBuildingTop + 12); // 160
 
   const horizontalDistance = Math.sqrt(
     (targetPosition.x - predictedStartPos.x) ** 2 +
@@ -172,6 +178,24 @@ export enum BuildingType {
   COMMERCIAL = 'commercial',
   INDUSTRIAL = 'industrial',
   SKYSCRAPER = 'skyscraper',
+}
+
+/**
+ * Local-space visible top of a building's rooftop features, per type. Must match
+ * the geometry built in entities/Building.ts (roof slab, antenna, smokestacks,
+ * skyscraper tiers). Shared by Building.getApexHeight() and the Tomahawk
+ * cruise-altitude floor above so the two can never diverge. Takes the type as a
+ * string so both duplicate BuildingType enums (Building.ts and this file, same
+ * string values) assign cleanly.
+ */
+export function buildingApexHeight(type: string, height: number): number {
+  switch (type) {
+    case BuildingType.RESIDENTIAL: return height + 2;   // roof slab top
+    case BuildingType.COMMERCIAL:  return height + 4;   // antenna tip
+    case BuildingType.INDUSTRIAL:  return height * 1.8; // smokestack top
+    case BuildingType.SKYSCRAPER:  return height * 1.5; // tier2 top
+    default: return height;
+  }
 }
 
 // BuildingConfig for workers (simplified version without Color3 since workers can't use Babylon.js classes)
