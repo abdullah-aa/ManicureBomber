@@ -19,7 +19,14 @@ module.exports = (env, argv) => {
       rules: [
         {
           test: /\.ts$/,
-          use: 'ts-loader',
+          use: {
+            loader: 'ts-loader',
+            options: {
+              // tsconfig has declaration:true (outDir dist/), which would strew
+              // .d.ts files through the static build output — bundles need none.
+              compilerOptions: { declaration: false },
+            },
+          },
           exclude: /node_modules/,
         },
       ],
@@ -28,6 +35,9 @@ module.exports = (env, argv) => {
       new HtmlWebpackPlugin({
         template: './src/index.html',
         filename: 'index.html',
+        // Copies the icon into the output and injects the <link> — keeps the
+        // production dist/ fully self-contained for static hosting.
+        favicon: './src/favicon.png',
       }),
       new webpack.DefinePlugin({
         'process.env.NODE_ENV': JSON.stringify(isDevelopment ? 'development' : 'production'),

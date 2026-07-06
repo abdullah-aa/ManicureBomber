@@ -1,6 +1,6 @@
 # ManicureBomber
 
-A browser-based WebGL bomber game built with [Babylon.js](https://www.babylonjs.com/), TypeScript, and webpack. You fly a strategic bomber over procedurally generated terrain, destroy ground targets and SAM launchers — red-ring target buildings are the objective, and each one destroyed restores bomber health — and survive incoming Iskander and defense-missile threats. Flight is **touch-first** (swipe to fly) with a mouse/touch free-camera; the game also ships an **autopilot AI** and a **cinematic missile-chase camera** ("Rocket View").
+A browser-based WebGL bomber game built with [Babylon.js](https://www.babylonjs.com/), TypeScript, and webpack. You fly a strategic bomber over procedurally generated terrain, destroy ground targets and SAM launchers — red-ring target buildings are the objective, and each one destroyed restores bomber health — and survive incoming Iskander and defense-missile threats. Flight is **touch-first** (swipe to fly) with a mouse/touch free-camera; the game also ships an **autopilot AI**, a **cinematic missile-chase camera** ("Rocket View"), and a **victim's-eye attack camera** ("Panic View").
 
 It is a single-player, client-only application — there is no backend, no networking, and (currently) no audio.
 
@@ -50,7 +50,9 @@ npx tsc --noEmit  # type-check
 npm run format    # prettier --write .
 ```
 
-> **Build-script caveat:** the `build` script currently also copies the output to `pages/` **and** to a hardcoded absolute path (`~/projects/ManicureBomber/`). The hardcoded copy is specific to one machine and should be removed before other contributors rely on `npm run build`.
+### Deploy
+
+The production build is fully static. Upload the contents of `dist/` (`index.html`, `bundle.js`, the split chunks, `favicon.png`) to any static web host or cloud storage bucket — no server, base path, or special headers required (no `SharedArrayBuffer` is used, so no COOP/COEP).
 
 ## Controls
 
@@ -66,11 +68,12 @@ The game is **touch/mouse only — there are no gameplay keyboard controls.** (T
 | **⚙️ Settings** gear (top-right) | Open the settings modal (below). Game keeps running. |
 | **Mouse drag** (CAMERA mode only) | X = pan camera around the bomber; Y = raise/lower it (vertical is ~3× to match the pan rate). |
 
-The settings modal exposes three toggles:
+The settings modal exposes four toggles:
 
-- **🤖 Autopilot** — enable/disable the AI pilot. Manual flight input temporarily *suspends* (not disables) it.
 - **Control Mode (✈️ PLANE / 📹 CAMERA)** — whether a swipe flies the plane or orbits the free-camera. **This is the only camera-mode switch** — the 🎯 button toggles crosshairs, not the camera.
+- **🤖 Autopilot** — enable/disable the AI pilot. Manual flight input temporarily *suspends* (not disables) it.
 - **🚀 Rocket View** — cinematic missile-chase camera. Only available while Autopilot is on (the row is disabled otherwise).
+- **😱 Panic View** — victim's-eye attack camera (see Gameplay systems). Autopilot-only, and mutually exclusive with Rocket View — enabling one switches the other off.
 
 ## Gameplay systems
 
@@ -85,6 +88,7 @@ Tuning constants below are taken directly from the source; file references point
 - **Defense missiles** (`src/entities/DefenseMissile.ts`) — SAMs fired from launcher buildings; airburst between **220–280** units (deliberately above the bomber's 200 ceiling so you can't out-climb them), speed **120–150** u/s. Velocity stays zero until an async worker trajectory reply arrives (the brief "on-pad" window).
 - **Autopilot AI** (`src/managers/AIController.ts`) — a state machine (search / navigate / standoff / extend / bomb-run) that flies to targets, runs bombing passes, fires Tomahawks at launchers, and pops flares when Iskanders close in. It issues commands through the same `InputManager` virtual controls as the player, so all cooldowns and safety gates still apply; manual input yields a short grace-period suspend rather than a hard toggle-off.
 - **Rocket View** (`src/managers/CameraController.ts`, candidate selection in `Game.ts`) — an Autopilot-only cinematic camera covering all three missile types. Iskanders: an elevated down-shot holds on the launcher for a **~1s pre-launch beat**, then dollies in through the vertical boost into a tail chase. Tomahawks: a three-beat cinematic — belly cam under the bomber through the bay-door open and drop, a fixed wide master shot framing the looping flight path, then an FOV zoom onto the terminal dive. Defense missiles: caught on the pad at the launch instant, then chased. Every shot ends holding on the explosion (~1.5s) before reverting to the bomber.
+- **Panic View** (`src/managers/CameraController.ts`, candidate provider in `Game.ts`) — an Autopilot-only victim's-eye camera. When a bombing run starts it stands on the ground at the attack target, staring up at the bomber; when a Tomahawk launches it stands at the targeted SAM launcher watching the missile come in. Each shot holds on the impact (~1.5s) before reverting to the bomber; any one story is capped at 30s. Mutually exclusive with Rocket View.
 - **World** (`src/managers/TerrainManager.ts`, `src/entities/Building.ts`) — procedural terrain in **900-unit chunks** (48 subdivisions) kept within a Chebyshev radius of 2 around the bomber, sized so the loaded edge always sits beyond `fogEnd = 1500`. Buildings include residential/commercial/industrial/skyscraper types plus destructible SAM launchers with health and destruction states.
 - **Health / damage** — the bomber has a health value shown in the top-right bar (green → yellow → red); damage comes from missile proximity, and heals (red-ring target kills) flash the bar green (`src/ui/UIManager.ts`). Below 30% health the bomber trails fire. The top-left radar HUD tracks targets, launchers, and incoming missiles, and counts destroyed targets; destroying the bomber shows a game-over screen with the tally.
 
@@ -121,7 +125,7 @@ Workers communicate via structured-clone `postMessage` (no `SharedArrayBuffer`, 
 ### Performance patterns
 
 - **Pooling** — `src/managers/LightManager.ts` keeps a fixed pool of scene `PointLight`s with priority-based stealing, TTL auto-release, and generation-stamped handles whose setters no-op after release. `src/effects/ExplosionPool.ts` keeps a per-scene pool of pre-built particle systems re-armed via `manualEmitCount` (with shared procedural textures in `EffectTextures.ts`), pre-warmed at startup.
-- **Allocation-free updates** — hot paths use `getPositionRef()/getVelocityRef()/getRotationRef()` instead of cloning, reuse scratch `Vector3`s and a single reused Rocket-View candidate descriptor, and cache trigonometry to avoid per-frame `sin`/`cos`.
+- **Allocation-free updates** — hot paths use `getPositionRef()/getVelocityRef()/getRotationRef()` instead of cloning, reuse scratch `Vector3`s and reused Rocket/Panic-View candidate descriptors, and cache trigonometry to avoid per-frame `sin`/`cos`.
 - **Frame pacing** — `src/index.ts` caps the render loop to ~60fps (with a small rAF-jitter tolerance) since `requestAnimationFrame` fires at the display rate (120Hz+); game logic lives in `scene.registerBeforeRender`, so this caps logic too.
 - **Throttled subsystems** — update intervals are staggered: UI 50ms, radar 100ms, terrain 100ms, defense launchers 50ms, collision checks ~16ms.
 
@@ -129,7 +133,6 @@ Workers communicate via structured-clone `postMessage` (no `SharedArrayBuffer`, 
 
 - **No audio.** `src/entities/Bomb.ts` imports Babylon `Sound` and calls `play()`, but the sound is never assigned — audio is effectively stubbed and there are no sound assets.
 - **No device detection / responsive branching.** The UI is built the same way on all devices; the only resolution handling is `engine.setHardwareScalingLevel`.
-- **Build script** copies to a hardcoded local path (see the build caveat above).
 - **Single-player only** — no networking or multiplayer.
 
 Possible future work: audio, additional aircraft, mission/campaign objectives, richer terrain (water/vegetation), and weather.

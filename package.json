@@ -4,7 +4,7 @@
   "description": "Stealth Bomber flying over procedurally generated terrain using BabylonJS",
   "main": "index.js",
   "scripts": {
-    "build": "webpack --mode=production && cp dist/index.html dist/*.js pages/ && cp dist/index.html dist/*.js ~/projects/ManicureBomber/",
+    "build": "webpack --mode=production",
     "dev": "webpack serve --mode=development",
     "start": "webpack serve --mode=development --open",
     "lint": "eslint . --ext .ts",
