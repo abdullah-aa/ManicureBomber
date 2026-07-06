@@ -207,6 +207,17 @@ export class CameraController {
   private readonly PANIC_MIN_HORIZ_RATIO = 0.18;   // ~80° pitch cap — setTarget degenerates near vertical
   private readonly panicPosSmoothing = 4.0;
   private readonly panicTargetSmoothing = 5.0;
+  // Bombing-story pose: lower and further back than the (Tomahawk) victim pose so
+  // the building, the ground the stick lands on, AND the approaching bomber all
+  // frame up (45.8° VFOV; bomber cruises 150-200 up). The aim weight is bound by
+  // the LATE stick — the lerp drags the aim past the camera as the bomber
+  // overflies, pitching the frame up; ≥ ~0.18 cuts the ground right when the
+  // near impacts land. The bomber exiting the frame top just before overfly is
+  // the accepted trade (user-chosen "balanced" standoff). TUNABLE.
+  private readonly PANIC_BOMB_STANDOFF = 120;
+  private readonly PANIC_BOMB_SIDE = 35;      // horizontal dist = hypot(120,35) = 125
+  private readonly PANIC_BOMB_EYE = 3;
+  private readonly PANIC_BOMB_AIM_WEIGHT = 0.15;
 
   constructor(camera: FreeCamera, bomber: Bomber, terrainManager: TerrainManager) {
     this.camera = camera;
@@ -352,7 +363,11 @@ export class CameraController {
         }
         // Backstop against a story that never ends (the provider's lifecycle
         // clears should always fire first). One re-framed re-acquire is fine.
-        if (this.panicStoryTimer > this.PANIC_MAX_STORY) {
+        // A live-missile watch is self-terminating (the missile always impacts)
+        // and long Tomahawk loop paths legitimately fly past 30s — cutting away
+        // seconds before impact loses the whole payoff — so it gets 3x the leash.
+        const storyCap = this.panicMissile ? this.PANIC_MAX_STORY * 3 : this.PANIC_MAX_STORY;
+        if (this.panicStoryTimer > storyCap) {
           this.resetPanic();
           this.snapBehindBomber();
           return;
@@ -948,13 +963,17 @@ export class CameraController {
     let dirZ = candidate.anchorZ - bomberPos.z;
     const dl = Math.sqrt(dirX * dirX + dirZ * dirZ);
     if (dl > 0.001) { dirX /= dl; dirZ /= dl; } else { dirX = 0; dirZ = 1; }
-    const camX = candidate.anchorX + dirX * this.PANIC_STANDOFF - dirZ * this.PANIC_SIDE;
-    const camZ = candidate.anchorZ + dirZ * this.PANIC_STANDOFF + dirX * this.PANIC_SIDE;
+    const bombing = candidate.kind === PanicViewKind.Bombing;
+    const standoff = bombing ? this.PANIC_BOMB_STANDOFF : this.PANIC_STANDOFF;
+    const side = bombing ? this.PANIC_BOMB_SIDE : this.PANIC_SIDE;
+    const eye = bombing ? this.PANIC_BOMB_EYE : this.PANIC_EYE;
+    const camX = candidate.anchorX + dirX * standoff - dirZ * side;
+    const camZ = candidate.anchorZ + dirZ * standoff + dirX * side;
     // Feet on the ground at the victim's spot; the anchor-side max keeps the eye
     // from sinking below the target's own ground on downhill standoffs.
     const anchorGround = this.terrainManager.getTerrainHeightAt(candidate.anchorX, candidate.anchorZ);
     const camGround = this.terrainManager.getTerrainHeightAt(camX, camZ);
-    this.panicCamPos.set(camX, Math.max(anchorGround + this.PANIC_EYE, camGround + 5, 10), camZ);
+    this.panicCamPos.set(camX, Math.max(anchorGround + eye, camGround + eye, 10), camZ);
   }
 
   /**
@@ -978,7 +997,9 @@ export class CameraController {
       ? this.explosionPoint
       : (this.panicMissile ? this.panicMissile.getPositionRef() : this.bomber.getPositionRef());
 
-    const w = this.PANIC_AIM_BOMBER_WEIGHT;
+    const w = this.panicKind === PanicViewKind.Bombing
+      ? this.PANIC_BOMB_AIM_WEIGHT
+      : this.PANIC_AIM_BOMBER_WEIGHT;
     this.tempVector2.set(
       this.panicAnchorX + (subject.x - this.panicAnchorX) * w,
       this.panicTopY + (subject.y - this.panicTopY) * w,
