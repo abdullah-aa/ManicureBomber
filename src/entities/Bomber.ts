@@ -49,6 +49,9 @@ export class Bomber {
   private bombBayGlowMaterial: StandardMaterial | null = null;
   private bombBayBaseMaterial: StandardMaterial | null = null;
   private missileLaunchPending: boolean = false; // Track if missile launch is waiting for bomb bay to open
+  // The launcher building captured by tryLaunchMissile — Panic View's anchor for
+  // the pending window before the missile exists. Cleared on spawn/abort/forceClose.
+  private pendingMissileTargetBuilding: Building | null = null;
 
   // Banking/roll properties for realistic turning
   private maxBankAngle: number = Math.PI / 6; // 30 degrees max bank (symmetric)
@@ -688,6 +691,7 @@ export class Bomber {
     this.bombBayState = 'closed';
     this.bombBayOpenProgress = 0;
     this.missileLaunchPending = false;
+    this.pendingMissileTargetBuilding = null;
     this.stopBombBayEffects();
   }
 
@@ -833,6 +837,11 @@ export class Bomber {
     return this.missileLaunchPending;
   }
 
+  /** The launcher captured by tryLaunchMissile while a launch is pending — Panic View's pending-window anchor. */
+  public getPendingMissileTargetBuilding(): Building | null {
+    return this.pendingMissileTargetBuilding;
+  }
+
   public getBombBayOpenProgress(): number {
     return this.bombBayOpenProgress;
   }
@@ -895,6 +904,10 @@ export class Bomber {
     const targetBuilding = this.findClosestDefenseBuildingSync();
     if (!targetBuilding) return false; // No valid target in range
 
+    // Captured for Panic View's pending window (covers all launch paths; in the
+    // synchronous bay-open path it is set and cleared within this same call).
+    this.pendingMissileTargetBuilding = targetBuilding;
+
     // Check if bomb bay is ready for launch
     if (this.bombBayState === 'closed') {
       // Open bomb bay first, then launch missile when fully open
@@ -921,6 +934,7 @@ export class Bomber {
     const targetBuilding = this.findClosestDefenseBuildingSync();
     if (!targetBuilding) {
       this.missileLaunchPending = false;
+      this.pendingMissileTargetBuilding = null;
       return;
     }
 
@@ -955,6 +969,7 @@ export class Bomber {
 
     // Ensure missile launch pending is reset
     this.missileLaunchPending = false;
+    this.pendingMissileTargetBuilding = null;
   }
 
   /** Active Tomahawk missiles (for Rocket View's candidate provider). */

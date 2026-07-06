@@ -13,7 +13,7 @@ import {
 import { Bomber } from '../entities/Bomber';
 import { TerrainManager } from './TerrainManager';
 import { InputManager } from './InputManager';
-import { CameraController, RocketViewCandidate, RocketViewKind } from './CameraController';
+import { CameraController, RocketViewCandidate, RocketViewKind, PanicViewCandidate, PanicViewKind } from './CameraController';
 import { Bomb } from '../entities/Bomb';
 import { IskanderMissile } from '../entities/IskanderMissile';
 import { DefenseMissile } from '../entities/DefenseMissile';
@@ -78,6 +78,19 @@ export class Game {
     anchorZ: 0,
   };
 
+  // Panic View bookkeeping: the bombing-run target captured at trigger time — the
+  // camera's story anchor. Sticky on purpose: mid-run AI retargets never yank the
+  // victim's viewpoint. Cleared when the run is over and the stick has landed.
+  private panicBombingBuilding: Building | null = null;
+  // Reused descriptor returned by getPanicViewCandidate() (rocketCandidate's pattern).
+  private panicCandidate: PanicViewCandidate = {
+    kind: PanicViewKind.Bombing,
+    missile: null,
+    anchorX: 0,
+    anchorZ: 0,
+    topY: 0,
+  };
+
   // Scoring system
   private destroyedBuildings: number = 0;
   private destroyedTargets: number = 0;
@@ -130,6 +143,7 @@ export class Game {
     // Provider injection keeps CameraController free of a Game import (Game already
     // imports CameraController)
     this.cameraController.setMissileProvider(() => this.getRocketViewCandidate());
+    this.cameraController.setPanicProvider(() => this.getPanicViewCandidate());
 
     this.inputManager = new InputManager(this.scene, this.canvas);
     this.aiController = new AIController(this, this.bomber, this.terrainManager, this.inputManager);
@@ -283,11 +297,21 @@ export class Game {
 
         this.bomber.update(safeDeltaTime, this.inputManager);
         this.updateBombs(safeDeltaTime);
+        // The bombing story ends only when the run is over AND the stick has
+        // landed (bombs.length alone is also 0 during the bay-open window).
+        if (this.panicBombingBuilding && !this.isBombingRun && this.bombs.length === 0) {
+          this.panicBombingBuilding = null;
+        }
         this.updateIskanderMissiles(safeDeltaTime);
         this.updateDefenseMissiles(safeDeltaTime);
-        // Rocket View only exists in AI mode; force it off no matter who disabled the AI
-        if (!this.aiController.isEnabled() && this.cameraController.isRocketViewEnabled()) {
-          this.cameraController.setRocketViewEnabled(false);
+        // Rocket/Panic View only exist in AI mode; force them off no matter who disabled the AI
+        if (!this.aiController.isEnabled()) {
+          if (this.cameraController.isRocketViewEnabled()) {
+            this.cameraController.setRocketViewEnabled(false);
+          }
+          if (this.cameraController.isPanicViewEnabled()) {
+            this.cameraController.setPanicViewEnabled(false);
+          }
         }
         // Camera runs after the missile updates so Rocket View never chases a
         // one-frame-stale Iskander/defense-missile position, and sees a defense
@@ -543,6 +567,10 @@ export class Game {
       this.bombsToDrop = 9;
       this.lastBombDropTime = performance.now() / 1000;
       this.bomber.openBombBay();
+      // Panic View's story anchor: the AI's target the instant the run starts.
+      this.panicBombingBuilding = this.aiController.isEnabled()
+        ? this.aiController.getCurrentTarget()
+        : null;
       // Don't drop bomb immediately - wait for doors to open
     }
   }
@@ -654,6 +682,57 @@ export class Game {
         this.rocketCandidate.missile = missile;
         this.rocketCandidate.kind = RocketViewKind.Defense;
         return this.rocketCandidate;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Candidate for Panic View. Kind-gated on the camera's committed story: no
+   * preemption — the first story plays out, and returning null for the committed
+   * kind IS the end-of-story signal (the camera enters its impact hold or
+   * reverts). Bombing anchors to the sticky panicBombingBuilding; Tomahawk to
+   * the bomber's pending capture, then the missile's impact point. Destroyed
+   * anchors are deliberately NOT filtered — the camera keeps watching (the blast
+   * is the payoff); lifecycle clears end the story. Returns a single reused
+   * descriptor (the camera copies its fields out).
+   */
+  private getPanicViewCandidate(): PanicViewCandidate | null {
+    const committed = this.cameraController.getActivePanicKind();
+    if (committed !== PanicViewKind.Tomahawk) {
+      if (this.panicBombingBuilding) {
+        const p = this.panicBombingBuilding.getPosition();
+        this.panicCandidate.kind = PanicViewKind.Bombing;
+        this.panicCandidate.missile = null;
+        this.panicCandidate.anchorX = p.x;
+        this.panicCandidate.anchorZ = p.z;
+        this.panicCandidate.topY = p.y + this.panicBombingBuilding.getApexHeight();
+        return this.panicCandidate;
+      }
+      if (committed === PanicViewKind.Bombing) {
+        return null; // stick landed — story over
+      }
+    }
+    // Tomahawk: the pending window (bay doors opening), then the missile in flight.
+    const pendingTarget = this.bomber.getPendingMissileTargetBuilding();
+    if (pendingTarget) {
+      const p = pendingTarget.getPosition();
+      this.panicCandidate.kind = PanicViewKind.Tomahawk;
+      this.panicCandidate.missile = null;
+      this.panicCandidate.anchorX = p.x;
+      this.panicCandidate.anchorZ = p.z;
+      this.panicCandidate.topY = p.y + pendingTarget.getApexHeight();
+      return this.panicCandidate;
+    }
+    for (const missile of this.bomber.getMissiles()) {
+      if (!missile.hasExploded()) {
+        const tp = missile.getTargetPosition();
+        this.panicCandidate.kind = PanicViewKind.Tomahawk;
+        this.panicCandidate.missile = missile;
+        this.panicCandidate.anchorX = tp.x;
+        this.panicCandidate.anchorZ = tp.z;
+        this.panicCandidate.topY = tp.y;
+        return this.panicCandidate;
       }
     }
     return null;
@@ -784,6 +863,7 @@ export class Game {
     // Game-over stops camera updates entirely, so a mid-zoom Tomahawk FOV would
     // otherwise stay frozen behind the overlay; this also restores the FOV.
     this.cameraController.setRocketViewEnabled(false);
+    this.cameraController.setPanicViewEnabled(false);
 
     if (this.bomber) {
       this.bomber.dispose();

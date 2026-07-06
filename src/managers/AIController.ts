@@ -108,6 +108,11 @@ export class AIController {
     return this.state;
   }
 
+  /** The AI's current attack target (Panic View's bombing-story anchor). */
+  public getCurrentTarget(): Building | null {
+    return this.currentTarget;
+  }
+
   public update(deltaTime: number, currentTime: number): void {
     // All outputs are recomputed every frame, so the bomb press is a one-frame pulse
     this.inputManager.clearAIControls();

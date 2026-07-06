@@ -35,6 +35,36 @@ export interface RocketViewCandidate {
   anchorZ: number; // descriptor allocation-free and avoids importing Building
 }
 
+export enum PanicViewKind {
+  Bombing,
+  Tomahawk,
+}
+
+/**
+ * What the panic provider hands the camera each pull: the story kind, the
+ * Tomahawk once it exists (null while pending / for bombing), and the target
+ * building's anchor as scalars (Building.getPosition() is a live ref — copying
+ * keeps the reused descriptor allocation-free and avoids importing Building).
+ */
+export interface PanicViewCandidate {
+  kind: PanicViewKind;
+  missile: FollowableMissile | null;
+  anchorX: number;
+  anchorZ: number;
+  topY: number; // target's visible-top world Y — look-at blend + hold aim
+}
+
+/**
+ * Panic View camera sub-states. None falls through to the bomber chase.
+ * See the panic branch in update().
+ */
+enum PanicSubState {
+  None,
+  BombWatch,      // standing at the bombing target, staring up at the bomber
+  TomahawkWatch,  // standing at the targeted launcher, watching the Tomahawk come in
+  ImpactHold,     // linger on the impact for a beat, then revert
+}
+
 /**
  * Rocket View camera sub-states. None falls through to the bomber chase (the
  * revert view). See the priority/transition rules in update().
@@ -151,6 +181,33 @@ export class CameraController {
   private smoothedTarget: Vector3 = new Vector3(); // smoothed look-at (launch + chase)
   private smoothedTargetValid: boolean = false;    // false until seeded at acquisition
 
+  // Panic View: victim's-eye camera. Stands near the attack target staring up at
+  // the bomber (bombing run) or the incoming Tomahawk — simulating being struck.
+  // Mutually exclusive with Rocket View (the setters cross-force), so the shared
+  // explosionPoint / smoothedTarget state never cross-talks. See update().
+  private panicViewEnabled: boolean = false;
+  private panicSubState: PanicSubState = PanicSubState.None;
+  private panicProvider: (() => PanicViewCandidate | null) | null = null;
+  private panicKind: PanicViewKind | null = null; // retained through ImpactHold — gates the provider
+  private panicMissile: FollowableMissile | null = null;
+  private panicCamPos: Vector3 = new Vector3();   // static victim pose (recomputed on anchor swap)
+  private panicAnchorX: number = 0;               // target-building anchor scalars
+  private panicAnchorZ: number = 0;
+  private panicTopY: number = 0;                  // target's visible-top world Y
+  private panicHoldTimer: number = 0;
+  private panicStoryTimer: number = 0;
+  // Victim pose: stand past the target on the far side from the bomber, off to
+  // one side, eyes near the ground, staring up. TUNABLE.
+  private readonly PANIC_MAX_STORY = 30;           // s — hard cap on any one story
+  private readonly PANIC_STANDOFF = 55;            // horizontal standoff past the building (half-footprint ≤17.5 + clearance)
+  private readonly PANIC_SIDE = 25;                // lateral offset — the overfly never passes dead-vertical
+  private readonly PANIC_EYE = 5;                  // eye height above the ground
+  private readonly PANIC_AIM_BOMBER_WEIGHT = 0.65; // look-at = lerp(building top, bomber/missile, this) —
+                                                   // dead-on at the bomber drops typical 8-30-tall targets below frame
+  private readonly PANIC_MIN_HORIZ_RATIO = 0.18;   // ~80° pitch cap — setTarget degenerates near vertical
+  private readonly panicPosSmoothing = 4.0;
+  private readonly panicTargetSmoothing = 5.0;
+
   constructor(camera: FreeCamera, bomber: Bomber, terrainManager: TerrainManager) {
     this.camera = camera;
     this.bomber = bomber;
@@ -266,6 +323,83 @@ export class CameraController {
         // Locked follow: free-look drags are intentionally ignored.
         this.applyRocketPose(deltaTime, false);
         return;
+      }
+    }
+
+    // Panic View state machine: victim's-eye stories. Returns while a story owns
+    // the camera (free-look drags are ignored, Rocket View parity); None with no
+    // candidate falls through to the bomber chase below.
+    if (this.panicViewEnabled) {
+      // Linger on the impact, then revert and re-listen for the next story.
+      if (this.panicSubState === PanicSubState.ImpactHold) {
+        this.panicHoldTimer -= deltaTime;
+        this.applyPanicPose(deltaTime, false);
+        if (this.panicHoldTimer <= 0) {
+          this.resetPanic();
+          this.snapBehindBomber();
+        }
+        return;
+      }
+
+      if (this.panicSubState !== PanicSubState.None) {
+        this.panicStoryTimer += deltaTime;
+        // The watched Tomahawk just hit — hold on the blast at the camera's feet.
+        if (this.panicMissile && this.panicMissile.hasExploded()) {
+          this.explosionPoint.copyFrom(this.panicMissile.getPositionRef());
+          this.beginPanicHold();
+          this.applyPanicPose(deltaTime, false);
+          return;
+        }
+        // Backstop against a story that never ends (the provider's lifecycle
+        // clears should always fire first). One re-framed re-acquire is fine.
+        if (this.panicStoryTimer > this.PANIC_MAX_STORY) {
+          this.resetPanic();
+          this.snapBehindBomber();
+          return;
+        }
+      }
+
+      if (this.panicProvider) {
+        const candidate = this.panicProvider();
+        if (this.panicSubState === PanicSubState.None) {
+          if (candidate) {
+            this.acquirePanic(candidate);
+            // Teleport to the victim pose instead of lerping across the map.
+            this.applyPanicPose(deltaTime, true);
+            return;
+          }
+        } else if (candidate && candidate.kind === this.panicKind) {
+          // Pending→flight handoff: adopt the Tomahawk the frame it spawns.
+          if (candidate.missile) this.panicMissile = candidate.missile;
+          // Re-resolved onto a different building → lerped re-frame (no snap;
+          // prelaunch-swap precedent in the Rocket View branch above).
+          if (
+            Math.abs(candidate.anchorX - this.panicAnchorX) +
+              Math.abs(candidate.anchorZ - this.panicAnchorZ) > 0.5
+          ) {
+            this.beginPanicPose(candidate);
+          }
+          this.applyPanicPose(deltaTime, false);
+          return;
+        } else {
+          // Provider no longer offers the committed kind — the story is over.
+          if (this.panicKind === PanicViewKind.Bombing) {
+            // The stick just finished landing around the camera — hold on the target.
+            this.explosionPoint.set(this.panicAnchorX, this.panicTopY, this.panicAnchorZ);
+            this.beginPanicHold();
+            this.applyPanicPose(deltaTime, false);
+            return;
+          }
+          if (this.panicMissile) {
+            // Tomahawk story with the missile still flying: ride it to impact
+            // (the explosion check above ends the story).
+            this.applyPanicPose(deltaTime, false);
+            return;
+          }
+          // Pending Tomahawk aborted before the missile existed → revert.
+          this.resetPanic();
+          this.snapBehindBomber();
+        }
       }
     }
 
@@ -783,11 +917,128 @@ export class CameraController {
     this.camera.setTarget(this.explosionPoint);
   }
 
+  /** Record a freshly acquired panic story and cut to the victim pose. */
+  private acquirePanic(candidate: PanicViewCandidate): void {
+    this.panicKind = candidate.kind;
+    this.panicMissile = candidate.missile;
+    this.panicSubState = candidate.kind === PanicViewKind.Bombing
+      ? PanicSubState.BombWatch
+      : PanicSubState.TomahawkWatch;
+    this.panicHoldTimer = 0;
+    this.panicStoryTimer = 0;
+    this.beginPanicPose(candidate);
+    // Seed the look-at at the bomber so the first frame is already staring up.
+    this.smoothedTarget.copyFrom(this.bomber.getPositionRef());
+    this.smoothedTargetValid = true;
+  }
+
+  /**
+   * Compute the static victim pose for a (possibly re-framed) anchor: stand
+   * PANIC_STANDOFF past the target building on the far side from the bomber,
+   * PANIC_SIDE off the axis (so the overfly never passes dead-vertical), eyes
+   * PANIC_EYE above the ground. Copies the anchor scalars — Building positions
+   * are live refs that must not be stored.
+   */
+  private beginPanicPose(candidate: PanicViewCandidate): void {
+    this.panicAnchorX = candidate.anchorX;
+    this.panicAnchorZ = candidate.anchorZ;
+    this.panicTopY = candidate.topY;
+    const bomberPos = this.bomber.getPositionRef();
+    let dirX = candidate.anchorX - bomberPos.x;
+    let dirZ = candidate.anchorZ - bomberPos.z;
+    const dl = Math.sqrt(dirX * dirX + dirZ * dirZ);
+    if (dl > 0.001) { dirX /= dl; dirZ /= dl; } else { dirX = 0; dirZ = 1; }
+    const camX = candidate.anchorX + dirX * this.PANIC_STANDOFF - dirZ * this.PANIC_SIDE;
+    const camZ = candidate.anchorZ + dirZ * this.PANIC_STANDOFF + dirX * this.PANIC_SIDE;
+    // Feet on the ground at the victim's spot; the anchor-side max keeps the eye
+    // from sinking below the target's own ground on downhill standoffs.
+    const anchorGround = this.terrainManager.getTerrainHeightAt(candidate.anchorX, candidate.anchorZ);
+    const camGround = this.terrainManager.getTerrainHeightAt(camX, camZ);
+    this.panicCamPos.set(camX, Math.max(anchorGround + this.PANIC_EYE, camGround + 5, 10), camZ);
+  }
+
+  /**
+   * Per-frame victim shot: ease to the static pose and aim between the target
+   * building's top and the subject (bomber, incoming Tomahawk, or the impact
+   * point during the hold) so both stay in frame — the building anchors the
+   * frame bottom while the attacker hangs above it.
+   */
+  private applyPanicPose(deltaTime: number, snap: boolean): void {
+    if (snap) {
+      this.camera.position.copyFrom(this.panicCamPos);
+    } else {
+      const lf = Math.min(this.panicPosSmoothing * deltaTime, 1.0);
+      const inv = 1.0 - lf;
+      this.camera.position.x = this.camera.position.x * inv + this.panicCamPos.x * lf;
+      this.camera.position.y = this.camera.position.y * inv + this.panicCamPos.y * lf;
+      this.camera.position.z = this.camera.position.z * inv + this.panicCamPos.z * lf;
+    }
+
+    const subject = this.panicSubState === PanicSubState.ImpactHold
+      ? this.explosionPoint
+      : (this.panicMissile ? this.panicMissile.getPositionRef() : this.bomber.getPositionRef());
+
+    const w = this.PANIC_AIM_BOMBER_WEIGHT;
+    this.tempVector2.set(
+      this.panicAnchorX + (subject.x - this.panicAnchorX) * w,
+      this.panicTopY + (subject.y - this.panicTopY) * w,
+      this.panicAnchorZ + (subject.z - this.panicAnchorZ) * w,
+    );
+
+    // Near-vertical clamp: keep a horizontal component in the view direction or
+    // setTarget's default up vector degenerates staring straight up (same trick
+    // as the missile chase). Push the aim point out along its own azimuth,
+    // falling back to the building's.
+    const dx = this.tempVector2.x - this.camera.position.x;
+    const dy = this.tempVector2.y - this.camera.position.y;
+    const dz = this.tempVector2.z - this.camera.position.z;
+    const horiz = Math.sqrt(dx * dx + dz * dz);
+    if (dy > 0 && horiz < this.PANIC_MIN_HORIZ_RATIO * dy) {
+      let bx = dx, bz = dz;
+      if (horiz > 0.001) {
+        bx /= horiz; bz /= horiz;
+      } else {
+        bx = this.panicAnchorX - this.camera.position.x;
+        bz = this.panicAnchorZ - this.camera.position.z;
+        const bl = Math.sqrt(bx * bx + bz * bz);
+        if (bl > 0.001) { bx /= bl; bz /= bl; } else { bx = 0; bz = 1; }
+      }
+      const need = this.PANIC_MIN_HORIZ_RATIO * dy;
+      this.tempVector2.x = this.camera.position.x + bx * need;
+      this.tempVector2.z = this.camera.position.z + bz * need;
+    }
+    this.applySmoothedTarget(this.tempVector2, deltaTime, snap, this.panicTargetSmoothing);
+  }
+
+  /** Enter the shared-duration impact linger; the caller has set explosionPoint. */
+  private beginPanicHold(): void {
+    this.panicHoldTimer = this.explosionHoldDuration;
+    this.panicSubState = PanicSubState.ImpactHold;
+  }
+
+  /** Drop the current panic story entirely; the next frame acquires or reverts. */
+  private resetPanic(): void {
+    this.panicKind = null;
+    this.panicMissile = null;
+    this.panicSubState = PanicSubState.None;
+    this.panicHoldTimer = 0;
+    this.panicStoryTimer = 0;
+  }
+
   public setMissileProvider(provider: () => RocketViewCandidate | null): void {
     this.missileProvider = provider;
   }
 
+  public setPanicProvider(provider: () => PanicViewCandidate | null): void {
+    this.panicProvider = provider;
+  }
+
   public setRocketViewEnabled(enabled: boolean): void {
+    // Mutually exclusive with Panic View. The cross-calls always pass false, so
+    // the two setters can never recurse.
+    if (enabled && this.panicViewEnabled) {
+      this.setPanicViewEnabled(false);
+    }
     this.rocketViewEnabled = enabled;
     if (!enabled) {
       if (this.followedKind !== null) {
@@ -796,6 +1047,31 @@ export class CameraController {
         this.snapBehindBomber();
       }
     }
+  }
+
+  public setPanicViewEnabled(enabled: boolean): void {
+    if (enabled && this.rocketViewEnabled) {
+      this.setRocketViewEnabled(false);
+    }
+    this.panicViewEnabled = enabled;
+    if (!enabled && this.panicSubState !== PanicSubState.None) {
+      this.resetPanic();
+      this.snapBehindBomber();
+    }
+  }
+
+  public isPanicViewEnabled(): boolean {
+    return this.panicViewEnabled;
+  }
+
+  /** Instrumentation for tests: the current Panic View sub-state name. */
+  public getPanicSubState(): string {
+    return PanicSubState[this.panicSubState];
+  }
+
+  /** The story kind the camera is committed to (retained through ImpactHold), or null. */
+  public getActivePanicKind(): PanicViewKind | null {
+    return this.panicKind;
   }
 
   /** Instrumentation for tests: the current Rocket View sub-state name. */
