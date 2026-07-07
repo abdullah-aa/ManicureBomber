@@ -74,6 +74,11 @@ export class BuildingAssets {
       material = new StandardMaterial(`buildingMaterial_${type}`, this.scene);
       material.diffuseColor = this.colorForType(type);
       material.specularColor = new Color3(0.1, 0.1, 0.1);
+      // Hemi + directional + 4 pooled-light slots so damage flashes/bomb glow
+      // can light buildings (default 4 total leaves only 2 pool slots; the full
+      // 8 costs measurable per-pixel shader work — see terrainMaterial's note).
+      // Pre-freeze: the light count is baked into the shader defines at compile.
+      material.maxSimultaneousLights = 6;
       material.freeze();
       this.materials.set(type, material);
     }

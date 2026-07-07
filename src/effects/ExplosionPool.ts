@@ -1,5 +1,6 @@
 import { Scene, ParticleSystem, Vector3, Color4 } from '@babylonjs/core';
 import { EffectTextures } from './EffectTextures';
+import { AudioManager } from './AudioManager';
 
 export interface ExplodeOptions {
   smoke?: boolean;
@@ -70,8 +71,11 @@ export class ExplosionPool {
   private static readonly SHOCKWAVE_MAX_SIZE = 11.3;
 
   private bundles: ExplosionBundle[] = [];
+  // Kept for audio distance attenuation (camera = listener)
+  private scene: Scene;
 
   private constructor(scene: Scene) {
+    this.scene = scene;
     const textures = EffectTextures.get(scene);
 
     for (let i = 0; i < ExplosionPool.POOL_SIZE; i++) {
@@ -174,6 +178,12 @@ export class ExplosionPool {
    */
   explode(position: Vector3, scale: number = 1, opts: ExplodeOptions = {}): void {
     const now = performance.now();
+
+    // Every detonation in the game funnels through here, so this is the single
+    // audio hook: boom loudness follows visual scale, attenuated by camera range.
+    const cam = this.scene.activeCamera;
+    AudioManager.get().explosion(scale, cam ? Vector3.Distance(cam.position, position) : 0);
+
     let bundle = this.bundles[0];
     for (const candidate of this.bundles) {
       if (now - candidate.rentedAt > ExplosionPool.FREE_AFTER_MS) {

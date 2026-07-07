@@ -18,6 +18,7 @@ import { WorkerManager } from '../managers/WorkerManager';
 import { Building } from './Building';
 import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
 import { EffectTextures } from '../effects/EffectTextures';
+import { AudioManager } from '../effects/AudioManager';
 
 export class Bomber {
   private scene: Scene;
@@ -530,36 +531,11 @@ export class Bomber {
     let isClimbing = false;
     let isDiving = false;
 
-    // Handle touch controls for bomber movement (single finger swipe)
-    if (inputManager.getIsTouchActive() && !inputManager.getIsTouchCamera()) {
-      const touchDeltaX = inputManager.getBomberTouchDeltaX();
-      const touchDeltaY = inputManager.getBomberTouchDeltaY();
-      const touchSensitivity = 0.001; // Adjust sensitivity for bomber
-
-      // Touch X controls turning (not inverted)
-      if (Math.abs(touchDeltaX) > 0) {
-        this.rotation.y += touchDeltaX * touchSensitivity; // Right swipe turns right
-        this.targetBankAngle = touchDeltaX > 0 ? this.maxBankAngle : -this.maxBankAngle;
-        isTurning = true;
-        this.trigCacheValid = false;
-      }
-
-      // Touch Y controls altitude (not inverted)
-      if (Math.abs(touchDeltaY) > 0) {
-        this.altitude += touchDeltaY * touchSensitivity * 100; // Down swipe climbs
-        if (touchDeltaY > 0) {
-          isClimbing = true;
-          if (!isTurning) {
-            this.targetBankAngle = this.maxClimbBankAngle;
-          }
-        } else {
-          isDiving = true;
-          if (!isTurning) {
-            this.targetBankAngle = -this.maxClimbBankAngle;
-          }
-        }
-      }
-    }
+    // Touch flight steers EXCLUSIVELY through InputManager's touch→key
+    // simulation (hold-relative-to-start, fixed rates, consumed below). There
+    // used to be a second, proportional per-move delta path here with the
+    // OPPOSITE vertical convention — fast swipes climbed while slow drags
+    // dived — so it was removed; one input scheme, one direction convention.
 
     if (inputManager.getTurnLeftPressed()) {
       this.rotation.y -= this.turnSpeed * deltaTime; // A key turns left
@@ -946,6 +922,8 @@ export class Bomber {
     const currentTime = performance.now() / 1000;
     this.lastMissileLaunchTime = currentTime;
 
+    AudioManager.get().launchWhoosh();
+
     // Launch position from bomb bay
     const launcherPosition = this.bomberGroup.position.add(new Vector3(0, -2, -1));
 
@@ -989,7 +967,11 @@ export class Bomber {
     // lingering smoke finishes (no per-frame timers)
     for (let i = this.missiles.length - 1; i >= 0; i--) {
       const missile = this.missiles[i];
-      missile.update(deltaTime);
+      // Terrain height under the missile arms ground detonation (a terminal
+      // dive that misses hits the hillside instead of tunneling to y=0)
+      const mp = missile.getPositionRef();
+      const groundHeight = this.terrainManager ? this.terrainManager.getTerrainHeightAt(mp.x, mp.z) : 0;
+      missile.update(deltaTime, groundHeight);
 
       if (missile.hasExploded()) {
         const explodedAt = this.missileExplodedAt.get(missile);
@@ -1036,7 +1018,8 @@ export class Bomber {
     this.health -= damageAmount;
     this.lastDamageTime = currentTime;
 
-    // Trigger visual damage effects
+    // Trigger damage feedback (visual + the audio thump)
+    AudioManager.get().hit();
     this.triggerDamageEffects();
 
     if (this.health <= 0) {
@@ -1225,6 +1208,8 @@ export class Bomber {
 
     const currentTime = performance.now() / 1000;
     this.lastFlareTime = currentTime;
+
+    AudioManager.get().flarePop();
 
     // Release flares in sets over time - simulating sequential deployment
     // Define sets of flares with different release times

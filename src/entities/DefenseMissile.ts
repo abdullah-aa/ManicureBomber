@@ -241,7 +241,7 @@ export class DefenseMissile {
     this.exhaustParticles.start();
   }
 
-  public update(deltaTime: number): void {
+  public update(deltaTime: number, groundHeight: number = 0): void {
     if (!this.launched || this.exploded) return;
 
     this.lightHandle.setPosition(this.position);
@@ -258,7 +258,7 @@ export class DefenseMissile {
     }
 
     // Simple straight-line movement once trajectory is set
-    this.updateStraightLineMovement(deltaTime);
+    this.updateStraightLineMovement(deltaTime, groundHeight);
   }
 
   private calculateInitialTrajectory(): void {
@@ -304,16 +304,17 @@ export class DefenseMissile {
     this.pendingTrajectoryCalculation = false;
   }
 
-  private updateStraightLineMovement(deltaTime: number): void {
+  private updateStraightLineMovement(deltaTime: number, groundHeight: number): void {
     // Component-wise integration — no per-frame Vector3 allocations
     this.position.x += this.velocity.x * deltaTime;
     this.position.y += this.velocity.y * deltaTime;
     this.position.z += this.velocity.z * deltaTime;
     this.missileGroup.position.copyFrom(this.position);
 
-    // Airburst at the missile's ceiling — or on ground impact, so a downward-aimed
-    // shot can never fly underground forever and leak its mesh/particles/light.
-    if (this.position.y >= this.maxAltitude || this.position.y <= 0) {
+    // Airburst at the missile's ceiling — or on terrain impact, so a shot down
+    // a slope detonates on the hillside instead of tunneling to flat-world y=0.
+    // Launch pads sit atop buildings (well above terrain), so no arming guard.
+    if (this.position.y >= this.maxAltitude || this.position.y <= groundHeight) {
       this.explode();
     }
   }

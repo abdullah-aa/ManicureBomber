@@ -54,6 +54,10 @@ export interface TomahawkMissileData extends BaseMissileData {
   orientationUpdateThreshold: number;
   lastSegmentChangeTime: number;
   currentTime: number;
+  // Terrain surface height at the missile's (x, z); detonate on reaching it
+  // (cruise floor 160 keeps the nominal path clear — this arms terminal dives
+  // and misses against hills instead of the old flat-world y <= 0).
+  groundHeight?: number;
 }
 
 // Iskander missile specific data
@@ -66,6 +70,14 @@ export interface IskanderMissileData extends BaseMissileData {
   flareDetectionRange: number;
   originalTargetPosition: Vector3;
   isTargetingFlare: boolean;
+  // Per-volley seduction roll: on first seeing flares in range the seeker rolls
+  // once against flareSeductionChance. 'hardened' presses the attack through
+  // THIS volley but re-rolls against the next one (flares stay the counter to
+  // Iskanders — one press just isn't a guaranteed kill-all anymore). State is
+  // persisted across frames on this reused payload, reset when no flares are
+  // in range.
+  flareSeductionChance: number;
+  flareSeductionState: 'unrolled' | 'seduced' | 'hardened';
   lockOnRange: number;
   isLockedOn: boolean;
   lockOnTime: number;
@@ -496,9 +508,13 @@ export function updateTomahawkMissilePhysics(data: TomahawkMissileData): Tomahaw
   newPosition.y += newVelocity.y * data.deltaTime;
   newPosition.z += newVelocity.z * data.deltaTime;
 
-  // Check collision conditions
+  // Check collision conditions. Proximity widens to the per-frame step size so
+  // a clamped-dt frame (~12u of travel) can't repeatedly step over the 5u gate
+  // and leave the missile orbiting its target forever.
+  const stepSize = data.speed * 1.3 * data.deltaTime;
+  const groundHeight = data.groundHeight ?? 0;
   const finalDistanceToTarget = vector3Distance(newPosition, data.targetPosition);
-  const reachedTarget = finalDistanceToTarget <= 5 || newPosition.y <= 0;
+  const reachedTarget = finalDistanceToTarget <= Math.max(5, stepSize * 1.2) || newPosition.y <= groundHeight;
 
   result.pathTime = newPathTime;
   result.reachedTarget = reachedTarget;
@@ -562,24 +578,33 @@ export function updateIskanderMissilePhysics(data: IskanderMissileData): Iskande
   let effectiveMaxTurnRate = data.maxTurnRate;
 
   // Handle flare targeting if flare targets exist - check every frame for responsiveness
-  // ALWAYS prioritize flares when detected - this is how real seeker missiles work!
   let currentTargetPosition = data.targetPosition;
   let closestFlare: Vector3 | null = null;
   if (data.flareTargets && data.flareTargets.length > 0) {
     findClosestFlare(newPosition, data.flareTargets, data.flareDetectionRange);
     closestFlare = flareSearch.flare;
     if (closestFlare) {
-      // Switch to targeting the closest flare - ALWAYS prefer flares when available
-      // This simulates how IR seekers are highly susceptible to decoys
+      // First flare of this exposure: roll the seeker's susceptibility once.
+      // A 'hardened' roll ignores this whole volley and presses the attack —
+      // the lock keeps stakes — while the NEXT volley rolls fresh.
+      if (data.flareSeductionState === 'unrolled') {
+        data.flareSeductionState = Math.random() < data.flareSeductionChance ? 'seduced' : 'hardened';
+      }
+    } else {
+      // Exposure over (volley burned out or left the seeker cone): re-roll next time.
+      data.flareSeductionState = 'unrolled';
+    }
+    if (closestFlare && data.flareSeductionState === 'seduced') {
+      // Switch to targeting the closest flare — IR seekers are highly
+      // susceptible to decoys, often hotter than the target itself
       currentTargetPosition = closestFlare;
       isTargetingFlare = true;
 
-      // When flare is detected, MASSIVELY increase guidance to chase it aggressively
-      // This simulates how IR seekers are extremely attracted to hot flares
+      // When seduced, MASSIVELY increase guidance to chase the flare aggressively
       effectiveGuidanceStrength = data.guidanceStrength * 8.0; // 8x guidance when chasing flares!
       effectiveMaxTurnRate = data.maxTurnRate * 4.0; // 4x turn rate to aggressively pursue flares!
     } else {
-      // No flares in range: return to the original target
+      // No flares in range (or this seeker shrugged the volley off): the target
       currentTargetPosition = data.originalTargetPosition;
       isTargetingFlare = false;
     }

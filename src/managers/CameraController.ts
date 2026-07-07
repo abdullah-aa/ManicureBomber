@@ -120,6 +120,10 @@ export class CameraController {
   private followedKind: RocketViewKind | null = null;
   private rocketSubState: RocketSubState = RocketSubState.None;
   private missileProvider: (() => RocketViewCandidate | null) | null = null;
+  // True while the player has grabbed the stick (AI suspended): cinematic
+  // stories end immediately so the pilot isn't flying blind from a victim's-eye
+  // camera; the enabled flags stay on, so the FSMs re-listen once it clears.
+  private manualOverrideProvider: (() => boolean) | null = null;
   // Missiles are ~5 units long (vs the bomber's 200-unit follow distance), and they
   // maneuver hard — sit close behind and track stiffly.
   private missileChaseDistance: number = 30;
@@ -229,9 +233,26 @@ export class CameraController {
   }
 
   public update(deltaTime: number, inputManager: InputManager): void {
+    // Manual override: the player is steering (AI suspended). End any active
+    // story and fall through to the bomber chase — watching a building 400u
+    // away while hand-flying at the altitude floor is not survivable. Enabled
+    // flags are untouched: when the AI's grace expires the FSMs acquire fresh.
+    const manualOverride = this.manualOverrideProvider ? this.manualOverrideProvider() : false;
+    if (manualOverride && (this.rocketViewEnabled || this.panicViewEnabled)) {
+      const hadStory =
+        this.hasFollow() ||
+        this.rocketSubState !== RocketSubState.None ||
+        this.panicSubState !== PanicSubState.None;
+      if (hadStory) {
+        this.resetFollow();
+        this.resetPanic();
+        this.snapBehindBomber();
+      }
+    }
+
     // Rocket View state machine. Falls through to the normal bomber chase when
     // there is nothing to follow (that fall-through IS the revert view).
-    if (this.rocketViewEnabled) {
+    if (this.rocketViewEnabled && !manualOverride) {
       // ExplosionHold: linger on the copied blast point, then revert and re-evaluate.
       if (this.rocketSubState === RocketSubState.ExplosionHold) {
         this.explosionHoldTimer -= deltaTime;
@@ -340,7 +361,7 @@ export class CameraController {
     // Panic View state machine: victim's-eye stories. Returns while a story owns
     // the camera (free-look drags are ignored, Rocket View parity); None with no
     // candidate falls through to the bomber chase below.
-    if (this.panicViewEnabled) {
+    if (this.panicViewEnabled && !manualOverride) {
       // Linger on the impact, then revert and re-listen for the next story.
       if (this.panicSubState === PanicSubState.ImpactHold) {
         this.panicHoldTimer -= deltaTime;
@@ -1048,6 +1069,10 @@ export class CameraController {
 
   public setMissileProvider(provider: () => RocketViewCandidate | null): void {
     this.missileProvider = provider;
+  }
+
+  public setManualOverrideProvider(provider: () => boolean): void {
+    this.manualOverrideProvider = provider;
   }
 
   public setPanicProvider(provider: () => PanicViewCandidate | null): void {

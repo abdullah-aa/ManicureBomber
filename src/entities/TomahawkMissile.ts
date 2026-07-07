@@ -42,6 +42,9 @@ export class TomahawkMissile {
 
   // Curved path navigation properties
   private pathStartTime: number = 0;
+  // Accumulated game-time since free flight began (see MAX_FLIGHT_TIME backstop)
+  private flightTime: number = 0;
+  private static readonly MAX_FLIGHT_TIME = 120; // seconds of game-time
   private waypoints: Vector3[] = [];
 
   // Simple curved path following
@@ -462,7 +465,7 @@ export class TomahawkMissile {
     this.updateParticleEffects(this.flightPhase);
   }
 
-  public update(deltaTime: number): void {
+  public update(deltaTime: number, groundHeight: number = 0): void {
     if (!this.launched || this.exploded) return;
 
     // World-space follow (covers both the parented launch animation and free flight)
@@ -487,6 +490,15 @@ export class TomahawkMissile {
     // round-trip latency, no snap-on-apply). The episodic path generation
     // stays in the worker (generateInitialPath). Only the mutable fields of
     // the reused payload are refreshed here.
+    // Backstop against a missile that can never satisfy its detonation gate
+    // (game-time, so slow frames don't cut legitimate long loop paths short);
+    // the widened terminal proximity should make this unreachable in practice.
+    this.flightTime += deltaTime;
+    if (this.flightTime > TomahawkMissile.MAX_FLIGHT_TIME) {
+      this.explode();
+      return;
+    }
+
     const d = this.physicsData;
     d.position = this.position;
     d.rotation = this.rotation;
@@ -497,6 +509,7 @@ export class TomahawkMissile {
     d.exploded = this.exploded;
     d.lastSegmentChangeTime = this.lastSegmentChangeTime;
     d.currentTime = currentTime;
+    d.groundHeight = groundHeight;
 
     this.applyPhysicsResult(updateTomahawkMissilePhysics(d));
   }

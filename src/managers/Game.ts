@@ -23,6 +23,8 @@ import { WorkerManager } from './WorkerManager';
 import { Building } from '../entities/Building';
 import { AIController } from './AIController';
 import { ExplosionPool } from '../effects/ExplosionPool';
+import { AudioManager } from '../effects/AudioManager';
+import { LightManager } from './LightManager';
 import { createSun, SUN_DIRECTION } from '../entities/Sun';
 
 export class Game {
@@ -52,6 +54,8 @@ export class Game {
   private iskanderExplodedAt: Map<IskanderMissile, number> = new Map();
   // Recomputed once per frame; read by AI, countermeasures, and the UI tick
   private iskanderAlertActive: boolean = false;
+  // Subset of the above: a threat in range whose 4s lock timer actually completed
+  private iskanderLockedActive: boolean = false;
   // Distance to the nearest locking/locked Iskander (Infinity when none); the AI
   // uses it to hold flares until the missile is actually close
   private closestIskanderThreatDistance: number = Infinity;
@@ -154,6 +158,9 @@ export class Game {
 
     this.inputManager = new InputManager(this.scene, this.canvas);
     this.aiController = new AIController(this, this.bomber, this.terrainManager, this.inputManager);
+    // Manual input suspends the AI (grace period) without disabling it; the
+    // cinematic cameras must hand the view back to the pilot for that window.
+    this.cameraController.setManualOverrideProvider(() => this.aiController.isSuspended());
     this.uiManager = new UIManager(this, this.inputManager);
 
     // Expose UIManager to global scope for HTML event handlers
@@ -183,6 +190,11 @@ export class Game {
     }
     this.started = true;
 
+    // start() runs inside the START-tap gesture — the one moment the browser
+    // lets us unlock the AudioContext. Engine drone runs until game over.
+    AudioManager.get().unlock();
+    AudioManager.get().startEngine();
+
     // Reset the Iskander attack timer so time spent reading the splash screen
     // doesn't immediately count against the player.
     const initialInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
@@ -204,6 +216,14 @@ export class Game {
     // Pre-warm the shared explosion pool (and its effect textures) before combat
     // so no particle systems or textures are ever built mid-fight.
     ExplosionPool.get(this.scene);
+
+    // Pre-warm the light pool HERE, before any terrain/building/missile
+    // material compiles and freezes: frozen StandardMaterials bake their
+    // affecting-light set into shader defines at first compile and never
+    // recompute, so lights created later (the old lazy first-bomb-drop init)
+    // could never illuminate them. See LightManager for the intensity-parking
+    // half of this contract.
+    LightManager.get(this.scene);
   }
 
   private setupCamera(): void {
@@ -291,6 +311,12 @@ export class Game {
 
         // Threat state is computed once per frame; AI, countermeasures, and UI read the cache
         this.iskanderAlertActive = this.computeIskanderAlert();
+        // Escalating warning beeper mirrors the INBOUND/LOCKED banner; tempo
+        // compresses as the closest threat closes (closeness 0 @ 500u → 1 @ 0u)
+        AudioManager.get().setThreat(
+          this.iskanderLockedActive ? 'locked' : this.iskanderAlertActive ? 'inbound' : 'none',
+          1 - Math.min(1, this.closestIskanderThreatDistance / 500),
+        );
 
         // AI runs first so its virtual controls are consumed by the weapon
         // handlers and bomber update in this same frame
@@ -751,7 +777,10 @@ export class Game {
     // the airburst finishes and Rocket View can hold on the blast (no per-frame timers).
     for (let i = this.defenseMissiles.length - 1; i >= 0; i--) {
       const missile = this.defenseMissiles[i];
-      missile.update(deltaTime);
+      // Terrain height under the missile: a shot down a slope detonates on the
+      // hillside instead of tunneling through to flat-world y=0
+      const mp = missile.getPositionRef();
+      missile.update(deltaTime, this.terrainManager.getTerrainHeightAt(mp.x, mp.z));
 
       if (missile.hasExploded()) {
         const explodedAt = this.defenseExplodedAt.get(missile);
@@ -771,6 +800,14 @@ export class Game {
     return this.iskanderAlertActive;
   }
 
+  /** True only when a threat in alert range has an ACTUAL lock (the 4s lock
+   *  timer completed) — the honest trigger for the LOCKED banner. The broader
+   *  hasIskanderMissilesForAlert() keeps its approach semantics for the AI's
+   *  flare decision and the flare-button highlight. */
+  public hasLockedIskanderMissiles(): boolean {
+    return this.iskanderLockedActive;
+  }
+
   public getClosestIskanderThreatDistance(): number {
     return this.closestIskanderThreatDistance;
   }
@@ -778,6 +815,7 @@ export class Game {
   private computeIskanderAlert(): boolean {
     let closestThreatDistanceSq = Infinity;
     this.closestIskanderThreatDistance = Infinity;
+    this.iskanderLockedActive = false;
     if (this.iskanderMissiles.length === 0) return false;
 
     const bomberPosition = this.bomber.getPositionRef();
@@ -796,6 +834,10 @@ export class Game {
           const distanceSq = Vector3.DistanceSquared(bomberPosition, missilePosition);
           if (distanceSq < closestThreatDistanceSq) {
             closestThreatDistanceSq = distanceSq;
+          }
+          // A completed lock in range escalates the banner INBOUND → LOCKED
+          if (isLockedOn && distanceSq <= alertRangeSq) {
+            this.iskanderLockedActive = true;
           }
         }
       }
@@ -858,7 +900,11 @@ export class Game {
       const forwardX = bomberPosition.x + Math.sin(bomberRotation.y) * forwardDistance;
       const forwardZ = bomberPosition.z + Math.cos(bomberRotation.y) * forwardDistance;
 
-      this.groundCrosshair.position.set(forwardX, 1, forwardZ);
+      // Sit on the actual terrain so the projected aim cue matches where bombs
+      // land on high ground. (The reticle's depth-cleared rendering group still
+      // deliberately draws over nearer geometry — it's a HUD element.)
+      const groundY = this.terrainManager.getTerrainHeightAt(forwardX, forwardZ);
+      this.groundCrosshair.position.set(forwardX, groundY + 0.5, forwardZ);
     } else {
       this.groundCrosshair.setEnabled(false);
     }
@@ -866,6 +912,9 @@ export class Game {
 
   private handleGameOver(): void {
     this.gameOver = true;
+
+    // The loop's early-return stops setThreat naturally; kill the drone too
+    AudioManager.get().stopEngine();
 
     // Game-over stops camera updates entirely, so a mid-zoom Tomahawk FOV would
     // otherwise stay frozen behind the overlay; this also restores the FOV.

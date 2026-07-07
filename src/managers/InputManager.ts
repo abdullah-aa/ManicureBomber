@@ -39,8 +39,6 @@ export class InputManager {
   private touchDeltaX: number = 0;
   private touchDeltaY: number = 0;
   private isTouchCameraMode: boolean = false; // true when UI toggle enables camera mode
-  private bomberTouchDeltaX: number = 0;
-  private bomberTouchDeltaY: number = 0;
 
   // Touch-to-key simulation
   private touchStartPosition: { x: number; y: number } | null = null;
@@ -171,8 +169,6 @@ export class InputManager {
     this.mouseDeltaY = 0;
     this.touchDeltaX = 0;
     this.touchDeltaY = 0;
-    this.bomberTouchDeltaX = 0;
-    this.bomberTouchDeltaY = 0;
   }
 
   // Mouse input methods
@@ -199,14 +195,6 @@ export class InputManager {
 
   public getIsTouchCamera(): boolean {
     return this.isTouchCameraMode && this.touchPointers.size > 0;
-  }
-
-  public getBomberTouchDeltaX(): number {
-    return this.bomberTouchDeltaX;
-  }
-
-  public getBomberTouchDeltaY(): number {
-    return this.bomberTouchDeltaY;
   }
 
   public getIsTouchActive(): boolean {
@@ -376,15 +364,14 @@ export class InputManager {
       const deltaY = centerY - this.lastTouchCenter.y;
 
       if (this.isTouchCameraMode) {
-        // Camera control mode - swipe moves camera
-        this.touchDeltaX = deltaX;
-        this.touchDeltaY = deltaY;
-        this.bomberTouchDeltaX = 0;
-        this.bomberTouchDeltaY = 0;
+        // Camera control mode - swipe moves camera. ACCUMULATE: touch events
+        // arrive faster than frames (120Hz vs 60fps) and overwriting here
+        // discarded every move but the last one each frame.
+        this.touchDeltaX += deltaX;
+        this.touchDeltaY += deltaY;
       } else {
-        // Bomber control mode - swipe moves bomber
-        this.bomberTouchDeltaX = deltaX;
-        this.bomberTouchDeltaY = deltaY;
+        // Bomber control mode: flight input flows through the touch→key
+        // simulation (updateTouchToKeySimulation); no deltas to store.
         this.touchDeltaX = 0;
         this.touchDeltaY = 0;
       }

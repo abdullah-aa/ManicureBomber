@@ -108,6 +108,10 @@ export class IskanderMissile {
       flareDetectionRange: this.flareDetectionRange,
       originalTargetPosition: this.originalTargetPosition,
       isTargetingFlare: false,
+      // ~70% of seekers fall for a given volley; the rest press through it and
+      // re-roll against the next volley (see MissileGuidance seduction roll)
+      flareSeductionChance: 0.7,
+      flareSeductionState: 'unrolled',
       lockOnRange: this.lockOnRange,
       isLockedOn: false,
       lockOnTime: this.lockOnTime,

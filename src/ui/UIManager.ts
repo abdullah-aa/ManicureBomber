@@ -57,6 +57,7 @@ export class UIManager {
   // Persistent alert tracking for Iskander missiles
   private persistentAlerts: Set<string> = new Set();
   private iskanderAlertId: string = 'iskander-lock';
+  private iskanderAlertStage: 'none' | 'inbound' | 'locked' = 'none';
 
   constructor(game: Game, inputManager: InputManager) {
     this.game = game;
@@ -1059,17 +1060,25 @@ export class UIManager {
   }
 
   public updateIskanderAlert(): void {
-    // Check if there are any active Iskander missiles using the larger alert detection range
-    const hasActiveIskanderMissiles = this.game.hasIskanderMissilesForAlert();
+    // Two-stage, honest banner: INBOUND the moment a threat is approaching,
+    // LOCKED only once a missile's 4s lock timer has actually completed —
+    // previously the banner claimed LOCKED from frame one of flight and the
+    // lock window conveyed no time-to-react.
+    const stage = this.game.hasLockedIskanderMissiles()
+      ? 'locked'
+      : this.game.hasIskanderMissilesForAlert()
+        ? 'inbound'
+        : 'none';
 
-    if (hasActiveIskanderMissiles) {
-      // Show or maintain the alert with single message
-      if (!this.activeAlerts.has(this.iskanderAlertId)) {
-        this.showPersistentAlert('⚠️ LOCKED', this.iskanderAlertId);
-      }
-    } else {
-      // Remove the alert if no active missiles
+    if (stage === this.iskanderAlertStage) return;
+    this.iskanderAlertStage = stage;
+
+    if (stage === 'none') {
       this.removePersistentAlert(this.iskanderAlertId);
+    } else {
+      // showAlert replaces an existing alert of the same type, so the
+      // INBOUND → LOCKED escalation swaps the banner text in place.
+      this.showPersistentAlert(stage === 'locked' ? '⚠️ LOCKED' : '⚠️ INBOUND', this.iskanderAlertId);
     }
   }
 

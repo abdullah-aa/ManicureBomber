@@ -366,6 +366,14 @@ export class TerrainManager {
     this.terrainMaterial.diffuseTexture = groundTexture;
     this.terrainMaterial.diffuseColor = new Color3(0.9, 0.8, 0.7);
     this.terrainMaterial.specularColor = new Color3(0.2, 0.2, 0.2);
+    // Hemi + directional + 4 pooled-light slots (default is 4 total, leaving
+    // only 2 pool slots able to light the ground). Deliberately NOT the full
+    // 6-light pool: terrain covers the whole screen and each extra slot costs
+    // per-pixel shader work (measured ~5-10%/slot on SwiftShader; the game
+    // already downscales for mobile fill-rate). acquire() hands out lowest
+    // free slots first, so the two overflow slots are rare. Must be set
+    // BEFORE freeze() — the light count is baked into the shader defines.
+    this.terrainMaterial.maxSimultaneousLights = 6;
     // Static for the scene's lifetime (texture assigned above; lights are a fixed
     // pool and fog is set once at startup, both before first render): freeze so
     // Babylon skips its per-frame material sync. Writes would silently no-op.

@@ -113,8 +113,14 @@ export class LightManager {
   private constructor(scene: Scene) {
     for (let i = 0; i < LightManager.POOL_SIZE; i++) {
       const light = new PointLight(`pooledLight${i}`, new Vector3(0, -10000, 0), scene);
+      // Parked by INTENSITY, never by setEnabled: a disabled light is excluded
+      // from every mesh's light sources, so frozen materials (terrain,
+      // buildings — they bake their light set at first compile and never
+      // recompute) would permanently ignore it. An enabled zero-intensity
+      // light far below the world costs nothing to render, stays in every
+      // shader's defines, and toggling intensity is a uniform write — no
+      // _resyncMeshes churn over the whole scene per acquire/release.
       light.intensity = 0;
-      light.setEnabled(false);
       this.entries.push({ light, inUse: false, priority: LightPriority.LOW, generation: 0, expiresAt: null });
     }
     scene.onBeforeRenderObservable.add(() => this.sweepExpired());
@@ -142,14 +148,14 @@ export class LightManager {
     entry.inUse = true;
     entry.priority = priority;
     entry.expiresAt = ttlSeconds !== undefined ? performance.now() + ttlSeconds * 1000 : null;
-    entry.light.intensity = 0;
-    entry.light.setEnabled(true);
+    entry.light.intensity = 0; // owner sets intensity/position via the handle
     return new LightHandle(entry, entry.generation);
   }
 
   static releaseEntry(entry: PoolEntry): void {
-    entry.light.setEnabled(false);
+    // Intensity-park only (see constructor) — no setEnabled churn
     entry.light.intensity = 0;
+    entry.light.position.set(0, -10000, 0);
     entry.inUse = false;
     entry.expiresAt = null;
     entry.generation++;
