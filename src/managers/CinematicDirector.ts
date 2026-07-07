@@ -110,6 +110,12 @@ export class PanicStory {
   // viewpoint. Cleared when the run is over and the stick has landed.
   private bombingBuilding: Building | null = null;
 
+  // The Iskander the chase story follows — sticky once offered (bombingBuilding
+  // precedent) so the camera's subject is referentially stable; its explosion
+  // clears it and ends the story. The NEXT inbound missile gets a fresh
+  // acquisition after the camera's hold — no mid-story swap.
+  private chaseIskander: IskanderMissile | null = null;
+
   // Reused descriptor (rocketCandidate's pattern).
   private readonly panicCandidate: PanicViewCandidate = {
     kind: PanicViewKind.Bombing,
@@ -121,6 +127,8 @@ export class PanicStory {
 
   constructor(
     private readonly bomber: Bomber,
+    // Live array ref from the ProjectileRegistry — mutated in place, stable identity.
+    private readonly iskanderMissiles: readonly IskanderMissile[],
     /** The story kind the camera is committed to (CameraController.getActivePanicKind). */
     private readonly getCommittedKind: () => PanicViewKind | null,
   ) {}
@@ -144,15 +152,19 @@ export class PanicStory {
    * Candidate for Panic View. Kind-gated on the camera's committed story: no
    * preemption — the first story plays out, and returning null for the committed
    * kind IS the end-of-story signal (the camera enters its impact hold or
-   * reverts). Bombing anchors to the sticky bombingBuilding; Tomahawk to
-   * the bomber's pending capture, then the missile's impact point. Destroyed
-   * anchors are deliberately NOT filtered — the camera keeps watching (the blast
-   * is the payoff); lifecycle clears end the story. Returns a single reused
-   * descriptor (the camera copies its fields out).
+   * reverts). Block order encodes ACQUISITION priority: Bombing > Iskander >
+   * Tomahawk (each block only runs when uncommitted or committed to that kind).
+   * Bombing anchors to the sticky bombingBuilding; Iskander follows the sticky
+   * cruising missile (anchorless — the camera's chase hangs off it); Tomahawk
+   * anchors to the bomber's pending capture, then the missile's impact point.
+   * Destroyed anchors are deliberately NOT filtered — the camera keeps watching
+   * (the blast is the payoff); lifecycle clears end the story. Returns a single
+   * reused descriptor (the camera copies its fields out).
    */
   public getCandidate(): PanicViewCandidate | null {
     const committed = this.getCommittedKind();
-    if (committed !== PanicViewKind.Tomahawk) {
+    // Bombing — highest acquisition priority.
+    if (committed === null || committed === PanicViewKind.Bombing) {
       if (this.bombingBuilding) {
         const p = this.bombingBuilding.getPosition();
         this.panicCandidate.kind = PanicViewKind.Bombing;
@@ -164,6 +176,31 @@ export class PanicStory {
       }
       if (committed === PanicViewKind.Bombing) {
         return null; // stick landed — story over
+      }
+    }
+    // Iskander chase — outranks Tomahawk at acquisition. Only cruising missiles
+    // (isClimbing() false): the vertical boost has no chase geometry yet, and
+    // the launch spectacle already belongs to Rocket View. Never re-picks while
+    // committed: if the sticky missile dies the story ends rather than swapping
+    // (the camera's own explosion check normally fires first — the null return
+    // is a backstop).
+    if (committed === null || committed === PanicViewKind.Iskander) {
+      if (this.chaseIskander && this.chaseIskander.hasExploded()) {
+        this.chaseIskander = null;
+      }
+      if (this.chaseIskander === null && committed === null) {
+        this.chaseIskander = this.pickClosestCruisingIskander();
+      }
+      if (this.chaseIskander) {
+        this.panicCandidate.kind = PanicViewKind.Iskander;
+        this.panicCandidate.missile = this.chaseIskander;
+        this.panicCandidate.anchorX = 0; // chase kind is anchorless — the pose
+        this.panicCandidate.anchorZ = 0; // hangs off the missile (PanicViewDirector)
+        this.panicCandidate.topY = 0;
+        return this.panicCandidate;
+      }
+      if (committed === PanicViewKind.Iskander) {
+        return null; // missile gone — story over
       }
     }
     // Tomahawk: the pending window (bay doors opening), then the missile in flight.
@@ -189,5 +226,25 @@ export class PanicStory {
       }
     }
     return null;
+  }
+
+  /** Closest cruising Iskander to the bomber — the most imminent threat reads best. */
+  private pickClosestCruisingIskander(): IskanderMissile | null {
+    const bp = this.bomber.getPositionRef();
+    let best: IskanderMissile | null = null;
+    let bestD = Infinity;
+    for (const m of this.iskanderMissiles) {
+      if (!m.isLaunched() || m.hasExploded() || m.isClimbing()) continue;
+      const p = m.getPositionRef();
+      const dx = p.x - bp.x;
+      const dy = p.y - bp.y;
+      const dz = p.z - bp.z;
+      const d = dx * dx + dy * dy + dz * dz;
+      if (d < bestD) {
+        bestD = d;
+        best = m;
+      }
+    }
+    return best;
   }
 }

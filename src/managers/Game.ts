@@ -180,7 +180,11 @@ export class Game {
       () => this.pendingIskanderLauncher,
       () => this.cameraController.isInTomahawkSequence(),
     );
-    this.panicStory = new PanicStory(this.bomber, () => this.cameraController.getActivePanicKind());
+    this.panicStory = new PanicStory(
+      this.bomber,
+      this.projectiles.getIskanders(),
+      () => this.cameraController.getActivePanicKind(),
+    );
     this.cameraController.setMissileProvider(() => this.cinematics.getRocketViewCandidate());
     this.cameraController.setPanicProvider(() => this.panicStory.getCandidate());
 

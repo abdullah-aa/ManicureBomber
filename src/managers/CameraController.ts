@@ -41,6 +41,7 @@ export interface RocketViewCandidate {
 export enum PanicViewKind {
   Bombing,
   Tomahawk,
+  Iskander,
 }
 
 /**
@@ -48,6 +49,8 @@ export enum PanicViewKind {
  * Tomahawk once it exists (null while pending / for bombing), and the target
  * building's anchor as scalars (Building.getPosition() is a live ref — copying
  * keeps the reused descriptor allocation-free and avoids importing Building).
+ * The Iskander chase kind is anchorless — the shot hangs off the missile, not
+ * a building — so its anchor scalars are passed as 0 and ignored.
  */
 export interface PanicViewCandidate {
   kind: PanicViewKind;
@@ -65,6 +68,7 @@ enum PanicSubState {
   None,
   BombWatch,      // standing at the bombing target, staring up at the bomber
   TomahawkWatch,  // standing at the targeted launcher, watching the Tomahawk come in
+  IskanderChase,  // moving victim shot hung off the bomber, watching the Iskander come in
   ImpactHold,     // linger on the impact for a beat, then revert
 }
 
@@ -1038,12 +1042,17 @@ class PanicViewDirector {
   // one side, eyes near the ground, staring up. TUNABLE.
   private static readonly IMPACT_SHAKE = 2.0;      // rig shake kick as the impact lands
   private readonly PANIC_MAX_STORY = 30;           // s — hard cap on any one story
-  private readonly PANIC_STANDOFF = 55;            // horizontal standoff past the building (half-footprint ≤17.5 + clearance)
-  private readonly PANIC_SIDE = 25;                // lateral offset — the overfly never passes dead-vertical
-  private readonly PANIC_EYE = 5;                  // eye height above the ground
-  private readonly PANIC_AIM_BOMBER_WEIGHT = 0.65; // look-at = lerp(building top, bomber/missile, this) —
-                                                   // dead-on at the bomber drops typical 8-30-tall targets below frame
+  private readonly PANIC_STANDOFF = 32;            // horizontal standoff past the building — tight for drama;
+                                                   // half-footprint ≤17.5 leaves ≥14.5 wall clearance (<~28 clips)
+  private readonly PANIC_SIDE = 18;                // lateral offset — the overfly never passes dead-vertical
+  private readonly PANIC_EYE = 4;                  // eye height above the ground — low so the launcher looms
+  private readonly PANIC_AIM_BOMBER_WEIGHT = 0.55; // look-at = lerp(building top, bomber/missile, this) —
+                                                   // dead-on at the bomber drops typical 8-30-tall targets below
+                                                   // frame; at the 36.7u standoff, ≥~0.6 saturates the
+                                                   // near-vertical clamp through the whole high approach
   private readonly PANIC_MIN_HORIZ_RATIO = 0.18;   // ~80° pitch cap — setTarget degenerates near vertical
+  private readonly PANIC_TOP_KEEP = 0.26;          // rad (~15°) — max aim elevation above the anchor's top;
+                                                   // keeps the launcher ≥8° above frame-bottom (22.9° half-VFOV)
   private readonly panicPosSmoothing = 4.0;
   private readonly panicTargetSmoothing = 5.0;
   // Bombing-story pose: lower and further back than the (Tomahawk) victim pose so
@@ -1057,6 +1066,28 @@ class PanicViewDirector {
   private readonly PANIC_BOMB_SIDE = 35;      // horizontal dist = hypot(120,35) = 125
   private readonly PANIC_BOMB_EYE = 3;
   private readonly PANIC_BOMB_AIM_WEIGHT = 0.15;
+  // Iskander-chase story: the victim's-eye mirror of the Tomahawk pose, with
+  // the BOMBER as the (moving) anchor — the camera hangs off the plane on the
+  // far side from the missile along the slewed horizontal missile→bomber
+  // bearing, slightly above and to one side, holding the plane a bit below
+  // frame-center while staring out at the incoming Iskander. Geometry: plane
+  // direction is atan(22/50.3) ≈ −24° from the camera; the missile (cruising
+  // ~60-110 below the bomber, climbing onto it in the endgame) puts the
+  // 0.6-weighted aim around −15..−20°, so the plane rides ~5-10° below center
+  // and the missile approaches near center — both inside the 45.8° VFOV
+  // throughout the ~3-8s closure at up to ~145 u/s. TUNABLE.
+  private readonly ISK_CHASE_BACK = 48;            // horizontal standoff past the bomber, away from the missile
+  private readonly ISK_CHASE_UP = 22;              // height above the bomber — looks down past the plane
+  private readonly ISK_SIDE = 15;                  // lateral offset — parallax; the impact never lands dead-center
+  private readonly ISK_AIM_WEIGHT = 0.6;           // look-at = lerp(bomber, missile, this) — plane anchors
+                                                   // the lower frame, the missile pulls the gaze out
+  private readonly iskBearingSmoothing = 1.5;      // bearing slew — low-passes bomber jinks
+  private readonly ISK_BEARING_FREEZE_DIST = 130;  // ≈0.9s out at ~145 u/s closure — no whip
+                                                   // through the endgame / flare veer-off
+  private readonly iskChaseSmoothing = 4.0;        // position rate (Tomahawk-chase parity)
+  private readonly iskChaseTargetSmoothing = 5.0;  // look-at rate
+  // Unit horizontal missile→bomber bearing the victim offset hangs from.
+  private iskBearing: Vector3 = new Vector3(0, 0, 1);
   // Own per-frame scratch — never aliased with the controller's or Rocket View's.
   private aimScratch: Vector3 = new Vector3();
 
@@ -1081,7 +1112,7 @@ class PanicViewDirector {
     // Linger on the impact, then revert and re-listen for the next story.
     if (this.panicSubState === PanicSubState.ImpactHold) {
       this.panicHoldTimer -= deltaTime;
-      this.applyPanicPose(deltaTime, false);
+      this.applyPose(deltaTime, false);
       if (this.panicHoldTimer <= 0) {
         this.reset();
         this.onRevert();
@@ -1091,11 +1122,20 @@ class PanicViewDirector {
 
     if (this.panicSubState !== PanicSubState.None) {
       this.panicStoryTimer += deltaTime;
-      // The watched Tomahawk just hit — hold on the blast at the camera's feet.
+      // The watched missile just hit — hold on the blast.
       if (this.panicMissile && this.panicMissile.hasExploded()) {
         this.impactPoint.copyFrom(this.panicMissile.getPositionRef());
+        if (this.panicKind === PanicViewKind.Iskander) {
+          // The chase carries no building anchor — rewrite the anchor scalars to
+          // the blast so applyPanicPose's aim lerp degenerates onto it, while
+          // panicCamPos (last written by updateIskanderChase) freezes the camera
+          // right where the chase was.
+          this.panicAnchorX = this.impactPoint.x;
+          this.panicAnchorZ = this.impactPoint.z;
+          this.panicTopY = this.impactPoint.y;
+        }
         this.beginPanicHold();
-        this.applyPanicPose(deltaTime, false);
+        this.applyPose(deltaTime, false);
         return true;
       }
       // Backstop against a story that never ends (the provider's lifecycle
@@ -1117,21 +1157,24 @@ class PanicViewDirector {
         if (candidate) {
           this.acquire(candidate);
           // Teleport to the victim pose instead of lerping across the map.
-          this.applyPanicPose(deltaTime, true);
+          this.applyPose(deltaTime, true);
           return true;
         }
       } else if (candidate && candidate.kind === this.panicKind) {
         // Pending→flight handoff: adopt the Tomahawk the frame it spawns.
+        // (No-op for the Iskander chase — its provider pick is sticky.)
         if (candidate.missile) this.panicMissile = candidate.missile;
         // Re-resolved onto a different building → lerped re-frame (no snap;
-        // prelaunch-swap precedent in the Rocket View director).
+        // prelaunch-swap precedent in the Rocket View director). The Iskander
+        // chase is anchorless — never re-frame it onto a ground pose.
         if (
+          this.panicSubState !== PanicSubState.IskanderChase &&
           Math.abs(candidate.anchorX - this.panicAnchorX) +
             Math.abs(candidate.anchorZ - this.panicAnchorZ) > 0.5
         ) {
           this.beginPanicPose(candidate);
         }
-        this.applyPanicPose(deltaTime, false);
+        this.applyPose(deltaTime, false);
         return true;
       } else {
         // Provider no longer offers the committed kind — the story is over.
@@ -1139,13 +1182,13 @@ class PanicViewDirector {
           // The stick just finished landing around the camera — hold on the target.
           this.impactPoint.set(this.panicAnchorX, this.panicTopY, this.panicAnchorZ);
           this.beginPanicHold();
-          this.applyPanicPose(deltaTime, false);
+          this.applyPose(deltaTime, false);
           return true;
         }
         if (this.panicMissile) {
-          // Tomahawk story with the missile still flying: ride it to impact
-          // (the explosion check above ends the story).
-          this.applyPanicPose(deltaTime, false);
+          // Missile story (Tomahawk or Iskander) with the missile still flying:
+          // ride it to impact (the explosion check above ends the story).
+          this.applyPose(deltaTime, false);
           return true;
         }
         // Pending Tomahawk aborted before the missile existed → revert (and let
@@ -1194,18 +1237,111 @@ class PanicViewDirector {
     return this.panicKind;
   }
 
-  /** Record a freshly acquired panic story and cut to the victim pose. */
+  /** Record a freshly acquired panic story and cut to its opening pose. */
   private acquire(candidate: PanicViewCandidate): void {
     this.panicKind = candidate.kind;
     this.panicMissile = candidate.missile;
     this.panicSubState = candidate.kind === PanicViewKind.Bombing
       ? PanicSubState.BombWatch
-      : PanicSubState.TomahawkWatch;
+      : candidate.kind === PanicViewKind.Iskander
+        ? PanicSubState.IskanderChase
+        : PanicSubState.TomahawkWatch;
     this.panicHoldTimer = 0;
     this.panicStoryTimer = 0;
-    this.beginPanicPose(candidate);
-    // Seed the look-at at the bomber so the first frame is already staring up.
-    this.rig.seedAim(this.bomber.getPositionRef());
+    if (candidate.kind === PanicViewKind.Iskander && candidate.missile) {
+      // Chase kind is anchorless — copy the zeroed anchors so the update() swap
+      // check and the ImpactHold rewrite see coherent state, then seed the bearing.
+      this.panicAnchorX = candidate.anchorX;
+      this.panicAnchorZ = candidate.anchorZ;
+      this.panicTopY = candidate.topY;
+      this.beginIskanderChase(candidate.missile);
+    } else {
+      this.beginPanicPose(candidate);
+      // Seed the look-at at the bomber so the first frame is already staring up.
+      this.rig.seedAim(this.bomber.getPositionRef());
+    }
+  }
+
+  /**
+   * Route the per-frame pose: the Iskander chase is a moving shot; every other
+   * sub-state (including ImpactHold) is the static victim pose.
+   */
+  private applyPose(deltaTime: number, snap: boolean): void {
+    if (this.panicSubState === PanicSubState.IskanderChase && this.panicMissile) {
+      this.updateIskanderChase(this.panicMissile, deltaTime, snap);
+    } else {
+      this.applyPanicPose(deltaTime, snap);
+    }
+  }
+
+  /**
+   * Iskander-chase setup: seed the victim bearing — horizontal missile→bomber,
+   * falling back to the camera's own bearing off the bomber (covers a missile
+   * that finishes its climb directly under the bomber, where the horizontal
+   * bearing is degenerate), then +Z. beginTomahawkChase parity.
+   */
+  private beginIskanderChase(missile: FollowableMissile): void {
+    const pos = missile.getPositionRef();
+    const bp = this.bomber.getPositionRef();
+    let bx = bp.x - pos.x;
+    let bz = bp.z - pos.z;
+    let bl = Math.sqrt(bx * bx + bz * bz);
+    if (bl < 0.001) {
+      const camPos = this.rig.getPositionRef();
+      bx = camPos.x - bp.x;
+      bz = camPos.z - bp.z;
+      bl = Math.sqrt(bx * bx + bz * bz);
+    }
+    if (bl > 0.001) { bx /= bl; bz /= bl; } else { bx = 0; bz = 1; }
+    this.iskBearing.set(bx, 0, bz);
+    // First frame already looking at the incoming missile.
+    this.rig.seedAim(pos);
+  }
+
+  /**
+   * Iskander-chase per-frame: the victim shot. Hang the camera ISK_CHASE_BACK
+   * past the bomber on the far side from the missile (ISK_SIDE off the axis,
+   * ISK_CHASE_UP above) along the slewed horizontal missile→bomber bearing, and
+   * aim between bomber and missile (ISK_AIM_WEIGHT — plane a bit below center,
+   * incoming missile near center). The offset is anchored to the bomber, so
+   * bearing error never moves the plane in frame. Inside
+   * ISK_BEARING_FREEZE_DIST the bearing freezes: no whip through the endgame
+   * or a flare veer-off. No near-vertical aim clamp needed — the subjects stay
+   * near the camera's altitude, never overhead.
+   */
+  private updateIskanderChase(missile: FollowableMissile, deltaTime: number, snap: boolean): void {
+    const bp = this.bomber.getPositionRef();
+    const m = missile.getPositionRef();
+    const b = this.iskBearing;
+
+    const dx = bp.x - m.x;
+    const dz = bp.z - m.z;
+    const dHoriz = Math.sqrt(dx * dx + dz * dz);
+    if (dHoriz > this.ISK_BEARING_FREEZE_DIST) {
+      const lf = Math.min(this.iskBearingSmoothing * deltaTime, 1.0);
+      const nx = b.x + (dx / dHoriz - b.x) * lf;
+      const nz = b.z + (dz / dHoriz - b.z) * lf;
+      const nl = Math.sqrt(nx * nx + nz * nz);
+      // Near-opposite bearings can cancel to ~zero — keep the old bearing then.
+      if (nl > 0.0001) b.set(nx / nl, 0, nz / nl);
+    }
+
+    // panicCamPos doubles as the desired-pose scratch: at explosion the
+    // ImpactHold freezes on whatever this wrote last.
+    this.panicCamPos.set(
+      bp.x + b.x * this.ISK_CHASE_BACK - b.z * this.ISK_SIDE,
+      bp.y + this.ISK_CHASE_UP,
+      bp.z + b.z * this.ISK_CHASE_BACK + b.x * this.ISK_SIDE,
+    );
+    this.rig.clampAboveTerrain(this.panicCamPos);
+    this.rig.moveToward(this.panicCamPos, this.iskChaseSmoothing, deltaTime, snap);
+
+    this.aimScratch.set(
+      bp.x + (m.x - bp.x) * this.ISK_AIM_WEIGHT,
+      bp.y + (m.y - bp.y) * this.ISK_AIM_WEIGHT,
+      bp.z + (m.z - bp.z) * this.ISK_AIM_WEIGHT,
+    );
+    this.rig.aimToward(this.aimScratch, deltaTime, snap, this.iskChaseTargetSmoothing);
   }
 
   /**
@@ -1260,6 +1396,28 @@ class PanicViewDirector {
       this.panicTopY + (subject.y - this.panicTopY) * w,
       this.panicAnchorZ + (subject.z - this.panicAnchorZ) * w,
     );
+
+    // Launcher-in-frame cap (Tomahawk story): at the tight 36.7u standoff no
+    // fixed aim weight can hold both the launcher and a subject 150u+ overhead
+    // inside the 45.8° VFOV — the lerp alone pitches the launcher off the frame
+    // bottom for most of the approach. Cap the aim's elevation so the anchor's
+    // top never sinks more than PANIC_TOP_KEEP below frame-center: the launcher
+    // anchors the frame, the missile holds frame while it approaches at
+    // distance (low elevation), transits out only briefly overhead, and drops
+    // back in for the terminal dive. Inert during ImpactHold (aim ≈ anchor).
+    if (this.panicKind === PanicViewKind.Tomahawk) {
+      const cp = this.rig.getPositionRef();
+      const hax = this.panicAnchorX - cp.x;
+      const haz = this.panicAnchorZ - cp.z;
+      const hAnchor = Math.sqrt(hax * hax + haz * haz);
+      const maxElev = Math.atan2(this.panicTopY - cp.y, hAnchor) + this.PANIC_TOP_KEEP;
+      const ax = this.aimScratch.x - cp.x;
+      const az = this.aimScratch.z - cp.z;
+      const hAim = Math.sqrt(ax * ax + az * az);
+      if (Math.atan2(this.aimScratch.y - cp.y, hAim) > maxElev) {
+        this.aimScratch.y = cp.y + Math.tan(maxElev) * hAim;
+      }
+    }
 
     // Near-vertical clamp: keep a horizontal component in the view direction or
     // setTarget's default up vector degenerates staring straight up (same trick
