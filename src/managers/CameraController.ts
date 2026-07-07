@@ -1042,17 +1042,12 @@ class PanicViewDirector {
   // one side, eyes near the ground, staring up. TUNABLE.
   private static readonly IMPACT_SHAKE = 2.0;      // rig shake kick as the impact lands
   private readonly PANIC_MAX_STORY = 30;           // s — hard cap on any one story
-  private readonly PANIC_STANDOFF = 32;            // horizontal standoff past the building — tight for drama;
-                                                   // half-footprint ≤17.5 leaves ≥14.5 wall clearance (<~28 clips)
-  private readonly PANIC_SIDE = 18;                // lateral offset — the overfly never passes dead-vertical
-  private readonly PANIC_EYE = 4;                  // eye height above the ground — low so the launcher looms
-  private readonly PANIC_AIM_BOMBER_WEIGHT = 0.55; // look-at = lerp(building top, bomber/missile, this) —
-                                                   // dead-on at the bomber drops typical 8-30-tall targets below
-                                                   // frame; at the 36.7u standoff, ≥~0.6 saturates the
-                                                   // near-vertical clamp through the whole high approach
+  private readonly PANIC_STANDOFF = 55;            // horizontal standoff past the building (half-footprint ≤17.5 + clearance)
+  private readonly PANIC_SIDE = 25;                // lateral offset — the overfly never passes dead-vertical
+  private readonly PANIC_EYE = 5;                  // eye height above the ground
+  private readonly PANIC_AIM_BOMBER_WEIGHT = 0.65; // look-at = lerp(building top, bomber/missile, this) —
+                                                   // dead-on at the bomber drops typical 8-30-tall targets below frame
   private readonly PANIC_MIN_HORIZ_RATIO = 0.18;   // ~80° pitch cap — setTarget degenerates near vertical
-  private readonly PANIC_TOP_KEEP = 0.26;          // rad (~15°) — max aim elevation above the anchor's top;
-                                                   // keeps the launcher ≥8° above frame-bottom (22.9° half-VFOV)
   private readonly panicPosSmoothing = 4.0;
   private readonly panicTargetSmoothing = 5.0;
   // Bombing-story pose: lower and further back than the (Tomahawk) victim pose so
@@ -1396,28 +1391,6 @@ class PanicViewDirector {
       this.panicTopY + (subject.y - this.panicTopY) * w,
       this.panicAnchorZ + (subject.z - this.panicAnchorZ) * w,
     );
-
-    // Launcher-in-frame cap (Tomahawk story): at the tight 36.7u standoff no
-    // fixed aim weight can hold both the launcher and a subject 150u+ overhead
-    // inside the 45.8° VFOV — the lerp alone pitches the launcher off the frame
-    // bottom for most of the approach. Cap the aim's elevation so the anchor's
-    // top never sinks more than PANIC_TOP_KEEP below frame-center: the launcher
-    // anchors the frame, the missile holds frame while it approaches at
-    // distance (low elevation), transits out only briefly overhead, and drops
-    // back in for the terminal dive. Inert during ImpactHold (aim ≈ anchor).
-    if (this.panicKind === PanicViewKind.Tomahawk) {
-      const cp = this.rig.getPositionRef();
-      const hax = this.panicAnchorX - cp.x;
-      const haz = this.panicAnchorZ - cp.z;
-      const hAnchor = Math.sqrt(hax * hax + haz * haz);
-      const maxElev = Math.atan2(this.panicTopY - cp.y, hAnchor) + this.PANIC_TOP_KEEP;
-      const ax = this.aimScratch.x - cp.x;
-      const az = this.aimScratch.z - cp.z;
-      const hAim = Math.sqrt(ax * ax + az * az);
-      if (Math.atan2(this.aimScratch.y - cp.y, hAim) > maxElev) {
-        this.aimScratch.y = cp.y + Math.tan(maxElev) * hAim;
-      }
-    }
 
     // Near-vertical clamp: keep a horizontal component in the view direction or
     // setTarget's default up vector degenerates staring straight up (same trick

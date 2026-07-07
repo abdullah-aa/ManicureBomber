@@ -614,6 +614,10 @@ export function updateIskanderMissilePhysics(data: IskanderMissileData): Iskande
     // re-roll against the next volley. This must run even when the flare list
     // is empty, or a 'hardened' roll would stick for the missile's lifetime.
     data.flareSeductionState = 'unrolled';
+    // ...and drop the flare target for the same reason: when the list empties
+    // the else-branch above never runs, and a stuck isTargetingFlare freezes
+    // the missile's bomber-position refresh — it chases a ghost point forever.
+    isTargetingFlare = false;
   }
 
   let isOvershooting = false;
