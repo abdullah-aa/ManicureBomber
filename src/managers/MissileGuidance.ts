@@ -593,9 +593,6 @@ export function updateIskanderMissilePhysics(data: IskanderMissileData): Iskande
       if (data.flareSeductionState === 'unrolled') {
         data.flareSeductionState = Math.random() < data.flareSeductionChance ? 'seduced' : 'hardened';
       }
-    } else {
-      // Exposure over (volley burned out or left the seeker cone): re-roll next time.
-      data.flareSeductionState = 'unrolled';
     }
     if (closestFlare && data.flareSeductionState === 'seduced') {
       // Switch to targeting the closest flare — IR seekers are highly
@@ -611,6 +608,12 @@ export function updateIskanderMissilePhysics(data: IskanderMissileData): Iskande
       currentTargetPosition = data.originalTargetPosition;
       isTargetingFlare = false;
     }
+  }
+  if (!closestFlare) {
+    // Exposure over (volley burned out entirely or left the seeker cone):
+    // re-roll against the next volley. This must run even when the flare list
+    // is empty, or a 'hardened' roll would stick for the missile's lifetime.
+    data.flareSeductionState = 'unrolled';
   }
 
   let isOvershooting = false;
