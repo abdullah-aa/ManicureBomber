@@ -188,7 +188,11 @@ export class PanicStory {
       if (this.chaseIskander && this.chaseIskander.hasExploded()) {
         this.chaseIskander = null;
       }
-      if (this.chaseIskander === null && committed === null) {
+      // Uncommitted → always re-pick: a fresh story frames the CURRENT closest
+      // threat, never a sticky pick left over from a torn-down story (manual
+      // override, viewMode switch, story cap). Stickiness only holds while the
+      // camera is committed — no mid-story swaps.
+      if (committed === null) {
         this.chaseIskander = this.pickClosestCruisingIskander();
       }
       if (this.chaseIskander) {

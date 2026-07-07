@@ -1149,11 +1149,15 @@ class PanicViewDirector {
     if (this.panicProvider) {
       const candidate = this.panicProvider();
       if (this.panicSubState === PanicSubState.None) {
+        // acquire() can refuse a malformed candidate — only own the camera
+        // once a story actually started.
         if (candidate) {
           this.acquire(candidate);
-          // Teleport to the victim pose instead of lerping across the map.
-          this.applyPose(deltaTime, true);
-          return true;
+          if (this.panicSubState !== PanicSubState.None) {
+            // Teleport to the victim pose instead of lerping across the map.
+            this.applyPose(deltaTime, true);
+            return true;
+          }
         }
       } else if (candidate && candidate.kind === this.panicKind) {
         // Pending→flight handoff: adopt the Tomahawk the frame it spawns.
@@ -1234,6 +1238,13 @@ class PanicViewDirector {
 
   /** Record a freshly acquired panic story and cut to its opening pose. */
   private acquire(candidate: PanicViewCandidate): void {
+    // Contract: an Iskander candidate always carries its missile (the chase is
+    // anchorless — without one there is nothing to frame). Refuse the acquire
+    // rather than fall into a world-origin ground pose; the provider offers
+    // again next frame.
+    if (candidate.kind === PanicViewKind.Iskander && !candidate.missile) {
+      return;
+    }
     this.panicKind = candidate.kind;
     this.panicMissile = candidate.missile;
     this.panicSubState = candidate.kind === PanicViewKind.Bombing

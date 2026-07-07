@@ -735,7 +735,11 @@ export function updateIskanderMissilePhysics(data: IskanderMissileData): Iskande
   // Proximity-detonate on the closest flare. One squared-distance check is
   // equivalent to the old scan over every flare: if ANY flare is within the
   // explosion radius, the closest one is too (detection radius >> 12u).
-  if (!flareExplosion && closestFlare) {
+  // SEDUCED seekers only: a hardened seeker must genuinely press through the
+  // flare cloud (flares seed the approach corridor, so an ungated 12u check
+  // detonated ~every hardened missile 30-40u out — outside damage range —
+  // silently making flares ~100% effective instead of the designed 70%).
+  if (!flareExplosion && closestFlare && (isTargetingFlare || data.flareSeductionState === 'seduced')) {
     if (vector3DistanceSquared(newPosition, closestFlare) <= flareExplosionDistance * flareExplosionDistance) {
       // Missile explodes close to flare head when diverted
       flareExplosion = true;
