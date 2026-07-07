@@ -61,14 +61,6 @@ export const ISKANDER_CLIMB_ALTITUDE = 90;
 export const DEFENSE_MIN_AIRBURST_ALTITUDE = 220;
 export const DEFENSE_MAX_ALTITUDE = 280;
 
-// ------------------------------------------------------- mission difficulty
-/** Iskander pacing ramps from 1.0 down to the floor over this much GAME time.
- *  Multiplies the (possibly ?iskInterval=/?iskRandom=-overridden) base pacing. */
-export const ISKANDER_RAMP_SECONDS = 360;
-/** Late-mission pacing floor: intervals never drop below this fraction of base
- *  (default base 30+rand*45 → late-game ~10.5+rand*15.75, mean ~52s → ~18s). */
-export const ISKANDER_RAMP_FLOOR = 0.35;
-
 // ------------------------------------------------------ cloud concealment
 /** XZ radius within which a cloud masks the bomber from Iskander lock-building.
  *  Cloud visual radius is ~30-45u (core 14-24 + satellites at 1.2x); 40 splits it

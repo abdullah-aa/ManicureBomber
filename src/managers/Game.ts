@@ -30,7 +30,7 @@ import { ProjectileRegistry } from './ProjectileRegistry';
 import { ExplosionPool } from '../effects/ExplosionPool';
 import { AudioManager } from '../effects/AudioManager';
 import { LightManager } from './LightManager';
-import { RADAR_RANGE, CAMERA_MAX_Z, ISKANDER_RAMP_SECONDS, ISKANDER_RAMP_FLOOR } from '../config/Balance';
+import { RADAR_RANGE, CAMERA_MAX_Z } from '../config/Balance';
 import { GameClock } from '../utils/GameClock';
 import { Cooldown } from '../utils/Cooldown';
 import { createSun, SUN_DIRECTION } from '../entities/Sun';
@@ -524,15 +524,6 @@ export class Game {
     }
   }
 
-  /** Mission-heat multiplier on Iskander pacing: 1.0 at start, linearly down to
-   *  the floor at ISKANDER_RAMP_SECONDS of GAME time (pauses with the sim).
-   *  Public for headless assertions. */
-  public getIskanderIntervalScale(): number {
-    const t = GameClock.now();
-    return ISKANDER_RAMP_FLOOR +
-      (1 - ISKANDER_RAMP_FLOOR) * Math.max(0, 1 - t / ISKANDER_RAMP_SECONDS);
-  }
-
   /** Instrumentation for tests. */
   public getGameTime(): number { return GameClock.now(); }
 
@@ -558,7 +549,7 @@ export class Game {
       this.pendingIskanderLauncher = null;
 
       // Calculate next launch time
-      const totalInterval = (this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval) * this.getIskanderIntervalScale();
+      const totalInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
       this.nextIskanderLaunchTime = currentTime + totalInterval;
     }
   }
