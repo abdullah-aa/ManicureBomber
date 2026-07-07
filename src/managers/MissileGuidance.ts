@@ -81,6 +81,7 @@ export interface IskanderMissileData extends BaseMissileData {
   flareSeductionState: 'unrolled' | 'seduced' | 'hardened';
   lockOnRange: number;
   isLockedOn: boolean;
+  lockSuspended: boolean; // concealment: pre-lock timer pause (cloud cover); never unwinds a completed lock
   lockOnTime: number;
   lockOnDuration: number;
   guidanceStrength: number;
@@ -675,7 +676,7 @@ export function updateIskanderMissilePhysics(data: IskanderMissileData): Iskande
   }
 
   // Update lock-on system: lock establishes after lockOnDuration, regardless of distance
-  if (!isLockedOn) {
+  if (!isLockedOn && !data.lockSuspended) {
     lockOnTime += data.deltaTime;
     if (lockOnTime >= data.lockOnDuration) {
       isLockedOn = true;

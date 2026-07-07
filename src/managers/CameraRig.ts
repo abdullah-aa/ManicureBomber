@@ -77,4 +77,36 @@ export class CameraRig {
   public getPositionRef(): Vector3 {
     return this.camera.position;
   }
+
+  // --- decaying shake offset (translational; composes with every mode) -----
+  // TUNABLE (camera-local by Balance.ts doctrine)
+  private static readonly SHAKE_DECAY = 3.0;   // 1/s exponential; ~1.3s to fade
+  private shakeAmplitude = 0;
+  private shakeTime = 0;
+  private appliedShakeX = 0; private appliedShakeY = 0; private appliedShakeZ = 0;
+
+  /** Kick (or re-kick) the shake; takes the max so overlapping hits don't stack. */
+  public addShake(amplitude: number): void {
+    this.shakeAmplitude = Math.max(this.shakeAmplitude, amplitude);
+  }
+
+  /** Frame start: remove last frame's offset so mode lerps see the clean pose. */
+  public beginShakeFrame(): void {
+    const p = this.camera.position;
+    p.x -= this.appliedShakeX; p.y -= this.appliedShakeY; p.z -= this.appliedShakeZ;
+    this.appliedShakeX = this.appliedShakeY = this.appliedShakeZ = 0;
+  }
+
+  /** Frame end: decay and add the sin-noise offset AFTER the pose is computed. */
+  public applyShake(deltaTime: number): void {
+    if (this.shakeAmplitude < 0.02) { this.shakeAmplitude = 0; return; }
+    this.shakeTime += deltaTime;
+    this.shakeAmplitude *= Math.exp(-CameraRig.SHAKE_DECAY * deltaTime);
+    const a = this.shakeAmplitude, t = this.shakeTime;
+    this.appliedShakeX = a * (Math.sin(t * 23.7) * 0.55 + Math.sin(t * 11.3 + 1.3) * 0.45);
+    this.appliedShakeY = a * (Math.sin(t * 19.1 + 2.1) * 0.6 + Math.sin(t * 29.3 + 0.7) * 0.4);
+    this.appliedShakeZ = a * 0.4 * Math.sin(t * 13.9 + 4.2);
+    const p = this.camera.position;
+    p.x += this.appliedShakeX; p.y += this.appliedShakeY; p.z += this.appliedShakeZ;
+  }
 }

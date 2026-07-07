@@ -20,6 +20,8 @@ import {
   TERRAIN_CHUNK_SIZE,
   TERRAIN_KEEP_RADIUS,
   TERRAIN_GENERATION_THRESHOLD,
+  CLOUD_CONCEAL_RADIUS,
+  CLOUD_CONCEAL_TOP_MARGIN,
 } from '../config/Balance';
 
 interface TerrainChunk {
@@ -74,7 +76,19 @@ export class TerrainManager {
   private lastChunkProcessTime: number = 0;
   private chunkProcessInterval: number = 16; // Minimum 16ms between chunk processing
 
-  constructor(scene: Scene, workerManager: WorkerManager, worldSeed: number) {
+  constructor(
+    scene: Scene,
+    workerManager: WorkerManager,
+    worldSeed: number,
+    // True when the bomber's sun ShadowGenerator exists (?shadow, Game). The
+    // terrain material must then stay UNFROZEN: the shadow transform
+    // (lightMatrix) is a classic per-effect uniform — unlike the light data in
+    // the shared per-light UBO — and frozen materials skip light binding after
+    // their first bind, so a moving shadow frustum goes permanently stale on
+    // frozen receivers (pooled lights keep working on frozen terrain precisely
+    // because the unfrozen bomber hull refreshes their shared UBOs each frame).
+    private readonly receivesBomberShadow: boolean = false,
+  ) {
     this.scene = scene;
     this.workerManager = workerManager;
     this.worldSeed = worldSeed;
@@ -184,7 +198,7 @@ export class TerrainManager {
 
   private createTerrainChunkMesh(result: TerrainChunkResult, chunkX: number, chunkZ: number): void {
     const chunkKey = `${chunkX}_${chunkZ}`;
-    const { heightmap, buildingConfigs } = result;
+    const { paddedHeightmap, buildingConfigs } = result;
 
     const worldX = chunkX * this.chunkSize;
     const worldZ = chunkZ * this.chunkSize;
@@ -210,16 +224,22 @@ export class TerrainManager {
     ground.position.z = worldZ;
     ground.material = this.terrainMaterial;
     ground.isPickable = false; // nothing in the game picks terrain (input reads raw pointer coords)
+    // Receive the bomber's sun shadow. Set before the chunk's first render so
+    // the submesh's shadow defines bake at first compile (frozen material —
+    // per-submesh defines still evaluate fresh for new meshes). Costs nothing
+    // under ?shadow=0: with no ShadowGenerator on the light, receiveShadows
+    // adds no defines.
+    ground.receiveShadows = true;
     // Keep the flat placeholder off-screen until the heights are applied.
     ground.setEnabled(false);
 
     // Process vertex data in batches to prevent frame drops
-    this.updateVertexDataInBatches(ground, heightmap, chunkKey, chunkX, chunkZ, buildingConfigs);
+    this.updateVertexDataInBatches(ground, paddedHeightmap, chunkKey, chunkX, chunkZ, buildingConfigs);
   }
 
   private updateVertexDataInBatches(
     ground: GroundMesh,
-    heightmap: Float32Array,
+    paddedHeightmap: Float32Array,
     chunkKey: string,
     chunkX: number,
     chunkZ: number,
@@ -228,31 +248,70 @@ export class TerrainManager {
     const positions = ground.getVerticesData('position');
     if (!positions) return;
 
+    const rowLength = this.subdivisions + 1;
+    const paddedRowLength = this.subdivisions + 3;
+    // The apron is normals-only: the mesh has (subdivisions+1)^2 vertices while
+    // the padded map carries (subdivisions+3)^2 samples — bound the copy by the
+    // VERTEX count, never paddedHeightmap.length (that would overrun positions).
+    const vertexCount = rowLength * rowLength;
+
     // Process vertices in smaller batches
-    const batchSize = Math.min(this.maxVerticesPerFrame, heightmap.length);
+    const batchSize = Math.min(this.maxVerticesPerFrame, vertexCount);
     let processedVertices = 0;
 
-    const rowLength = this.subdivisions + 1;
     const processBatch = () => {
-      const endIndex = Math.min(processedVertices + batchSize, heightmap.length);
+      const endIndex = Math.min(processedVertices + batchSize, vertexCount);
 
       // Update vertex heights for this batch. The worker heightmap's row 0 is the
       // -z edge, but CreateGround's row 0 is the +z edge, so copy rows flipped —
       // the rendered surface then equals the worker's continuous noise field and
       // chunks join seamlessly (a straight copy z-mirrors every chunk and cliffs
-      // at the seams).
+      // at the seams). +1 on both axes skips the apron ring.
       for (let i = processedVertices; i < endIndex; i++) {
         const row = Math.floor(i / rowLength);
         const col = i - row * rowLength;
-        positions[i * 3 + 1] = heightmap[(this.subdivisions - row) * rowLength + col];
+        positions[i * 3 + 1] = paddedHeightmap[(this.subdivisions - row + 1) * paddedRowLength + (col + 1)];
       }
 
       processedVertices = endIndex;
 
-      if (processedVertices >= heightmap.length) {
+      if (processedVertices >= vertexCount) {
         // Finished processing all vertices
         ground.updateVerticesData('position', positions);
-        ground.createNormals(false);
+        // Seam-consistent normals from the padded heightmap: central differences
+        // over the WORLD-continuous noise samples, so both sides of a chunk
+        // border compute bit-identical normals for shared edge vertices (the
+        // apron supplies the neighbor chunk's row/col). Replaces
+        // createNormals(false), whose chunk-local one-sided edge normals caused
+        // a lighting seam every 900u — and which also made the normal buffer
+        // NON-updatable; setVerticesData(..., true) installs a fresh updatable
+        // buffer, so there is no silent GPU no-op path here. Runs once per
+        // chunk creation inside the frame-spread pipeline, not per-frame.
+        // Sign derivation: worker col j ↔ world +x, so nx = -∂h/∂x = (hW-hE)/2s;
+        // worker row i ↔ world +z, so nz = -∂h/∂z = (hS-hN)/2s. The z-flip only
+        // remaps which ARRAY row is read (pr), not the derivative's world
+        // orientation, because hN/hS are looked up in worker space (+row = +z).
+        // Chunks are translated, never rotated, so local normals = world normals.
+        const cell = this.chunkSize / this.subdivisions;
+        const normals = new Float32Array(vertexCount * 3);
+        for (let row = 0; row < rowLength; row++) {
+          const pr = this.subdivisions - row + 1; // padded worker row for this CreateGround row (z-flipped)
+          for (let col = 0; col < rowLength; col++) {
+            const pc = col + 1;
+            const hE = paddedHeightmap[pr * paddedRowLength + pc + 1]; // world +x
+            const hW = paddedHeightmap[pr * paddedRowLength + pc - 1]; // world -x
+            const hN = paddedHeightmap[(pr + 1) * paddedRowLength + pc]; // world +z
+            const hS = paddedHeightmap[(pr - 1) * paddedRowLength + pc]; // world -z
+            const nx = (hW - hE) / (2 * cell);
+            const nz = (hS - hN) / (2 * cell);
+            const inv = 1 / Math.sqrt(nx * nx + 1 + nz * nz);
+            const o = (row * rowLength + col) * 3;
+            normals[o] = nx * inv;
+            normals[o + 1] = inv;
+            normals[o + 2] = nz * inv;
+          }
+        }
+        ground.setVerticesData('normal', normals, true);
         ground.setEnabled(true);
 
         // The chunk never moves again: freeze its transform, sync its (hill-aware)
@@ -382,7 +441,13 @@ export class TerrainManager {
     // Static for the scene's lifetime (texture assigned above; lights are a fixed
     // pool and fog is set once at startup, both before first render): freeze so
     // Babylon skips its per-frame material sync. Writes would silently no-op.
-    this.terrainMaterial.freeze();
+    // EXCEPT when terrain receives the bomber's shadow — the per-frame shadow
+    // transform can't reach a frozen material (see the constructor param doc);
+    // ?shadow=0 restores the frozen fast path. The measured feature cost in the
+    // shadow A/B therefore INCLUDES this unfreeze.
+    if (!this.receivesBomberShadow) {
+      this.terrainMaterial.freeze();
+    }
   }
 
   private createClearSky(): void {
@@ -532,6 +597,23 @@ export class TerrainManager {
         this.dyingClouds.splice(i, 1);
       }
     }
+  }
+
+  /** Is this position inside/under a live cloud? (XZ disk + top-margin band;
+   *  bomber band 150-200 sits at/below the 175-225 cloud band, so the vertical
+   *  test is cheap insurance against future band changes.) Dying clouds don't count. */
+  public isCloudConcealing(position: Vector3): boolean {
+    const rSq = CLOUD_CONCEAL_RADIUS * CLOUD_CONCEAL_RADIUS;
+    for (const chunk of this.chunks.values()) {
+      if (!chunk) continue;
+      for (const cloud of chunk.clouds) {
+        if (!cloud.isConcealing()) continue;
+        const cp = cloud.getPosition();
+        const dx = position.x - cp.x, dz = position.z - cp.z;
+        if (dx * dx + dz * dz <= rSq && position.y <= cp.y + CLOUD_CONCEAL_TOP_MARGIN) return true;
+      }
+    }
+    return false;
   }
 
   private removeChunks(chunksToRemove: string[]): void {

@@ -37,7 +37,7 @@ export class EffectTextures {
   /** Bright white-to-red explosion fireball gradient. */
   getFireTexture(): DynamicTexture {
     if (!this.fireTexture) {
-      const texture = new DynamicTexture('effectFireTexture', { width: 64, height: 64 }, this.scene);
+      const texture = new DynamicTexture('effectFireTexture', { width: 64, height: 64 }, this.scene, true);
       const context = texture.getContext();
       const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
       gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
@@ -56,7 +56,7 @@ export class EffectTextures {
   /** Noisy overlapping-puff smoke texture. */
   getSmokeTexture(): DynamicTexture {
     if (!this.smokeTexture) {
-      const texture = new DynamicTexture('effectSmokeTexture', { width: 64, height: 64 }, this.scene);
+      const texture = new DynamicTexture('effectSmokeTexture', { width: 64, height: 64 }, this.scene, true);
       const context = texture.getContext();
       context.fillStyle = 'rgba(0, 0, 0, 0)';
       context.fillRect(0, 0, 64, 64);
@@ -82,7 +82,7 @@ export class EffectTextures {
   /** Soft white/gray dot for vapor and bomb trails. */
   getTrailTexture(): DynamicTexture {
     if (!this.trailTexture) {
-      const texture = new DynamicTexture('effectTrailTexture', { width: 64, height: 64 }, this.scene);
+      const texture = new DynamicTexture('effectTrailTexture', { width: 64, height: 64 }, this.scene, true);
       const context = texture.getContext();
       const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
       gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
@@ -99,7 +99,7 @@ export class EffectTextures {
   /** Red-tinted trail dot (Iskander exhaust trail). */
   getRedTrailTexture(): DynamicTexture {
     if (!this.redTrailTexture) {
-      const texture = new DynamicTexture('effectRedTrailTexture', { width: 64, height: 64 }, this.scene);
+      const texture = new DynamicTexture('effectRedTrailTexture', { width: 64, height: 64 }, this.scene, true);
       const context = texture.getContext();
       const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
       gradient.addColorStop(0, 'rgba(255, 100, 100, 1)');
@@ -116,7 +116,7 @@ export class EffectTextures {
   /** Bright countermeasure-flare glow. */
   getFlareTexture(): DynamicTexture {
     if (!this.flareTexture) {
-      const texture = new DynamicTexture('effectFlareTexture', { width: 32, height: 32 }, this.scene);
+      const texture = new DynamicTexture('effectFlareTexture', { width: 32, height: 32 }, this.scene, true);
       const context = texture.getContext();
       const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
       gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
@@ -134,7 +134,7 @@ export class EffectTextures {
   /** Hot spark point. */
   getSparkTexture(): DynamicTexture {
     if (!this.sparkTexture) {
-      const texture = new DynamicTexture('effectSparkTexture', { width: 32, height: 32 }, this.scene);
+      const texture = new DynamicTexture('effectSparkTexture', { width: 32, height: 32 }, this.scene, true);
       const context = texture.getContext();
       const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
       gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
@@ -152,7 +152,7 @@ export class EffectTextures {
   /** Expanding ring for explosion shockwaves. */
   getShockwaveTexture(): DynamicTexture {
     if (!this.shockwaveTexture) {
-      const texture = new DynamicTexture('effectShockwaveTexture', { width: 64, height: 64 }, this.scene);
+      const texture = new DynamicTexture('effectShockwaveTexture', { width: 64, height: 64 }, this.scene, true);
       const context = texture.getContext();
       const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
       gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');

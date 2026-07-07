@@ -252,7 +252,14 @@ export interface TerrainChunkRequest {
 export interface TerrainChunkResult {
   chunkX: number;
   chunkZ: number;
-  heightmap: Float32Array;
+  /**
+   * Heightmap WITH a 1-vertex apron on every side: (subdivisions + 3)^2 samples,
+   * row-major, worker row 0 = the -z edge apron. Interior vertex (i, j) of the
+   * chunk lives at padded index (i + 1, j + 1). The apron exists solely so the
+   * main thread can compute seam-consistent normals by central difference;
+   * positions use only the interior.
+   */
+  paddedHeightmap: Float32Array;
   buildingConfigs: BuildingConfig[];
 }
 

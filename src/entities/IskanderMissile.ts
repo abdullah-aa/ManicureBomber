@@ -62,7 +62,7 @@ export class IskanderMissile {
   // Lock-on system properties
   private lockOnRange: number = Infinity; // Remove distance limitation - always allow lock
   private isLockedOn: boolean = false;
-  private lockOnTime: number = 4;
+  private lockOnTime: number = 0; // real 4s lock window (was seeded =duration: instant lock)
   private lockOnDuration: number = 4; // Faster lock-on for more responsive tracking
   private guidanceStrength: number = 3.0; // Increased guidance strength for better tracking
   private maxTurnRate: number = 3.5; // Higher maximum turn rate for sharper turns
@@ -113,6 +113,7 @@ export class IskanderMissile {
       flareSeductionState: 'unrolled',
       lockOnRange: this.lockOnRange,
       isLockedOn: false,
+      lockSuspended: false,
       lockOnTime: this.lockOnTime,
       lockOnDuration: this.lockOnDuration,
       guidanceStrength: this.guidanceStrength,
@@ -349,16 +350,18 @@ export class IskanderMissile {
     this.flareTargets = activeFlares;
   }
 
-  public update(deltaTime: number): void {
+  public update(deltaTime: number, lockSuspended: boolean = false): void {
     if (!this.launched || this.exploded) return;
 
     this.lightHandle.setPosition(this.position);
 
     const currentTime = GameClock.now();
 
-    // Update target position periodically for better performance
+    // Update target position periodically for better performance. Concealment
+    // (cloud cover) freezes the refresh for an UNLOCKED seeker so it flies at
+    // the last-seen position; a completed lock tracks through clouds.
     if (currentTime - this.lastTargetUpdateTime > this.targetUpdateInterval) {
-      if (!this.isTargetingFlare) {
+      if (!this.isTargetingFlare && !(lockSuspended && !this.isLockedOn)) {
         this.targetPosition = this.bomber.getPosition();
         this.originalTargetPosition = this.targetPosition.clone();
         // Update waypoints when target changes
@@ -410,6 +413,7 @@ export class IskanderMissile {
     d.currentTime = currentTime;
     d.isTargetingFlare = this.isTargetingFlare;
     d.isLockedOn = this.isLockedOn;
+    d.lockSuspended = lockSuspended && !this.isLockedOn;
     d.lockOnTime = this.lockOnTime;
     d.groundHeight = groundHeight;
 

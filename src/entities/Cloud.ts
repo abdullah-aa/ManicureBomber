@@ -100,6 +100,12 @@ export class Cloud {
     return this.disposed;
   }
 
+  /** True while this cloud is substantial enough to mask the bomber from IR lock
+   *  (mostly grown, not fading out). */
+  isConcealing(): boolean {
+    return !this.disposed && this.state !== 'dying' && this.fadeProgress >= 0.7;
+  }
+
   getPosition(): Vector3 {
     return this.root.position;
   }

@@ -3,6 +3,7 @@ import {
   Vector3,
   HemisphericLight,
   DirectionalLight,
+  ShadowGenerator,
   Color3,
   FreeCamera,
   Mesh,
@@ -29,7 +30,7 @@ import { ProjectileRegistry } from './ProjectileRegistry';
 import { ExplosionPool } from '../effects/ExplosionPool';
 import { AudioManager } from '../effects/AudioManager';
 import { LightManager } from './LightManager';
-import { RADAR_RANGE, CAMERA_MAX_Z } from '../config/Balance';
+import { RADAR_RANGE, CAMERA_MAX_Z, ISKANDER_RAMP_SECONDS, ISKANDER_RAMP_FLOOR } from '../config/Balance';
 import { GameClock } from '../utils/GameClock';
 import { Cooldown } from '../utils/Cooldown';
 import { createSun, SUN_DIRECTION } from '../entities/Sun';
@@ -47,6 +48,12 @@ export class Game {
   private groundCrosshair!: Mesh;
   private workerManager!: WorkerManager;
   private aiController!: AIController;
+  private sunLight!: DirectionalLight;
+  private bomberShadow: ShadowGenerator | null = null;
+  // Cheap-off switch: ?shadow=0 disables the bomber's sun shadow entirely.
+  // (Not in Balance.ts — Balance is worker-imported and must stay window-free.)
+  private readonly shadowEnabled: boolean =
+    new URLSearchParams(window.location.search).get('shadow') !== '0';
   // Discrete cross-system transitions (viewMode, AI enabled); continuous
   // values stay polled and per-frame feeds stay provider closures.
   private readonly events = new EventBus<GameEvents>();
@@ -68,9 +75,17 @@ export class Game {
   // Distance to the nearest locking/locked Iskander (Infinity when none); the AI
   // uses it to hold flares until the missile is actually close
   private closestIskanderThreatDistance: number = Infinity;
+  // World position of that nearest threat (reused scratch; see the getter's
+  // validity contract)
+  private readonly closestIskanderThreatPosition = new Vector3();
+  // True while the bomber sits inside/under a live cloud with Iskanders in
+  // flight — pre-lock seekers pause (recomputed in updateIskanderMissiles)
+  private bomberConcealed = false;
   private nextIskanderLaunchTime: number = -Infinity;
-  private iskanderLaunchInterval: number = 30;
-  private iskanderRandomInterval: number = 45;
+  // Base pacing, overridable for debugging/tuning via ?iskInterval= and
+  // ?iskRandom= (seconds; see readPacingParam below).
+  private iskanderLaunchInterval: number = Game.readPacingParam('iskInterval', 30);
+  private iskanderRandomInterval: number = Game.readPacingParam('iskRandom', 45);
   // Launcher pre-selected this many seconds before the scheduled launch so Rocket
   // View can dwell on it; re-validated per-frame in handleIskanderLaunch.
   private pendingIskanderLauncher: Building | null = null;
@@ -103,6 +118,14 @@ export class Game {
   private lastCollisionCheckTime: number = 0;
   private collisionCheckInterval: number = 16; // Check collisions every 16ms (60fps)
 
+  /** Non-negative-number URL override for a pacing knob, else the default.
+   *  Debug/tuning only — gameplay balance itself lives in the defaults. */
+  private static readPacingParam(name: string, fallback: number): number {
+    const param = new URLSearchParams(window.location.search).get(name);
+    const parsed = param !== null ? Number(param) : NaN;
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+  }
+
   // World seed: ?seed=<uint32> reproduces a run's exact terrain and building
   // layout (shareable maps, deterministic test fixtures); otherwise random.
   // Read it back via getWorldSeed() / __perf.game.
@@ -130,10 +153,14 @@ export class Game {
     // Initialize worker manager first
     this.workerManager = new WorkerManager();
 
-    this.terrainManager = new TerrainManager(this.scene, this.workerManager, this.worldSeed);
+    this.terrainManager = new TerrainManager(this.scene, this.workerManager, this.worldSeed, this.shadowEnabled);
     this.terrainManager.setGame(this);
 
     this.bomber = new Bomber(this.scene, this.workerManager, this.projectiles);
+    if (this.bomberShadow) {
+      const renderList = this.bomberShadow.getShadowMap()!.renderList!;
+      for (const mesh of this.bomber.getShadowCasterMeshes()) renderList.push(mesh);
+    }
     this.bomber.setBombingRunActiveCallback(() => this.isBombingRunInProgress());
     this.bomber.setOnDestroyedCallback(() => this.handleGameOver());
     // Fired by a Tomahawk confirming its launcher kill. The building itself
@@ -197,6 +224,18 @@ export class Game {
     // lets us unlock the AudioContext. Engine drone runs until game over.
     AudioManager.get().unlock();
     AudioManager.get().startEngine();
+
+    // All startup materials (terrain, buildings, bomber, sun, crosshair) have
+    // compiled during the splash frames; from here on, no code path needs the
+    // material dirty mechanism (verified: launcher/bay emissive animations
+    // write plain Color3 uniforms; pooled lights park by intensity, never
+    // enable/disable; the ShadowGenerator and all casters were wired in
+    // initialize(), and chunks streamed in later still evaluate fresh
+    // per-submesh defines on first render regardless). Blocking makes any
+    // accidental future markAsDirty storm a no-op instead of a full-scene
+    // shader resync hitch. One-line revert if a new feature needs it.
+    // (Dev caveat: Inspector live-edits of materials won't propagate while blocked.)
+    this.scene.blockMaterialDirtyMechanism = true;
   }
 
   private setupLighting(): void {
@@ -208,6 +247,36 @@ export class Game {
     const directionalLight = new DirectionalLight('directionalLight', SUN_DIRECTION.scale(-1), this.scene);
     directionalLight.intensity = 0.8;
     directionalLight.diffuse = new Color3(1, 0.9, 0.7);
+    this.sunLight = directionalLight;
+
+    if (this.shadowEnabled) {
+      // Created HERE, before TerrainManager/BuildingAssets construct and freeze
+      // their materials: shadow support is baked into shader defines at each
+      // submesh's first compile, and frozen materials never re-evaluate. Same
+      // contract as the pooled-light prewarm below.
+      this.bomberShadow = new ShadowGenerator(512, directionalLight);
+      // Sane frustum from the very first (splash) frames; the game loop then
+      // tracks the bomber. (0, 175, 0) is the bomber spawn.
+      directionalLight.position.set(0, 175, 0);
+      // FILTER_NONE (default): one depth tap per terrain pixel — the receiver
+      // side is the mobile cost center, so no PCF/blur. The caster set is ~15
+      // small meshes; a hard 512 shadow of the whole plane reads fine from
+      // 150-200u altitude. If edge aliasing ever offends, PCF QUALITY_LOW is
+      // the first upgrade — never blur (extra passes).
+      this.bomberShadow.bias = 0.001;
+      this.bomberShadow.setDarkness(0.35); // hemi light keeps shadows from going black anyway
+      // Ortho XY extents auto-fit the casters (autoUpdateExtends). Depth range
+      // must be set MANUALLY: auto Z bounds hug the casters, but the receiving
+      // ground lies ~(alt - terrain)/sin(25°) ≈ 350-480u further along the
+      // light ray, and fragments outside the light frustum sample unshadowed.
+      // The light's position tracks the bomber (game loop), so bomber ≈ depth 0.
+      // COUPLED to BOMBER_MAX_ALTITUDE (Balance.ts): worst-case receiver depth
+      // is maxAlt/sin(25.2°) + far-corner gradient ≈ 529u at maxAlt 200. If the
+      // ceiling ever rises past ~230, raise shadowMaxZ too or the shadow
+      // silently vanishes over low terrain.
+      directionalLight.shadowMinZ = -50;
+      directionalLight.shadowMaxZ = 600;
+    }
 
     createSun(this.scene);
 
@@ -331,6 +400,11 @@ export class Game {
         this.handleCountermeasures();
 
         this.bomber.update(safeDeltaTime, this.inputManager);
+        // Directional-light position is the shadow depth origin; keep it on the
+        // bomber so shadowMinZ/MaxZ stay valid as the plane flies kilometers out.
+        // (Transform-only write — no material dirtying, safe under the
+        // blockMaterialDirtyMechanism set in start().)
+        if (this.bomberShadow) this.sunLight.position.copyFrom(this.bomber.getPositionRef());
         this.updateBombs(safeDeltaTime);
         this.panicStory.endBombingStoryIfComplete(this.isBombingRun, this.bombs.length > 0);
         this.updateIskanderMissiles(safeDeltaTime);
@@ -387,6 +461,8 @@ export class Game {
             this.bomber,
             this.terrainManager,
             this.destroyedTargets,
+            this.destroyedBuildings,
+            this.destroyedLaunchers,
             this.projectiles.getIskanders(),
             this.projectiles.getDefenseMissiles(),
           );
@@ -444,6 +520,18 @@ export class Game {
     }
   }
 
+  /** Mission-heat multiplier on Iskander pacing: 1.0 at start, linearly down to
+   *  the floor at ISKANDER_RAMP_SECONDS of GAME time (pauses with the sim).
+   *  Public for headless assertions. */
+  public getIskanderIntervalScale(): number {
+    const t = GameClock.now();
+    return ISKANDER_RAMP_FLOOR +
+      (1 - ISKANDER_RAMP_FLOOR) * Math.max(0, 1 - t / ISKANDER_RAMP_SECONDS);
+  }
+
+  /** Instrumentation for tests. */
+  public getGameTime(): number { return GameClock.now(); }
+
   private handleIskanderLaunch(currentTime: number): void {
     // Pre-select the launcher during the lead window so Rocket View can dwell on
     // it before the missile exists. Re-validated per-frame: a launcher destroyed
@@ -466,7 +554,7 @@ export class Game {
       this.pendingIskanderLauncher = null;
 
       // Calculate next launch time
-      const totalInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
+      const totalInterval = (this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval) * this.getIskanderIntervalScale();
       this.nextIskanderLaunchTime = currentTime + totalInterval;
     }
   }
@@ -533,13 +621,19 @@ export class Game {
     // Get active flares once for all missiles
     const activeFlares = this.bomber.getActiveFlares();
 
-    for (const missile of this.projectiles.getIskanders()) {
+    // Cloud concealment: computed once per frame for all seekers (and only while
+    // any Iskander is live — the cloud scan isn't free).
+    const iskanders = this.projectiles.getIskanders();
+    this.bomberConcealed =
+      iskanders.length > 0 && this.terrainManager.isCloudConcealing(this.bomber.getPositionRef());
+
+    for (const missile of iskanders) {
       // Update flare targets efficiently (replaces old list with current active flares)
       // This ensures missiles always track current flares without duplication
       missile.updateFlareTargets(activeFlares);
 
       // Update missile physics (exploded/lingering missiles early-return inside)
-      missile.update(deltaTime);
+      missile.update(deltaTime, this.bomberConcealed);
     }
   }
 
@@ -608,6 +702,15 @@ export class Game {
     return this.worldSeed;
   }
 
+  // Read-only instrumentation for the ?debug=1 overlay (and headless drivers)
+  public getScene(): Scene {
+    return this.scene;
+  }
+
+  public getBombCount(): number {
+    return this.bombs.length;
+  }
+
   public getBomber(): Bomber {
     return this.bomber;
   }
@@ -658,8 +761,21 @@ export class Game {
     return this.iskanderLockedActive;
   }
 
+  /** True while the bomber is cloud-concealed with Iskanders in flight (lock
+   *  progress paused for unlocked seekers). */
+  public isBomberConcealed(): boolean {
+    return this.bomberConcealed;
+  }
+
   public getClosestIskanderThreatDistance(): number {
     return this.closestIskanderThreatDistance;
+  }
+
+  /** Live ref to the nearest locking/locked Iskander's position. Valid only
+   *  while hasIskanderMissilesForAlert(); closestIskanderThreatDistance !==
+   *  Infinity is the wider validity check. Never mutate. */
+  public getClosestIskanderThreatPositionRef(): Vector3 {
+    return this.closestIskanderThreatPosition;
   }
 
   private computeIskanderAlert(): boolean {
@@ -678,12 +794,21 @@ export class Game {
         const isLockedOn = missile.getIsLockedOn();
         const lockProgress = missile.getLockProgress();
 
-        // Track alert if missile is locked on OR has started the lock process (progress > 0)
-        if (isLockedOn || lockProgress > 0) {
+        // Track alert if missile is locked on, has started the lock process
+        // (progress > 0), or is still in its boost climb — with the real 4s lock
+        // window plus cloud pauses, progress can be 0 well past launch, and
+        // INBOUND must still fire from launch.
+        // DELIBERATE silence: a post-climb seeker whose lock is fully paused by
+        // cloud cover (progress exactly 0) triggers no banner/beeper/flare
+        // access at ANY range — its target is frozen at the bomber's last-seen
+        // point, the radar blip stays visible, and "you're hidden, it's blind"
+        // is the honest read. Don't "fix" this by alerting on mere existence.
+        if (isLockedOn || lockProgress > 0 || missile.isClimbing()) {
           const missilePosition = missile.getPositionRef();
           const distanceSq = Vector3.DistanceSquared(bomberPosition, missilePosition);
           if (distanceSq < closestThreatDistanceSq) {
             closestThreatDistanceSq = distanceSq;
+            this.closestIskanderThreatPosition.copyFrom(missilePosition);
           }
           // A completed lock in range escalates the banner INBOUND → LOCKED
           if (isLockedOn && distanceSq <= alertRangeSq) {
@@ -769,6 +894,15 @@ export class Game {
     // Game-over stops camera updates entirely; end any cinematic story so the
     // final frame behind the overlay is the bomber, not a mid-story pose.
     this.cameraController.setViewMode('chase');
+
+    // Disable shadowing BEFORE disposing the bomber: mesh disposal empties the
+    // shadow map's renderList, and autoUpdateExtends over an empty caster list
+    // degenerates the ortho matrix (±Infinity extents — NaN UVs are
+    // GPU-undefined). shadowEnabled=false stops both the map render and the
+    // per-bind shadow uniform refresh, freezing the last valid state.
+    if (this.bomberShadow) {
+      this.sunLight.shadowEnabled = false;
+    }
 
     if (this.bomber) {
       this.bomber.dispose();

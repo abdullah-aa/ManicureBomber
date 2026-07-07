@@ -161,7 +161,27 @@ export class CameraController {
     this.initialFollowHeightOffset = this.followHeightOffset;
   }
 
+  // TUNABLE — shake amplitudes (chase camera sits 200u back; 2-5u reads well)
+  private static readonly DAMAGE_SHAKE_BASE = 1.5;
+  private static readonly DAMAGE_SHAKE_PER_HP = 0.08; // 25-dmg hit → ~3.5u
+  private static readonly DAMAGE_SHAKE_MAX = 5.0;
+  private lastHealthSeen = -1;
+
   public update(deltaTime: number, inputManager: InputManager): void {
+    this.rig.beginShakeFrame();
+    const health = this.bomber.getHealth();
+    if (this.lastHealthSeen >= 0 && health < this.lastHealthSeen) {
+      this.rig.addShake(Math.min(
+        CameraController.DAMAGE_SHAKE_MAX,
+        CameraController.DAMAGE_SHAKE_BASE + (this.lastHealthSeen - health) * CameraController.DAMAGE_SHAKE_PER_HP,
+      ));
+    }
+    this.lastHealthSeen = health;
+    this.updatePose(deltaTime, inputManager);
+    this.rig.applyShake(deltaTime);
+  }
+
+  private updatePose(deltaTime: number, inputManager: InputManager): void {
     // Manual override: the player is steering (AI suspended). End any active
     // story and fall through to the bomber chase — watching a building 400u
     // away while hand-flying at the altitude floor is not survivable. viewMode
@@ -1016,6 +1036,7 @@ class PanicViewDirector {
   private readonly impactHoldDuration: number = 1.5;
   // Victim pose: stand past the target on the far side from the bomber, off to
   // one side, eyes near the ground, staring up. TUNABLE.
+  private static readonly IMPACT_SHAKE = 2.0;      // rig shake kick as the impact lands
   private readonly PANIC_MAX_STORY = 30;           // s — hard cap on any one story
   private readonly PANIC_STANDOFF = 55;            // horizontal standoff past the building (half-footprint ≤17.5 + clearance)
   private readonly PANIC_SIDE = 25;                // lateral offset — the overfly never passes dead-vertical
@@ -1268,6 +1289,7 @@ class PanicViewDirector {
 
   /** Enter the impact linger; the caller has set impactPoint. */
   private beginPanicHold(): void {
+    this.rig.addShake(PanicViewDirector.IMPACT_SHAKE);
     this.panicHoldTimer = this.impactHoldDuration;
     this.panicSubState = PanicSubState.ImpactHold;
   }

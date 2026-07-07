@@ -18,6 +18,12 @@ interface RadarMarker {
 export class RadarManager {
   private radarDisplay: HTMLElement;
   private targetCountElement: HTMLElement;
+  private buildingCountElement: HTMLElement;
+  private launcherCountElement: HTMLElement;
+  // Change-gated counter writes: last value pushed to the DOM (-1 = never).
+  private lastTargets: number = -1;
+  private lastBuildings: number = -1;
+  private lastLaunchers: number = -1;
   private radarRadius: number = RADAR_RANGE; // shared with AI target scan + alert range (Balance.ts)
   private radarPixelRadius: number = 88; // Radar display radius in pixels (will be updated based on screen size)
   private lastPulseTime: number = 0;
@@ -37,6 +43,8 @@ export class RadarManager {
   constructor() {
     this.radarDisplay = document.getElementById('radarDisplay')!;
     this.targetCountElement = document.getElementById('targetCount')!;
+    this.buildingCountElement = document.getElementById('buildingCount')!;
+    this.launcherCountElement = document.getElementById('launcherCount')!;
     this.createRadarPulseStyles();
     this.applyMobileStyles();
     this.initializeMarkerPool();
@@ -219,6 +227,8 @@ export class RadarManager {
     bomber: Bomber,
     terrainManager: TerrainManager,
     destroyedTargets: number,
+    destroyedBuildings: number,
+    destroyedLaunchers: number,
     iskanderMissiles: IskanderMissile[] = [],
     defenseMissiles: DefenseMissile[] = [],
   ): void {
@@ -262,13 +272,15 @@ export class RadarManager {
       this.positionCacheValid = true;
     }
 
-    this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, iskanderMissiles, defenseMissiles);
+    this.processRadarUpdate(bomberPosition, bomberRotationY, destroyedTargets, destroyedBuildings, destroyedLaunchers, iskanderMissiles, defenseMissiles);
   }
 
   private processRadarUpdate(
     bomberPosition: Vector3,
     bomberRotationY: number,
     destroyedTargets: number,
+    destroyedBuildings: number,
+    destroyedLaunchers: number,
     iskanderMissiles: IskanderMissile[],
     defenseMissiles: DefenseMissile[],
   ): void {
@@ -317,7 +329,18 @@ export class RadarManager {
       }
     }
 
-    // Update score display - only targets
-    this.targetCountElement.textContent = destroyedTargets.toString();
+    // Update score display — change-gated so the 100ms tick doesn't touch the DOM
+    if (destroyedTargets !== this.lastTargets) {
+      this.lastTargets = destroyedTargets;
+      this.targetCountElement.textContent = destroyedTargets.toString();
+    }
+    if (destroyedBuildings !== this.lastBuildings) {
+      this.lastBuildings = destroyedBuildings;
+      this.buildingCountElement.textContent = destroyedBuildings.toString();
+    }
+    if (destroyedLaunchers !== this.lastLaunchers) {
+      this.lastLaunchers = destroyedLaunchers;
+      this.launcherCountElement.textContent = destroyedLaunchers.toString();
+    }
   }
 }

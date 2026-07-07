@@ -189,13 +189,35 @@ export class BuildingAssets {
     return this.fireTexture;
   }
 
-  /** Shared red target-ring material — one frozen instance for every target ring (never written after creation). */
+  /**
+   * Shared animated red target-ring material — one pulsing animation drives
+   * every target ring. Deliberately NOT frozen: the shared pulse animation
+   * writes emissiveColor every frame — launcherMaterial precedent. 2s period,
+   * deliberately different from the launcher's 1s so the two reds don't
+   * strobe in sync.
+   */
   getRingMaterial(): StandardMaterial {
     if (!this.ringMaterial) {
-      this.ringMaterial = new StandardMaterial('ringMaterial', this.scene);
-      this.ringMaterial.emissiveColor = new Color3(1, 0, 0); // Red glow
-      this.ringMaterial.diffuseColor = new Color3(0.8, 0, 0);
-      this.ringMaterial.freeze();
+      const material = new StandardMaterial('ringMaterial', this.scene);
+      material.emissiveColor = new Color3(0.45, 0, 0); // Dim red base
+      material.diffuseColor = new Color3(0.8, 0, 0);
+
+      const emissiveAnimation = new Animation(
+        'ringPulse',
+        'emissiveColor',
+        30,
+        Animation.ANIMATIONTYPE_COLOR3,
+        Animation.ANIMATIONLOOPMODE_CYCLE,
+      );
+      emissiveAnimation.setKeys([
+        { frame: 0, value: new Color3(0.45, 0, 0) },      // Dim red
+        { frame: 30, value: new Color3(1, 0.12, 0.06) },  // Hot red
+        { frame: 60, value: new Color3(0.45, 0, 0) },     // Back to dim red
+      ]);
+      material.animations = [emissiveAnimation];
+      this.scene.beginAnimation(material, 0, 60, true);
+
+      this.ringMaterial = material;
     }
     return this.ringMaterial;
   }

@@ -174,6 +174,11 @@ export class Bomber {
     }
   }
 
+  /** Bomber hull meshes for the sun ShadowGenerator's renderList (visible children only). */
+  public getShadowCasterMeshes(): Mesh[] {
+    return this.bomberGroup.getChildMeshes(false).filter((m): m is Mesh => m.isVisible && m instanceof Mesh);
+  }
+
   private createFuselage(): void {
     // Main body - cylindrical shape instead of box
     const fuselage = MeshBuilder.CreateCylinder(
@@ -432,6 +437,16 @@ export class Bomber {
       new Vector3(20, -0.8, -9),
     ];
 
+    // One shared material per role (was 8 identical instances — 4 engines + 4
+    // exhausts). Deliberately UNFROZEN like the rest of the hull: the bomber is
+    // a surface the pooled lights (bay glow, flare volley) illuminate up close,
+    // and hull materials stay in the default un-frozen sync path by contract.
+    const engineMaterial = new StandardMaterial('engineMaterial', this.scene);
+    engineMaterial.diffuseColor = new Color3(0.1, 0.1, 0.1); // Very dark
+    const exhaustMaterial = new StandardMaterial('exhaustMaterial', this.scene);
+    exhaustMaterial.diffuseColor = new Color3(0.3, 0.1, 0.05); // Dark reddish
+    exhaustMaterial.emissiveColor = new Color3(0.2, 0.05, 0.01); // Glowing effect
+
     positions.forEach((pos, index) => {
       const engine = MeshBuilder.CreateCylinder(
         `engine${index}`,
@@ -445,9 +460,6 @@ export class Bomber {
       engine.position = pos;
       engine.rotation.x = Math.PI / 2;
       engine.parent = this.bomberGroup;
-
-      const engineMaterial = new StandardMaterial(`engineMaterial${index}`, this.scene);
-      engineMaterial.diffuseColor = new Color3(0.1, 0.1, 0.1); // Very dark
       engine.material = engineMaterial;
 
       // Add exhaust effect
@@ -464,10 +476,6 @@ export class Bomber {
       exhaust.position = pos.add(new Vector3(0, 0, -3));
       exhaust.rotation.x = Math.PI / 2;
       exhaust.parent = this.bomberGroup;
-
-      const exhaustMaterial = new StandardMaterial(`exhaustMaterial${index}`, this.scene);
-      exhaustMaterial.diffuseColor = new Color3(0.3, 0.1, 0.05); // Dark reddish
-      exhaustMaterial.emissiveColor = new Color3(0.2, 0.05, 0.01); // Glowing effect
       exhaust.material = exhaustMaterial;
 
       // Create particle system for engine exhaust

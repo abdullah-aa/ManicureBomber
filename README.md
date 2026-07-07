@@ -42,6 +42,8 @@ The dev server runs on `http://localhost:8080`. Development-only extras:
 - **F12** opens the Babylon.js Inspector (wired only when `NODE_ENV === 'development'`, `src/index.ts`).
 - Append **`?perf=1`** to the URL to attach Babylon `SceneInstrumentation`/`EngineInstrumentation` to `window.__perf` for frame/draw-call profiling (`src/index.ts`).
 - Append **`?seed=<uint32>`** to pin the world seed — terrain noise and per-chunk building layouts are fully deterministic for a given seed (`Game.getWorldSeed()`, `src/workers/worker-utils.ts` `createChunkRng`). Without the param a random seed is rolled per page load.
+- Append **`?debug=1`** for the debug HUD (`src/ui/DebugOverlay.ts`): AI state, view mode + camera sub-states, projectile counts, threat distance, game clock, fps. Pacing knobs can be overridden for tuning: **`?iskInterval=`** / **`?iskRandom=`** (seconds, Iskander launch schedule). All params compose (e.g. `?perf=1&debug=1&seed=42&iskInterval=5`).
+- Rendering switches: **`?shadow=0`** disables the bomber's sun shadow (and re-freezes the terrain material — the shadow requires it unfrozen; measured cost of the whole feature is within run noise on the SwiftShader proxy). **`?aa=1`** re-enables engine MSAA (default off — measured ~2x frame cost on the proxy for no visible gain at the game's rendering scale).
 
 #### Headless test instrumentation (`window.__perf`)
 

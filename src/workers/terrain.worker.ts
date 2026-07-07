@@ -29,18 +29,21 @@ function calculateHeightFromNoise(x: number, z: number): number {
 function generateHeightmap(chunkX: number, chunkZ: number, chunkSize: number, subdivisions: number): Float32Array {
   const worldX = chunkX * chunkSize;
   const worldZ = chunkZ * chunkSize;
-  const heights = new Float32Array((subdivisions + 1) * (subdivisions + 1));
+  const padded = subdivisions + 3; // interior (subdivisions+1) + 1-vertex apron each side
+  const heights = new Float32Array(padded * padded);
 
-  for (let i = 0; i <= subdivisions; i++) {
-    for (let j = 0; j <= subdivisions; j++) {
-      const localX = (j / subdivisions - 0.5) * chunkSize;
-      const localZ = (i / subdivisions - 0.5) * chunkSize;
-      const x = localX + worldX;
-      const z = localZ + worldZ;
-
-      const height = calculateHeightFromNoise(x, z);
-      const index = i * (subdivisions + 1) + j;
-      heights[index] = height;
+  for (let i = 0; i < padded; i++) {
+    for (let j = 0; j < padded; j++) {
+      // (i-1, j-1) are the interior grid coords; -1 and subdivisions+1 are apron
+      // rows/cols sampling the NEIGHBOR chunk's edge vertices — the noise field
+      // is world-continuous, so both chunks see identical values there, which is
+      // what makes the main thread's central-difference normals seam-free.
+      // Interior world coords are bit-identical to the pre-apron version: (j-1)
+      // is an exact integer, so (j-1)/subdivisions - 0.5 reproduces the old
+      // float exactly (same seed → same world).
+      const localX = ((j - 1) / subdivisions - 0.5) * chunkSize;
+      const localZ = ((i - 1) / subdivisions - 0.5) * chunkSize;
+      heights[i * padded + j] = calculateHeightFromNoise(localX + worldX, localZ + worldZ);
     }
   }
   return heights;
@@ -98,7 +101,7 @@ function generateBuildings(
   chunkX: number,
   chunkZ: number,
   chunkSize: number,
-  heightmap: Float32Array,
+  paddedHeightmap: Float32Array,
   subdivisions: number,
   seed: number,
 ): BuildingConfig[] {
@@ -121,16 +124,16 @@ function generateBuildings(
     const buildingX = worldX + localX;
     const buildingZ = worldZ + localZ;
 
-    // TerrainManager copies the heightmap rows z-flipped to match CreateGround's
+    // TerrainManager copies the paddedHeightmap rows z-flipped to match CreateGround's
     // vertex order, so the rendered ground equals this noise field directly —
     // sample it at the building's own local position.
-    const terrainHeight = getHeightAtPosition(localX, localZ, heightmap, chunkSize, subdivisions);
+    const terrainHeight = getHeightAtPosition(localX, localZ, paddedHeightmap, chunkSize, subdivisions);
 
     const sampleDistance = 5;
-    const heightNorth = getHeightAtPosition(localX, localZ + sampleDistance, heightmap, chunkSize, subdivisions);
-    const heightSouth = getHeightAtPosition(localX, localZ - sampleDistance, heightmap, chunkSize, subdivisions);
-    const heightEast = getHeightAtPosition(localX + sampleDistance, localZ, heightmap, chunkSize, subdivisions);
-    const heightWest = getHeightAtPosition(localX - sampleDistance, localZ, heightmap, chunkSize, subdivisions);
+    const heightNorth = getHeightAtPosition(localX, localZ + sampleDistance, paddedHeightmap, chunkSize, subdivisions);
+    const heightSouth = getHeightAtPosition(localX, localZ - sampleDistance, paddedHeightmap, chunkSize, subdivisions);
+    const heightEast = getHeightAtPosition(localX + sampleDistance, localZ, paddedHeightmap, chunkSize, subdivisions);
+    const heightWest = getHeightAtPosition(localX - sampleDistance, localZ, paddedHeightmap, chunkSize, subdivisions);
 
     const maxSlope = Math.max(
       Math.abs(heightNorth - terrainHeight),
@@ -155,7 +158,7 @@ function generateBuildings(
       for (const cornerZ of [localZ - halfDepth, localZ + halfDepth]) {
         minCornerHeight = Math.min(
           minCornerHeight,
-          getHeightAtPosition(cornerX, cornerZ, heightmap, chunkSize, subdivisions),
+          getHeightAtPosition(cornerX, cornerZ, paddedHeightmap, chunkSize, subdivisions),
         );
       }
     }
@@ -180,6 +183,9 @@ function getHeightAtPosition(
   const gridX0 = Math.floor(gridX);
   const gridZ0 = Math.floor(gridZ);
 
+  // Same interior-only bounds as before the apron; the +1 offsets below skip
+  // the apron ring, so interior heights are the exact pre-apron values and the
+  // building RNG stream (slope rejects, corner minima) is unchanged.
   if (gridX0 < 0 || gridX0 >= subdivisions || gridZ0 < 0 || gridZ0 >= subdivisions) {
     return 0;
   }
@@ -187,10 +193,12 @@ function getHeightAtPosition(
   const tx = gridX - gridX0;
   const tz = gridZ - gridZ0;
 
-  const h00 = heights[gridZ0 * (subdivisions + 1) + gridX0];
-  const h10 = heights[gridZ0 * (subdivisions + 1) + (gridX0 + 1)];
-  const h01 = heights[(gridZ0 + 1) * (subdivisions + 1) + gridX0];
-  const h11 = heights[(gridZ0 + 1) * (subdivisions + 1) + (gridX0 + 1)];
+  const paddedRow = subdivisions + 3;
+  const base = (gridZ0 + 1) * paddedRow + (gridX0 + 1);
+  const h00 = heights[base];
+  const h10 = heights[base + 1];
+  const h01 = heights[base + paddedRow];
+  const h11 = heights[base + paddedRow + 1];
 
   if (h00 === undefined || h10 === undefined || h01 === undefined || h11 === undefined) {
     return 0;
@@ -209,8 +217,8 @@ self.onmessage = (event) => {
     case 'GENERATE_TERRAIN_CHUNK':
       const { chunkX, chunkZ, chunkSize, subdivisions, seed } = data as TerrainChunkRequest;
       ensureNoiseSeed(seed);
-      const heightmap = generateHeightmap(chunkX, chunkZ, chunkSize, subdivisions);
-      const buildingConfigs = generateBuildings(chunkX, chunkZ, chunkSize, heightmap, subdivisions, seed);
+      const paddedHeightmap = generateHeightmap(chunkX, chunkZ, chunkSize, subdivisions);
+      const buildingConfigs = generateBuildings(chunkX, chunkZ, chunkSize, paddedHeightmap, subdivisions, seed);
 
       (self as any).postMessage({
         type: 'TERRAIN_CHUNK_READY',
@@ -218,7 +226,7 @@ self.onmessage = (event) => {
         data: {
           chunkX,
           chunkZ,
-          heightmap,
+          paddedHeightmap,
           buildingConfigs,
         },
       });

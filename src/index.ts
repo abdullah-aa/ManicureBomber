@@ -8,8 +8,15 @@ if (!canvasElement || !(canvasElement instanceof HTMLCanvasElement)) {
 }
 const canvas = canvasElement;
 
-// Create the Babylon.js engine
-const engine = new Engine(canvas, true, { powerPreference: 'high-performance' });
+// Create the Babylon.js engine.
+// Default-framebuffer MSAA is OFF: hardware scaling (below) already renders
+// under-res and the canvas upscale filters edges, and the interleaved A/B on
+// the SwiftShader mobile proxy measured MSAA at ~2x the frame cost (mean fps
+// 1.92 vs 4.13 over 3 runs each, no spread overlap) with no visible edge-
+// quality loss at the game's rendering scale. ?aa=1 re-enables it (a context-
+// creation attribute — cannot be toggled at runtime, hence a URL param).
+const antialias = new URLSearchParams(window.location.search).get('aa') === '1';
+const engine = new Engine(canvas, antialias, { powerPreference: 'high-performance' });
 
 // Render at a sensible resolution on high-DPI (mostly mobile) screens; full
 // devicePixelRatio rendering quadruples fill-rate cost for little visible gain.
@@ -57,6 +64,11 @@ const game = new Game(scene, canvas);
 if ((window as any).__perf) {
   // Lets measurement drivers start the game and toggle AI mode programmatically
   (window as any).__perf.game = game;
+}
+
+// Debug HUD (AI state, camera sub-states, projectile counts), enabled with ?debug=1
+if (new URLSearchParams(window.location.search).get('debug') === '1') {
+  import('./ui/DebugOverlay').then(({ DebugOverlay }) => new DebugOverlay(game));
 }
 
 // Wire up the splash screen: gameplay stays paused until the player taps START

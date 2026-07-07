@@ -1,3 +1,4 @@
+import { Vector3 } from '@babylonjs/core';
 import { Game } from '../managers/Game';
 import { InputManager } from '../managers/InputManager';
 import { EventBus } from '../utils/EventBus';
@@ -48,6 +49,15 @@ export class UIManager {
   // null forces the first paint of the modal toggles
   private lastControlCameraMode: boolean | null = null;
 
+  // Threat bearing arrow: edge-of-screen pointer at the nearest Iskander.
+  // Scratch is shared/static — the 50ms UI tick is single-threaded.
+  private static readonly arrowScratch = new Vector3();
+  private threatArrow!: HTMLElement;
+  private lastArrowVisible: boolean = false;
+  private lastArrowX: number = NaN;
+  private lastArrowY: number = NaN;
+  private lastArrowAngle: number = NaN;
+
   // Alert system
   private alertContainer!: HTMLElement;
   private activeAlerts: Map<string, HTMLElement> = new Map();
@@ -56,6 +66,9 @@ export class UIManager {
   private persistentAlerts: Set<string> = new Set();
   private iskanderAlertId: string = 'iskander-lock';
   private iskanderAlertStage: 'none' | 'inbound' | 'locked' = 'none';
+  // Rising-edge latch for the cloud-cover cue (own alert type: it must never
+  // displace the iskander banner)
+  private lastConcealedCue: boolean = false;
 
   constructor(game: Game, inputManager: InputManager, events: EventBus<GameEvents>) {
     this.game = game;
@@ -68,6 +81,7 @@ export class UIManager {
     this.createSettingsModal();
     this.createHealthBar();
     this.createAlertSystem();
+    this.createThreatArrow();
 
     // Listen for button clicks to start a bombing run
     this.bombButton.addEventListener('click', () => {
@@ -371,6 +385,27 @@ export class UIManager {
     this.alertContainer.id = 'alert-container';
     document.body.appendChild(this.alertContainer);
     this.addAlertStyles();
+  }
+
+  /** Edge-of-screen bearing arrow at the nearest Iskander threat. A 0x0 fixed
+   *  anchor at the viewport origin moved purely via transform (translate3d +
+   *  rotate) so the 50ms tick never triggers layout; the visible triangle is a
+   *  CSS-border child centered on the anchor. Triangle points UP at rotation 0. */
+  private createThreatArrow(): void {
+    this.threatArrow = document.createElement('div');
+    this.threatArrow.id = 'threat-arrow';
+    this.threatArrow.style.cssText =
+      'position:fixed;top:0;left:0;width:0;height:0;display:none;' +
+      'pointer-events:none;z-index:1500;will-change:transform;';
+    const triangle = document.createElement('div');
+    triangle.style.cssText =
+      'width:0;height:0;' +
+      'border-left:9px solid transparent;border-right:9px solid transparent;' +
+      'border-bottom:16px solid #ff3320;' +
+      'filter:drop-shadow(0 0 4px rgba(255,60,0,.8));' +
+      'margin-left:-9px;margin-top:-8px;';
+    this.threatArrow.appendChild(triangle);
+    document.body.appendChild(this.threatArrow);
   }
 
   private addAlertStyles(): void {
@@ -848,6 +883,100 @@ export class UIManager {
     this.updateAIToggleButton();
     this.updateHealthBar();
     this.updateIskanderAlert();
+    this.updateThreatArrow();
+
+    // Cloud-cover cue: fires once on the rising edge of "concealed while
+    // unlocked seekers are inbound" (a completed lock tracks through clouds,
+    // so no cue then). Falling edge resets the latch.
+    const concealedCue =
+      this.game.isBomberConcealed() &&
+      this.game.hasIskanderMissilesForAlert() &&
+      !this.game.hasLockedIskanderMissiles();
+    if (concealedCue && !this.lastConcealedCue) {
+      this.showAlert('☁ CLOUD COVER — LOCK PAUSED', 'cloud-cover', 2000);
+    }
+    this.lastConcealedCue = concealedCue;
+  }
+
+  private hideThreatArrow(): void {
+    if (this.lastArrowVisible) {
+      this.threatArrow.style.display = 'none';
+      this.lastArrowVisible = false;
+    }
+  }
+
+  /** Point at the nearest Iskander when it is off-screen (or behind the
+   *  camera): project into view space, clamp the center→threat screen ray to
+   *  the viewport edge (28px margin), rotate the triangle along it. All writes
+   *  are change-gated (>2px / >3°); display toggles only on transitions. */
+  private updateThreatArrow(): void {
+    if (!this.game.hasIskanderMissilesForAlert()) {
+      this.hideThreatArrow();
+      return;
+    }
+
+    const camera = this.game.getCameraController().getCamera();
+    const v = UIManager.arrowScratch;
+    Vector3.TransformCoordinatesToRef(
+      this.game.getClosestIskanderThreatPositionRef(),
+      camera.getViewMatrix(),
+      v,
+    );
+
+    // Screen direction from center. In front of the camera use NDC (and bail
+    // if the threat is already comfortably on-screen); behind mirrors both
+    // axes. Screen y is down.
+    let dx: number;
+    let dy: number;
+    if (v.z > 0.1) {
+      const tanHalf = Math.tan(camera.fov / 2);
+      const aspect = window.innerWidth / window.innerHeight;
+      const nx = v.x / (v.z * tanHalf * aspect);
+      const ny = v.y / (v.z * tanHalf);
+      if (Math.abs(nx) < 0.92 && Math.abs(ny) < 0.92) {
+        this.hideThreatArrow(); // threat visible — the arrow would just clutter
+        return;
+      }
+      dx = nx;
+      dy = -ny;
+    } else {
+      dx = -v.x;
+      dy = v.y;
+    }
+
+    // Clamp to the viewport edge with margin M.
+    const M = 28;
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight / 2;
+    const ax = Math.abs(dx * cx);
+    const ay = Math.abs(dy * cy);
+    if (ax < 1e-6 && ay < 1e-6) return; // dead-center degenerate: keep last pose
+    const s = Math.min(
+      ax > 1e-6 ? (cx - M) / ax : Infinity,
+      ay > 1e-6 ? (cy - M) / ay : Infinity,
+    );
+    const px = cx + dx * cx * s;
+    const py = cy + dy * cy * s;
+    // Rotation must use the PIXEL-space ray (dy*cy, dx*cx), matching the
+    // position math above — the raw NDC angle disagrees with where the arrow
+    // sits by the aspect stretch (~15° at 16:9).
+    const angleDeg = Math.atan2(dy * cy, dx * cx) * (180 / Math.PI) + 90;
+
+    if (
+      Number.isNaN(this.lastArrowX) ||
+      Math.abs(px - this.lastArrowX) > 2 ||
+      Math.abs(py - this.lastArrowY) > 2 ||
+      Math.abs(angleDeg - this.lastArrowAngle) > 3
+    ) {
+      this.threatArrow.style.transform = `translate3d(${px}px,${py}px,0) rotate(${angleDeg}deg)`;
+      this.lastArrowX = px;
+      this.lastArrowY = py;
+      this.lastArrowAngle = angleDeg;
+    }
+    if (!this.lastArrowVisible) {
+      this.threatArrow.style.display = 'block';
+      this.lastArrowVisible = true;
+    }
   }
 
   private updateBombButton(): void {
@@ -1085,6 +1214,7 @@ export class UIManager {
     this.activeAlerts.forEach((alertElement) => alertElement.remove());
     this.activeAlerts.clear();
     this.persistentAlerts.clear();
+    this.hideThreatArrow();
   }
 
   public removeAlert(type: string): void {
