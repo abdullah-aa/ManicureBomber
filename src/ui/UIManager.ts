@@ -1,5 +1,7 @@
 import { Game } from '../managers/Game';
 import { InputManager } from '../managers/InputManager';
+import { EventBus } from '../utils/EventBus';
+import { GameEvents } from '../managers/GameEvents';
 
 export class UIManager {
   private game: Game;
@@ -45,10 +47,6 @@ export class UIManager {
   private lastHasIskander: boolean = false;
   // null forces the first paint of the modal toggles
   private lastControlCameraMode: boolean | null = null;
-  private lastRocketViewOn: boolean | null = null;
-  private lastRocketAvailable: boolean | null = null;
-  private lastPanicViewOn: boolean | null = null;
-  private lastPanicAvailable: boolean | null = null;
 
   // Alert system
   private alertContainer!: HTMLElement;
@@ -59,7 +57,7 @@ export class UIManager {
   private iskanderAlertId: string = 'iskander-lock';
   private iskanderAlertStage: 'none' | 'inbound' | 'locked' = 'none';
 
-  constructor(game: Game, inputManager: InputManager) {
+  constructor(game: Game, inputManager: InputManager, events: EventBus<GameEvents>) {
     this.game = game;
     this.inputManager = inputManager;
     this.createBombButton();
@@ -107,16 +105,11 @@ export class UIManager {
 
     this.settingsAIToggle.addEventListener('click', () => {
       const aiController = this.game.getAIController();
+      // Disabling forces the camera to chase — CameraController owns that
+      // policy via its aiEnabledChanged subscription; rows repaint via events.
       aiController.setEnabled(!aiController.isEnabled());
       this.showAlert(aiController.isEnabled() ? 'AUTOPILOT ENGAGED' : 'AUTOPILOT OFF', 'default', 2000);
-      // Rocket/Panic View only exist in AI mode (Game's loop check is the backstop)
-      if (!aiController.isEnabled()) {
-        this.game.getCameraController().setRocketViewEnabled(false);
-        this.game.getCameraController().setPanicViewEnabled(false);
-      }
       this.updateAIToggleButton(true);
-      this.updateRocketViewRow();
-      this.updatePanicViewRow();
     });
 
     this.settingsControlToggle.addEventListener('click', () => {
@@ -132,18 +125,29 @@ export class UIManager {
 
     this.settingsRocketToggle.addEventListener('click', () => {
       const cameraController = this.game.getCameraController();
-      // Enabling forces Panic View off (the setter cross-forces) — repaint both rows
-      cameraController.setRocketViewEnabled(!cameraController.isRocketViewEnabled());
-      this.showAlert(cameraController.isRocketViewEnabled() ? 'ROCKET VIEW ON' : 'ROCKET VIEW OFF', 'default', 2000);
-      this.updateRocketViewRow();
-      this.updatePanicViewRow();
+      // Enabling forces Panic View off (setViewMode enforces exclusivity);
+      // both rows repaint via the viewModeChanged subscription below.
+      const turningOn = cameraController.getViewMode() !== 'rocket';
+      cameraController.setViewMode(turningOn ? 'rocket' : 'chase');
+      this.showAlert(cameraController.getViewMode() === 'rocket' ? 'ROCKET VIEW ON' : 'ROCKET VIEW OFF', 'default', 2000);
     });
 
     this.settingsPanicToggle.addEventListener('click', () => {
       const cameraController = this.game.getCameraController();
-      // Enabling forces Rocket View off (the setter cross-forces) — repaint both rows
-      cameraController.setPanicViewEnabled(!cameraController.isPanicViewEnabled());
-      this.showAlert(cameraController.isPanicViewEnabled() ? 'PANIC VIEW ON' : 'PANIC VIEW OFF', 'default', 2000);
+      const turningOn = cameraController.getViewMode() !== 'panic';
+      cameraController.setViewMode(turningOn ? 'panic' : 'chase');
+      this.showAlert(cameraController.getViewMode() === 'panic' ? 'PANIC VIEW ON' : 'PANIC VIEW OFF', 'default', 2000);
+    });
+
+    // The rocket/panic settings rows are event-driven (the only discrete,
+    // fully-evented state the UI shows); everything else stays polled. The
+    // ON/OFF alerts stay in the click handlers above — subscribing them here
+    // would newly fire on forced transitions (AI-off, game over).
+    events.on('viewModeChanged', () => {
+      this.updateRocketViewRow();
+      this.updatePanicViewRow();
+    });
+    events.on('aiEnabledChanged', () => {
       this.updateRocketViewRow();
       this.updatePanicViewRow();
     });
@@ -464,12 +468,11 @@ export class UIManager {
     this.settingsControlToggle.textContent = isCameraMode ? '📹 CAMERA' : '✈️ PLANE';
   }
 
-  private updateRocketViewRow(force: boolean = false): void {
+  // Unconditional repaints: only called at construction and on
+  // viewModeChanged/aiEnabledChanged events, never per-tick.
+  private updateRocketViewRow(): void {
     const available = this.game.getAIController().isEnabled();
-    const rocketViewOn = this.game.getCameraController().isRocketViewEnabled();
-    if (!force && available === this.lastRocketAvailable && rocketViewOn === this.lastRocketViewOn) return;
-    this.lastRocketAvailable = available;
-    this.lastRocketViewOn = rocketViewOn;
+    const rocketViewOn = this.game.getCameraController().getViewMode() === 'rocket';
 
     this.settingsRocketRow.classList.toggle('unavailable', !available);
     // pointer-events:none alone leaves the button keyboard-focusable
@@ -478,12 +481,9 @@ export class UIManager {
     this.settingsRocketToggle.classList.toggle('on', rocketViewOn);
   }
 
-  private updatePanicViewRow(force: boolean = false): void {
+  private updatePanicViewRow(): void {
     const available = this.game.getAIController().isEnabled();
-    const panicViewOn = this.game.getCameraController().isPanicViewEnabled();
-    if (!force && available === this.lastPanicAvailable && panicViewOn === this.lastPanicViewOn) return;
-    this.lastPanicAvailable = available;
-    this.lastPanicViewOn = panicViewOn;
+    const panicViewOn = this.game.getCameraController().getViewMode() === 'panic';
 
     this.settingsPanicRow.classList.toggle('unavailable', !available);
     // pointer-events:none alone leaves the button keyboard-focusable
@@ -846,9 +846,6 @@ export class UIManager {
     this.updateCameraButton();
     this.updateControlToggle();
     this.updateAIToggleButton();
-    // Catches the Game-side Rocket/Panic View force-offs so the modal never goes stale
-    this.updateRocketViewRow();
-    this.updatePanicViewRow();
     this.updateHealthBar();
     this.updateIskanderAlert();
   }

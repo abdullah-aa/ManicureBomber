@@ -209,14 +209,89 @@ export interface BuildingConfig {
   isDefenseLauncher?: boolean;
 }
 
-// BuildingData shared across workers
-export interface BuildingData {
-  id: string;
-  position: Vector3;
-  width: number;
-  height: number;
-  depth: number;
-  isTarget: boolean;
-  isDefenseLauncher: boolean;
-  isDestroyed: boolean;
+// ---------------------------------------------------------------------------
+// Deterministic RNG
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-chunk deterministic PRNG (mulberry32 seeded by hashing the world seed
+ * with the chunk coordinates): the same (seed, chunkX, chunkZ) always yields
+ * the same building layout, independent of chunk generation ORDER — which
+ * varies with flight path — so a seeded world is fully reproducible.
+ */
+export function createChunkRng(worldSeed: number, chunkX: number, chunkZ: number): () => number {
+  let h = worldSeed >>> 0;
+  h = Math.imul(h ^ ((chunkX + 0x9e3779b9) >>> 0), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ ((chunkZ + 0x9e3779b9) >>> 0), 0xc2b2ae35) >>> 0;
+  let state = h >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
+
+// ---------------------------------------------------------------------------
+// Worker protocol — the SINGLE source of truth for every message crossing a
+// worker boundary. Both sides (WorkerManager and the worker files) import
+// these, so a protocol change is compiler-checked end to end instead of being
+// stringly-typed `any` (the old worker index-mismatch collision bug was
+// exactly this class of error).
+// ---------------------------------------------------------------------------
+
+export interface TerrainChunkRequest {
+  chunkX: number;
+  chunkZ: number;
+  chunkSize: number;
+  subdivisions: number;
+  /** World seed — heightmap noise and building rolls both derive from it. */
+  seed: number;
+}
+
+export interface TerrainChunkResult {
+  chunkX: number;
+  chunkZ: number;
+  heightmap: Float32Array;
+  buildingConfigs: BuildingConfig[];
+}
+
+export interface DefenseTrajectoryRequest {
+  position: Vector3;
+  velocity: Vector3;
+  rotation: Vector3;
+  targetPosition: Vector3;
+  bomberVelocity?: Vector3;
+  speed: number;
+  deltaTime: number;
+  launched: boolean;
+  exploded: boolean;
+  targetSet: boolean;
+  maxAltitude: number;
+}
+
+export interface DefenseTrajectoryResult {
+  position: Vector3;
+  velocity: Vector3;
+  rotation: Vector3;
+  reachedTarget: boolean;
+  shouldExplode: boolean;
+  distanceToTarget: number;
+  targetSet: boolean;
+}
+
+export interface TomahawkPathRequest {
+  launchPosition: Vector3;
+  targetPosition: Vector3;
+  animationOffset: Vector3;
+}
+
+export interface TomahawkPathResult {
+  waypoints: Vector3[];
+}
+
+export type TerrainWorkerRequest = { type: 'GENERATE_TERRAIN_CHUNK'; data: TerrainChunkRequest };
+export type MissilePhysicsWorkerRequest =
+  | { type: 'CALCULATE_DEFENSE_TRAJECTORY'; data: DefenseTrajectoryRequest }
+  | { type: 'GENERATE_TOMAHAWK_PATH'; data: TomahawkPathRequest };
+

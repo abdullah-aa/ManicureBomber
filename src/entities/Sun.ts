@@ -1,4 +1,5 @@
 import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, DynamicTexture, Color3 } from '@babylonjs/core';
+import { SKY_COLOR } from '../config/Balance';
 
 // Unit vector from any observer toward the sun: elevation atan(1/1.5*sqrt(2)) ~= 25deg,
 // azimuth 45deg between +x/+z (same azimuth as the old (-1,-1,-1) light). Low enough
@@ -32,9 +33,9 @@ export function createSun(scene: Scene): Mesh {
   const texture = new DynamicTexture('sunTexture', texSize, scene, false);
   const ctx = texture.getContext();
   const half = texSize / 2;
-  // Must equal scene.clearColor (0.5, 0.7, 0.9) = rgb(128, 179, 230) — if the sky
-  // color in TerrainManager.createClearSky ever changes, change this with it.
-  ctx.fillStyle = 'rgb(128, 179, 230)';
+  // Must equal scene.clearColor exactly or the opaque disc's edges show against
+  // the sky — both derive from the shared SKY_COLOR in Balance.ts.
+  ctx.fillStyle = `rgb(${Math.round(SKY_COLOR.r * 255)}, ${Math.round(SKY_COLOR.g * 255)}, ${Math.round(SKY_COLOR.b * 255)})`;
   ctx.fillRect(0, 0, texSize, texSize);
   const gradient = ctx.createRadialGradient(half, half, 0, half, half, half);
   gradient.addColorStop(0.0, 'rgba(255, 249, 234, 0.95)'); // pale warm core

@@ -7,10 +7,12 @@
     "build": "webpack --mode=production",
     "dev": "webpack serve --mode=development",
     "start": "webpack serve --mode=development --open",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write ."
   },
   "devDependencies": {
+    "@babylonjs/inspector": "^8.14.0",
     "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^8.38.0",
     "@typescript-eslint/parser": "^8.38.0",
@@ -26,7 +28,6 @@
     "webpack-dev-server": "^4.15.0"
   },
   "dependencies": {
-    "@babylonjs/core": "^8.14.0",
-    "@babylonjs/inspector": "^8.14.0"
+    "@babylonjs/core": "^8.14.0"
   }
 }

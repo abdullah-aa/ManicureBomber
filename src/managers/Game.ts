@@ -13,7 +13,10 @@ import {
 import { Bomber } from '../entities/Bomber';
 import { TerrainManager } from './TerrainManager';
 import { InputManager } from './InputManager';
-import { CameraController, RocketViewCandidate, RocketViewKind, PanicViewCandidate, PanicViewKind } from './CameraController';
+import { CameraController } from './CameraController';
+import { CinematicCandidateProvider, PanicStory } from './CinematicDirector';
+import { EventBus } from '../utils/EventBus';
+import { GameEvents } from './GameEvents';
 import { Bomb } from '../entities/Bomb';
 import { IskanderMissile } from '../entities/IskanderMissile';
 import { DefenseMissile } from '../entities/DefenseMissile';
@@ -22,9 +25,13 @@ import { RadarManager } from '../ui/RadarManager';
 import { WorkerManager } from './WorkerManager';
 import { Building } from '../entities/Building';
 import { AIController } from './AIController';
+import { ProjectileRegistry } from './ProjectileRegistry';
 import { ExplosionPool } from '../effects/ExplosionPool';
 import { AudioManager } from '../effects/AudioManager';
 import { LightManager } from './LightManager';
+import { RADAR_RANGE, CAMERA_MAX_Z } from '../config/Balance';
+import { GameClock } from '../utils/GameClock';
+import { Cooldown } from '../utils/Cooldown';
 import { createSun, SUN_DIRECTION } from '../entities/Sun';
 
 export class Game {
@@ -40,18 +47,20 @@ export class Game {
   private groundCrosshair!: Mesh;
   private workerManager!: WorkerManager;
   private aiController!: AIController;
+  // Discrete cross-system transitions (viewMode, AI enabled); continuous
+  // values stay polled and per-frame feeds stay provider closures.
+  private readonly events = new EventBus<GameEvents>();
+  private cinematics!: CinematicCandidateProvider;
+  private panicStory!: PanicStory;
 
   // Bombing properties
   private bombs: Bomb[] = [];
   private isBombingRun: boolean = false;
-  private bombingRunCooldown: number = 15; // 15 seconds
-  private lastBombingRunTime: number = -Infinity; // Start with cooldown finished
+  private readonly bombingCooldown = new Cooldown(15); // seconds between runs
   private bombsToDrop: number = 0;
   private lastBombDropTime: number = 0;
 
   // Iskander missile system
-  private iskanderMissiles: IskanderMissile[] = [];
-  private iskanderExplodedAt: Map<IskanderMissile, number> = new Map();
   // Recomputed once per frame; read by AI, countermeasures, and the UI tick
   private iskanderAlertActive: boolean = false;
   // Subset of the above: a threat in range whose 4s lock timer actually completed
@@ -67,34 +76,9 @@ export class Game {
   private pendingIskanderLauncher: Building | null = null;
   private readonly iskanderPreselectLead = 1;
 
-  // Defense missile system - centralized management
-  private defenseMissiles: DefenseMissile[] = [];
-  // Defer disposal ~1.5s after explosion so Rocket View can hold on the blast and
-  // the airburst finishes (mirrors iskanderExplodedAt).
-  private defenseExplodedAt: Map<DefenseMissile, number> = new Map();
-  // Reused descriptor returned by getRocketViewCandidate() — the camera copies its
-  // fields out synchronously, so a single instance avoids per-frame allocation.
-  // anchorX/anchorZ are only meaningful for anchor-only kinds (IskanderPrelaunch).
-  private rocketCandidate: RocketViewCandidate = {
-    missile: null,
-    kind: RocketViewKind.Iskander,
-    anchorX: 0,
-    anchorZ: 0,
-  };
-
-  // Panic View bookkeeping: the bombing-run target captured at trigger time — the
-  // camera's story anchor. Sticky on purpose: mid-run AI retargets never yank the
-  // victim's viewpoint. Cleared when the run is over and the stick has landed.
-  private panicBombingBuilding: Building | null = null;
-  // Reused descriptor returned by getPanicViewCandidate() (rocketCandidate's pattern).
-  private panicCandidate: PanicViewCandidate = {
-    kind: PanicViewKind.Bombing,
-    missile: null,
-    anchorX: 0,
-    anchorZ: 0,
-    topY: 0,
-  };
-
+  // All swept projectiles (iskanders, defense missiles, tomahawks) — lifecycle
+  // lingers and retirement live in the registry; update loops stay here/Bomber.
+  private readonly projectiles = new ProjectileRegistry();
   // Scoring system
   private destroyedBuildings: number = 0;
   private destroyedTargets: number = 0;
@@ -119,6 +103,15 @@ export class Game {
   private lastCollisionCheckTime: number = 0;
   private collisionCheckInterval: number = 16; // Check collisions every 16ms (60fps)
 
+  // World seed: ?seed=<uint32> reproduces a run's exact terrain and building
+  // layout (shareable maps, deterministic test fixtures); otherwise random.
+  // Read it back via getWorldSeed() / __perf.game.
+  private readonly worldSeed: number = (() => {
+    const param = new URLSearchParams(window.location.search).get('seed');
+    const parsed = param !== null ? Number(param) : NaN;
+    return Number.isFinite(parsed) ? parsed >>> 0 : (Math.random() * 0xffffffff) >>> 0;
+  })();
+
   constructor(scene: Scene, canvas: HTMLCanvasElement) {
     this.scene = scene;
     // Touch-first game: pointer events never need a pick ray (input reads raw
@@ -137,10 +130,10 @@ export class Game {
     // Initialize worker manager first
     this.workerManager = new WorkerManager();
 
-    this.terrainManager = new TerrainManager(this.scene, this.workerManager);
+    this.terrainManager = new TerrainManager(this.scene, this.workerManager, this.worldSeed);
     this.terrainManager.setGame(this);
 
-    this.bomber = new Bomber(this.scene, this.workerManager);
+    this.bomber = new Bomber(this.scene, this.workerManager, this.projectiles);
     this.bomber.setBombingRunActiveCallback(() => this.isBombingRunInProgress());
     this.bomber.setOnDestroyedCallback(() => this.handleGameOver());
     // Fired by a Tomahawk confirming its launcher kill. The building itself
@@ -150,21 +143,29 @@ export class Game {
       this.destroyedLaunchers++;
     });
 
-    this.cameraController = new CameraController(this.camera, this.bomber, this.terrainManager);
-    // Provider injection keeps CameraController free of a Game import (Game already
-    // imports CameraController)
-    this.cameraController.setMissileProvider(() => this.getRocketViewCandidate());
-    this.cameraController.setPanicProvider(() => this.getPanicViewCandidate());
+    this.cameraController = new CameraController(this.camera, this.bomber, this.terrainManager, this.events);
+    // Cinematography direction lives in CinematicDirector; provider-closure
+    // injection (house pattern) keeps CameraController free of a Game import.
+    this.cinematics = new CinematicCandidateProvider(
+      this.bomber,
+      this.projectiles.getIskanders(),
+      this.projectiles.getDefenseMissiles(),
+      () => this.pendingIskanderLauncher,
+      () => this.cameraController.isInTomahawkSequence(),
+    );
+    this.panicStory = new PanicStory(this.bomber, () => this.cameraController.getActivePanicKind());
+    this.cameraController.setMissileProvider(() => this.cinematics.getRocketViewCandidate());
+    this.cameraController.setPanicProvider(() => this.panicStory.getCandidate());
 
     this.inputManager = new InputManager(this.scene, this.canvas);
-    this.aiController = new AIController(this, this.bomber, this.terrainManager, this.inputManager);
+    this.aiController = new AIController(this, this.bomber, this.terrainManager, this.inputManager, this.events);
     // Manual input suspends the AI (grace period) without disabling it; the
     // cinematic cameras must hand the view back to the pilot for that window.
     this.cameraController.setManualOverrideProvider(() => this.aiController.isSuspended());
-    this.uiManager = new UIManager(this, this.inputManager);
+    this.uiManager = new UIManager(this, this.inputManager, this.events);
 
-    // Expose UIManager to global scope for HTML event handlers
-    (window as any).uiManager = this.uiManager;
+    // (The old `window.uiManager` global is gone — nothing in the HTML ever
+    // used it. Headless test drivers reach the UI via `__perf.game.uiManager`.)
 
     this.radarManager = new RadarManager();
     this.createGroundCrosshair();
@@ -173,9 +174,11 @@ export class Game {
     this.terrainManager.setBomber(this.bomber);
 
     return this.terrainManager.generateInitialTerrain(this.bomber.getPosition()).then(() => {
-      // Initialize first Iskander launch time
+      // First Iskander launch time in GAME time — the clock doesn't advance
+      // until start(), so splash-screen reading time can't count against the
+      // player (this used to need a wall-clock re-roll hack in start()).
       const initialInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
-      this.nextIskanderLaunchTime = performance.now() / 1000 + initialInterval;
+      this.nextIskanderLaunchTime = GameClock.now() + initialInterval;
 
       this.startGameLoop();
     });
@@ -194,11 +197,6 @@ export class Game {
     // lets us unlock the AudioContext. Engine drone runs until game over.
     AudioManager.get().unlock();
     AudioManager.get().startEngine();
-
-    // Reset the Iskander attack timer so time spent reading the splash screen
-    // doesn't immediately count against the player.
-    const initialInterval = this.iskanderLaunchInterval + Math.random() * this.iskanderRandomInterval;
-    this.nextIskanderLaunchTime = performance.now() / 1000 + initialInterval;
   }
 
   private setupLighting(): void {
@@ -230,9 +228,9 @@ export class Game {
     // Initial framing matches the bomber's spawn altitude (175) + default follow height
     this.camera = new FreeCamera('camera', new Vector3(0, 255, -200), this.scene);
     this.camera.setTarget(new Vector3(0, 175, 0));
-    // Limit the far clip plane to cull distant terrain. Must sit beyond the fog end
-    // (fogEnd = 1500, set in TerrainManager.createClearSky) so terrain fully fades to sky.
-    this.camera.maxZ = 1700;
+    // Limit the far clip plane to cull distant terrain. Must sit beyond FOG_END
+    // so terrain fully fades to sky — both live in Balance.ts.
+    this.camera.maxZ = CAMERA_MAX_Z;
     // Don't attach built-in controls - we handle camera movement manually via CameraController
     // this.camera.attachControl(this.canvas, true);
   }
@@ -307,7 +305,11 @@ export class Game {
         const deltaTime = this.scene.getEngine().getDeltaTime() / 1000;
 
         const safeDeltaTime = Math.min(deltaTime, 0.1);
-        const safeCurrentTime = currentTime / 1000;
+        // Game time advances by the CLAMPED delta only while running (the
+        // early-returns above freeze it on the splash screen and at game over),
+        // so every cooldown/schedule survives a tab-away intact.
+        GameClock.advance(safeDeltaTime);
+        const safeCurrentTime = GameClock.now();
 
         // Threat state is computed once per frame; AI, countermeasures, and UI read the cache
         this.iskanderAlertActive = this.computeIskanderAlert();
@@ -330,26 +332,19 @@ export class Game {
 
         this.bomber.update(safeDeltaTime, this.inputManager);
         this.updateBombs(safeDeltaTime);
-        // The bombing story ends only when the run is over AND the stick has
-        // landed (bombs.length alone is also 0 during the bay-open window).
-        if (this.panicBombingBuilding && !this.isBombingRun && this.bombs.length === 0) {
-          this.panicBombingBuilding = null;
-        }
+        this.panicStory.endBombingStoryIfComplete(this.isBombingRun, this.bombs.length > 0);
         this.updateIskanderMissiles(safeDeltaTime);
         this.updateDefenseMissiles(safeDeltaTime);
-        // Rocket/Panic View only exist in AI mode; force them off no matter who disabled the AI
-        if (!this.aiController.isEnabled()) {
-          if (this.cameraController.isRocketViewEnabled()) {
-            this.cameraController.setRocketViewEnabled(false);
-          }
-          if (this.cameraController.isPanicViewEnabled()) {
-            this.cameraController.setPanicViewEnabled(false);
-          }
-        }
+        // One unified linger sweep for all projectile types (was three
+        // hand-rolled copies); runs before the camera/collision/radar reads,
+        // exactly where the last of the old sweeps sat.
+        this.projectiles.sweep(safeCurrentTime);
+        // (The old "force cinematic views off when AI is off" backstop is gone:
+        // CameraController subscribes to aiEnabledChanged and owns that policy.)
         // Camera runs after the missile updates so Rocket View never chases a
         // one-frame-stale Iskander/defense-missile position, and sees a defense
-        // missile's hasExploded() the same frame it airbursts (they dispose
-        // same-frame, with no grace period)
+        // missile's hasExploded() the same frame it airbursts (the registry's
+        // 1.5s linger is what lets the explosion hold play out before release)
         this.cameraController.update(safeDeltaTime, this.inputManager);
         this.updateGroundCrosshair();
         // Cloud drift is per-frame (smooth), unlike the 10Hz terrain streaming below
@@ -392,8 +387,8 @@ export class Game {
             this.bomber,
             this.terrainManager,
             this.destroyedTargets,
-            this.iskanderMissiles,
-            this.defenseMissiles,
+            this.projectiles.getIskanders(),
+            this.projectiles.getDefenseMissiles(),
           );
           this.lastRadarUpdateTime = currentTime;
         }
@@ -433,7 +428,7 @@ export class Game {
     if (this.isBombingRun && this.bombsToDrop === 0) {
       this.isBombingRun = false;
       this.bomber.closeBombBay();
-      this.lastBombingRunTime = currentTime;
+      this.bombingCooldown.fire();
     }
   }
 
@@ -516,11 +511,11 @@ export class Game {
       // (Building.createBuildingMesh), so this is 3 above the launcher.
       launchPosition.y += farthestLauncher.getMaxHeight() + 5;
 
-      const missile = new IskanderMissile(this.scene, launchPosition, this.bomber, this.workerManager);
+      const missile = new IskanderMissile(this.scene, launchPosition, this.bomber);
       missile.setTerrainManager(this.terrainManager);
 
       missile.launch();
-      this.iskanderMissiles.push(missile);
+      this.projectiles.addIskander(missile);
     }
   }
 
@@ -537,30 +532,14 @@ export class Game {
   private updateIskanderMissiles(deltaTime: number): void {
     // Get active flares once for all missiles
     const activeFlares = this.bomber.getActiveFlares();
-    const currentTime = performance.now() / 1000;
 
-    // Update all Iskander missiles; sweep exploded ones 2s after explosion so
-    // their lingering explosion effects finish (no per-frame timers)
-    for (let i = this.iskanderMissiles.length - 1; i >= 0; i--) {
-      const missile = this.iskanderMissiles[i];
-
+    for (const missile of this.projectiles.getIskanders()) {
       // Update flare targets efficiently (replaces old list with current active flares)
       // This ensures missiles always track current flares without duplication
       missile.updateFlareTargets(activeFlares);
 
-      // Update missile physics (now handled by worker)
+      // Update missile physics (exploded/lingering missiles early-return inside)
       missile.update(deltaTime);
-
-      if (missile.hasExploded()) {
-        const explodedAt = this.iskanderExplodedAt.get(missile);
-        if (explodedAt === undefined) {
-          this.iskanderExplodedAt.set(missile, currentTime);
-        } else if (currentTime - explodedAt > 2) {
-          missile.dispose();
-          this.iskanderExplodedAt.delete(missile);
-          this.iskanderMissiles.splice(i, 1);
-        }
-      }
     }
   }
 
@@ -576,7 +555,7 @@ export class Game {
     // (20u) both only triggered explode(), so a single 20u check suffices.
     const proximityRadiusSq = 20 * 20;
 
-    for (const missile of this.iskanderMissiles) {
+    for (const missile of this.projectiles.getIskanders()) {
       if (!missile.isLaunched() || missile.hasExploded()) continue;
 
       if (Vector3.DistanceSquared(bomberPosition, missile.getPositionRef()) <= proximityRadiusSq) {
@@ -598,21 +577,19 @@ export class Game {
     if (this.isBombingAvailable()) {
       this.isBombingRun = true;
       this.bombsToDrop = 9;
-      this.lastBombDropTime = performance.now() / 1000;
+      this.lastBombDropTime = GameClock.now();
       this.bomber.openBombBay();
       // Panic View's story anchor: the AI's target the instant the run starts.
-      this.panicBombingBuilding = this.aiController.isEnabled()
-        ? this.aiController.getCurrentTarget()
-        : null;
+      this.panicStory.beginBombingRun(
+        this.aiController.isEnabled() ? this.aiController.getCurrentTarget() : null,
+      );
       // Don't drop bomb immediately - wait for doors to open
     }
   }
 
   public isBombingAvailable(): boolean {
-    const currentTime = performance.now() / 1000;
-    const cooldownReady = currentTime - this.lastBombingRunTime > this.bombingRunCooldown;
     const noWeaponActive = !this.bomber.isWeaponSystemActive();
-    return !this.isBombingRun && cooldownReady && noWeaponActive;
+    return !this.isBombingRun && this.bombingCooldown.ready() && noWeaponActive;
   }
 
   public isBombingRunActive(): boolean {
@@ -624,10 +601,11 @@ export class Game {
   }
 
   public getBombCooldownStatus(): number {
-    const currentTime = performance.now() / 1000;
-    const timeSinceLastRun = currentTime - this.lastBombingRunTime;
-    const cooldownProgress = Math.min(timeSinceLastRun / this.bombingRunCooldown, 1);
-    return this.isBombingRun ? 0 : cooldownProgress;
+    return this.isBombingRun ? 0 : this.bombingCooldown.status();
+  }
+
+  public getWorldSeed(): number {
+    return this.worldSeed;
   }
 
   public getBomber(): Bomber {
@@ -648,151 +626,23 @@ export class Game {
 
   // Defense missile management methods
   public addDefenseMissile(missile: DefenseMissile): void {
-    this.defenseMissiles.push(missile);
+    this.projectiles.addDefenseMissile(missile);
   }
 
   public getDefenseMissiles(): DefenseMissile[] {
-    return this.defenseMissiles;
+    return this.projectiles.getDefenseMissiles();
   }
 
   public getIskanderMissiles(): IskanderMissile[] {
-    return this.iskanderMissiles;
-  }
-
-  /**
-   * Candidate for Rocket View to NEWLY acquire. Priority: Iskanders > Iskander
-   * prelaunch dwell > Tomahawks > Tomahawk bay-open > defense missiles (the
-   * camera generalizes this into a preemption chain; the live missile displacing
-   * its own anchor-only precursor IS the prelaunch→launch / bay→drop handoff).
-   *
-   * Acquisition windows differ by kind: an Iskander is acquirable its whole life;
-   * a Tomahawk only during its bomb-bay launch animation (isInLaunchPhase); a
-   * defense missile only in its on-pad window (velocity still (0,0,0) before the
-   * async trajectory worker replies). So the camera catches Tomahawks/Defense at
-   * launch and shows the full lifecycle rather than snapping onto one already
-   * mid-flight; once followed, it keeps the missile regardless. The anchor-only
-   * kinds carry no missile: IskanderPrelaunch frames the pre-selected launcher
-   * (anchorX/anchorZ) and TomahawkBay frames the bomber's bay while the doors
-   * open. Returns a single reused descriptor (the camera copies its fields out).
-   */
-  private getRocketViewCandidate(): RocketViewCandidate | null {
-    // While the camera is committed to a Tomahawk sequence, withhold Iskander
-    // candidates: the tomahawk story plays to impact + explosion hold first.
-    if (!this.cameraController.isInTomahawkSequence()) {
-      for (const missile of this.iskanderMissiles) {
-        if (missile.isLaunched() && !missile.hasExploded()) {
-          this.rocketCandidate.missile = missile;
-          this.rocketCandidate.kind = RocketViewKind.Iskander;
-          return this.rocketCandidate;
-        }
-      }
-      // Nulled at fire time, so the dwell ends the instant the real missile exists.
-      if (this.pendingIskanderLauncher && !this.pendingIskanderLauncher.getIsDestroyed()) {
-        const p = this.pendingIskanderLauncher.getPosition();
-        this.rocketCandidate.missile = null;
-        this.rocketCandidate.kind = RocketViewKind.IskanderPrelaunch;
-        this.rocketCandidate.anchorX = p.x;
-        this.rocketCandidate.anchorZ = p.z;
-        return this.rocketCandidate;
-      }
-    }
-    for (const missile of this.bomber.getMissiles()) {
-      // Catch the Tomahawk only during its launch pop-up, then the follow persists.
-      if (!missile.hasExploded() && missile.isInLaunchPhase()) {
-        this.rocketCandidate.missile = missile;
-        this.rocketCandidate.kind = RocketViewKind.Tomahawk;
-        return this.rocketCandidate;
-      }
-    }
-    // Bay doors opening for a Tomahawk that doesn't exist yet (clears on spawn or abort).
-    if (this.bomber.isMissileLaunchPending()) {
-      this.rocketCandidate.missile = null;
-      this.rocketCandidate.kind = RocketViewKind.TomahawkBay;
-      return this.rocketCandidate;
-    }
-    for (const missile of this.defenseMissiles) {
-      if (missile.isLaunched() && !missile.hasExploded() && missile.getVelocityRef().lengthSquared() === 0) {
-        this.rocketCandidate.missile = missile;
-        this.rocketCandidate.kind = RocketViewKind.Defense;
-        return this.rocketCandidate;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Candidate for Panic View. Kind-gated on the camera's committed story: no
-   * preemption — the first story plays out, and returning null for the committed
-   * kind IS the end-of-story signal (the camera enters its impact hold or
-   * reverts). Bombing anchors to the sticky panicBombingBuilding; Tomahawk to
-   * the bomber's pending capture, then the missile's impact point. Destroyed
-   * anchors are deliberately NOT filtered — the camera keeps watching (the blast
-   * is the payoff); lifecycle clears end the story. Returns a single reused
-   * descriptor (the camera copies its fields out).
-   */
-  private getPanicViewCandidate(): PanicViewCandidate | null {
-    const committed = this.cameraController.getActivePanicKind();
-    if (committed !== PanicViewKind.Tomahawk) {
-      if (this.panicBombingBuilding) {
-        const p = this.panicBombingBuilding.getPosition();
-        this.panicCandidate.kind = PanicViewKind.Bombing;
-        this.panicCandidate.missile = null;
-        this.panicCandidate.anchorX = p.x;
-        this.panicCandidate.anchorZ = p.z;
-        this.panicCandidate.topY = p.y + this.panicBombingBuilding.getApexHeight();
-        return this.panicCandidate;
-      }
-      if (committed === PanicViewKind.Bombing) {
-        return null; // stick landed — story over
-      }
-    }
-    // Tomahawk: the pending window (bay doors opening), then the missile in flight.
-    const pendingTarget = this.bomber.getPendingMissileTargetBuilding();
-    if (pendingTarget) {
-      const p = pendingTarget.getPosition();
-      this.panicCandidate.kind = PanicViewKind.Tomahawk;
-      this.panicCandidate.missile = null;
-      this.panicCandidate.anchorX = p.x;
-      this.panicCandidate.anchorZ = p.z;
-      this.panicCandidate.topY = p.y + pendingTarget.getApexHeight();
-      return this.panicCandidate;
-    }
-    for (const missile of this.bomber.getMissiles()) {
-      if (!missile.hasExploded()) {
-        const tp = missile.getTargetPosition();
-        this.panicCandidate.kind = PanicViewKind.Tomahawk;
-        this.panicCandidate.missile = missile;
-        this.panicCandidate.anchorX = tp.x;
-        this.panicCandidate.anchorZ = tp.z;
-        this.panicCandidate.topY = tp.y;
-        return this.panicCandidate;
-      }
-    }
-    return null;
+    return this.projectiles.getIskanders();
   }
 
   private updateDefenseMissiles(deltaTime: number): void {
-    const currentTime = performance.now() / 1000;
-    // Update all defense missiles; sweep exploded ones ~1.5s after explosion so
-    // the airburst finishes and Rocket View can hold on the blast (no per-frame timers).
-    for (let i = this.defenseMissiles.length - 1; i >= 0; i--) {
-      const missile = this.defenseMissiles[i];
+    for (const missile of this.projectiles.getDefenseMissiles()) {
       // Terrain height under the missile: a shot down a slope detonates on the
       // hillside instead of tunneling through to flat-world y=0
       const mp = missile.getPositionRef();
       missile.update(deltaTime, this.terrainManager.getTerrainHeightAt(mp.x, mp.z));
-
-      if (missile.hasExploded()) {
-        const explodedAt = this.defenseExplodedAt.get(missile);
-        if (explodedAt === undefined) {
-          this.defenseExplodedAt.set(missile, currentTime);
-        } else if (currentTime - explodedAt > 1.5) {
-          // Back to the pool (not disposed) — launchers re-arm it on the next volley
-          missile.release();
-          this.defenseExplodedAt.delete(missile);
-          this.defenseMissiles.splice(i, 1);
-        }
-      }
     }
   }
 
@@ -816,13 +666,13 @@ export class Game {
     let closestThreatDistanceSq = Infinity;
     this.closestIskanderThreatDistance = Infinity;
     this.iskanderLockedActive = false;
-    if (this.iskanderMissiles.length === 0) return false;
+    const iskanders = this.projectiles.getIskanders();
+    if (iskanders.length === 0) return false;
 
     const bomberPosition = this.bomber.getPositionRef();
-    const alertDetectionRange = 500; // Much larger range for alerts - 500 units
-    const alertRangeSq = alertDetectionRange * alertDetectionRange;
+    const alertRangeSq = RADAR_RANGE * RADAR_RANGE; // alerts fire for exactly what the radar shows
 
-    for (const missile of this.iskanderMissiles) {
+    for (const missile of iskanders) {
       if (missile.isLaunched() && !missile.hasExploded()) {
         // Check if missile is locked on OR in the process of locking on
         const isLockedOn = missile.getIsLockedOn();
@@ -916,10 +766,9 @@ export class Game {
     // The loop's early-return stops setThreat naturally; kill the drone too
     AudioManager.get().stopEngine();
 
-    // Game-over stops camera updates entirely, so a mid-zoom Tomahawk FOV would
-    // otherwise stay frozen behind the overlay; this also restores the FOV.
-    this.cameraController.setRocketViewEnabled(false);
-    this.cameraController.setPanicViewEnabled(false);
+    // Game-over stops camera updates entirely; end any cinematic story so the
+    // final frame behind the overlay is the bomber, not a mid-story pose.
+    this.cameraController.setViewMode('chase');
 
     if (this.bomber) {
       this.bomber.dispose();
@@ -962,7 +811,7 @@ export class Game {
     const directHitRadiusSq = 8 * 8;
     const proximityRadiusSq = 20 * 20;
 
-    for (const missile of this.defenseMissiles) {
+    for (const missile of this.projectiles.getDefenseMissiles()) {
       if (!missile.isLaunched() || missile.hasExploded()) continue;
 
       const distanceSq = Vector3.DistanceSquared(bomberPosition, missile.getPositionRef());

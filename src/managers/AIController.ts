@@ -4,6 +4,16 @@ import { Building } from '../entities/Building';
 import { InputManager } from './InputManager';
 import { TerrainManager } from './TerrainManager';
 import { Game } from './Game';
+import {
+  RADAR_RANGE,
+  BOMBER_TURN_RADIUS,
+  BOMBER_MIN_ALTITUDE,
+  BOMBER_MAX_ALTITUDE,
+  AI_FLARE_RELEASE_RANGE,
+} from '../config/Balance';
+import { GameClock } from '../utils/GameClock';
+import { EventBus } from '../utils/EventBus';
+import { GameEvents } from './GameEvents';
 
 enum AIState {
   SEARCH = 'SEARCH',
@@ -42,7 +52,7 @@ export class AIController {
   private sawRunActive: boolean = false;
   private extendAnchor: Vector3 | null = null;
 
-  private readonly targetScanRadius = 500; // matches radar range
+  private readonly targetScanRadius = RADAR_RANGE; // the AI attacks exactly what the radar shows
   private readonly targetScanInterval = 1; // seconds between building queries
   // Altitude wander: defense missiles can now outclimb the bomber's 200 ceiling,
   // so there is no altitude to hide at. Every ~6-11 s the AI retargets to the
@@ -51,8 +61,8 @@ export class AIController {
   // deadband off the 150 floor and 200 ceiling so the clamp is never pegged.
   private altitudeTarget = 185;
   private nextAltitudeRetargetTime = -Infinity;
-  private readonly wanderFloor = 152;
-  private readonly wanderCeiling = 198;
+  private readonly wanderFloor = BOMBER_MIN_ALTITUDE + 2;
+  private readonly wanderCeiling = BOMBER_MAX_ALTITUDE - 2;
   private readonly altitudeRetargetMin = 5.9; // seconds (8/1.35 — retarget 35% more often)
   private readonly altitudeRetargetSpan = 5.2; // seconds of random extra (7/1.35)
   private readonly altitudeDeadband = 5;
@@ -62,21 +72,27 @@ export class AIController {
   private readonly bombLeadDistance = 125;
   private readonly bombHeadingTolerance = 0.12; // rad; cross-track ~15 u at lead distance, blast radius is 75
   private readonly standoffTurnDistance = 250; // orbit out when bombing is on cooldown
-  // Fixed-rate turn circle: Bomber speed (25) / turnSpeed (0.5). A target inside
-  // either turning circle can never be aligned with by pure pursuit.
-  private readonly turnRadius = 50;
+  // Fixed-rate turn circle, DERIVED from the bomber's speed/turn rate in
+  // Balance.ts — changing the bomber can no longer silently break this math.
+  // A target inside either turning circle can never be aligned with by pure pursuit.
+  private readonly turnRadius = BOMBER_TURN_RADIUS;
   private readonly reachabilityMargin = 1.2; // boundary-grazing targets are practically unreachable too
   private readonly reattackDistance = 250; // extend out at least this far before turning back in
   private readonly tomahawkHoldDistance = 200; // don't tie up the bomb bay this close to a run
   private readonly manualOverrideGrace = 2.5; // seconds the AI yields after manual input
-  // Hold flares until the missile is this close. Its seeker grabs flares within
-  // 225 u (flareDetectionRange 150 × 1.5), so releasing at 300 u puts fresh flares
-  // in seeker range within ~1 s instead of spending the burn while it's far out.
+  // Hold flares until the missile is this close — derived from the seeker's
+  // grab radius in Balance.ts (see AI_FLARE_RELEASE_RANGE for the reasoning).
   // Flares are the ONLY Iskander response: their seeker turns at 1.25-3.5 rad/s
   // vs the bomber's 0.5, so steering evasion can't work against them.
-  private readonly flareReleaseRange = 300;
+  private readonly flareReleaseRange = AI_FLARE_RELEASE_RANGE;
 
-  constructor(game: Game, bomber: Bomber, terrainManager: TerrainManager, inputManager: InputManager) {
+  constructor(
+    game: Game,
+    bomber: Bomber,
+    terrainManager: TerrainManager,
+    inputManager: InputManager,
+    private readonly events: EventBus<GameEvents>,
+  ) {
     this.game = game;
     this.bomber = bomber;
     this.terrainManager = terrainManager;
@@ -94,6 +110,9 @@ export class AIController {
       this.manualOverrideUntil = -Infinity;
       this.nextAltitudeRetargetTime = -Infinity; // re-roll the wander target on re-enable
     }
+    // Unconditional, mirroring the old per-frame backstop's semantics: every
+    // disable path (UI toggle, headless setEnabled) forces the camera to chase.
+    this.events.emit('aiEnabledChanged', { enabled });
   }
 
   public isEnabled(): boolean {
@@ -101,7 +120,9 @@ export class AIController {
   }
 
   public isSuspended(): boolean {
-    return this.enabled && performance.now() / 1000 < this.manualOverrideUntil;
+    // GAME time, matching how manualOverrideUntil is stamped in update() —
+    // mixing clocks here would leave the AI suspended forever.
+    return this.enabled && GameClock.now() < this.manualOverrideUntil;
   }
 
   public getStateLabel(): string {

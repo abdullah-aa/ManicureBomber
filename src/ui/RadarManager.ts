@@ -4,6 +4,7 @@ import { Bomber } from '../entities/Bomber';
 import { TerrainManager } from '../managers/TerrainManager';
 import { DefenseMissile } from '../entities/DefenseMissile';
 import { IskanderMissile } from '../entities/IskanderMissile';
+import { RADAR_RANGE } from '../config/Balance';
 
 interface RadarMarker {
   element: HTMLElement;
@@ -17,12 +18,10 @@ interface RadarMarker {
 export class RadarManager {
   private radarDisplay: HTMLElement;
   private targetCountElement: HTMLElement;
-  private radarRadius: number = 500; // Radar range in game units
+  private radarRadius: number = RADAR_RANGE; // shared with AI target scan + alert range (Balance.ts)
   private radarPixelRadius: number = 88; // Radar display radius in pixels (will be updated based on screen size)
   private lastPulseTime: number = 0;
   private pulseInterval: number = 2000; // 2 seconds
-  private activeMissiles: DefenseMissile[] = []; // Track active defense missiles
-  private activeIskanderMissiles: IskanderMissile[] = []; // Track active Iskander missiles
 
   // Performance optimization: object pooling and caching
   private markerPool: RadarMarker[] = [];
@@ -279,15 +278,15 @@ export class RadarManager {
 
     // Missiles claim markers FIRST: the pool is finite and a dense cluster of
     // static building dots must never starve the actual threats off the display.
-    this.activeIskanderMissiles = iskanderMissiles.filter((missile) => missile.isLaunched() && !missile.hasExploded());
-    this.activeMissiles = defenseMissiles.filter((missile) => missile.isLaunched() && !missile.hasExploded());
-
-    for (const missile of this.activeMissiles) {
+    // (No .filter() allocations — the live checks run inline per missile.)
+    for (const missile of defenseMissiles) {
+      if (!missile.isLaunched() || missile.hasExploded()) continue;
       const missilePosition = missile.getPositionRef();
       this.tryPlaceMarker('missile', missilePosition.x, missilePosition.z, bomberPosition, cosY, sinY);
     }
 
-    for (const missile of this.activeIskanderMissiles) {
+    for (const missile of iskanderMissiles) {
+      if (!missile.isLaunched() || missile.hasExploded()) continue;
       const missilePosition = missile.getPositionRef();
       this.tryPlaceMarker('iskander', missilePosition.x, missilePosition.z, bomberPosition, cosY, sinY);
     }

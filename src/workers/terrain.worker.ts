@@ -1,11 +1,21 @@
 import { NoiseGenerator } from '../utils/NoiseGenerator';
-import { Vector3, BuildingType, BuildingConfig } from './worker-utils';
+import { Vector3, BuildingType, BuildingConfig, TerrainChunkRequest, createChunkRng } from './worker-utils';
 
 // This worker does one thing now: heightmap + building-config generation for a
 // chunk. All trivial streaming math (keep-set, chunk-edge distance) and spatial
 // queries moved to the main thread, where they're cheaper than a message round trip.
 
-const noiseGenerator = new NoiseGenerator();
+// Seeded from the world seed carried by every request (the seed is per-page-load
+// constant; the lazy re-create only matters for the first message).
+let noiseGenerator = new NoiseGenerator(0);
+let noiseSeed: number | null = null;
+
+function ensureNoiseSeed(seed: number): void {
+  if (noiseSeed !== seed) {
+    noiseGenerator = new NoiseGenerator(seed);
+    noiseSeed = seed;
+  }
+}
 
 function calculateHeightFromNoise(x: number, z: number): number {
   let height = 0;
@@ -36,43 +46,43 @@ function generateHeightmap(chunkX: number, chunkZ: number, chunkSize: number, su
   return heights;
 }
 
-function generateRandomBuildingConfig(position: Vector3, terrainHeight: number): BuildingConfig {
+function generateRandomBuildingConfig(position: Vector3, terrainHeight: number, rng: () => number): BuildingConfig {
   const types = Object.values(BuildingType);
-  const type = types[Math.floor(Math.random() * types.length)] as BuildingType;
+  const type = types[Math.floor(rng() * types.length)] as BuildingType;
 
   let width: number, height: number, depth: number;
 
   switch (type) {
     case BuildingType.RESIDENTIAL:
-      width = 8 + Math.random() * 8;
-      height = 8 + Math.random() * 12;
-      depth = 8 + Math.random() * 8;
+      width = 8 + rng() * 8;
+      height = 8 + rng() * 12;
+      depth = 8 + rng() * 8;
       break;
     case BuildingType.COMMERCIAL:
-      width = 12 + Math.random() * 15;
-      height = 12 + Math.random() * 18;
-      depth = 12 + Math.random() * 15;
+      width = 12 + rng() * 15;
+      height = 12 + rng() * 18;
+      depth = 12 + rng() * 15;
       break;
     case BuildingType.INDUSTRIAL:
-      width = 15 + Math.random() * 20;
-      height = 10 + Math.random() * 15;
-      depth = 15 + Math.random() * 20;
+      width = 15 + rng() * 20;
+      height = 10 + rng() * 15;
+      depth = 15 + rng() * 20;
       break;
     case BuildingType.SKYSCRAPER:
-      width = 10 + Math.random() * 12;
-      height = 25 + Math.random() * 35;
-      depth = 10 + Math.random() * 12;
+      width = 10 + rng() * 12;
+      height = 25 + rng() * 35;
+      depth = 10 + rng() * 12;
       break;
     default:
-      width = 8 + Math.random() * 10;
-      height = 8 + Math.random() * 15;
-      depth = 8 + Math.random() * 10;
+      width = 8 + rng() * 10;
+      height = 8 + rng() * 15;
+      depth = 8 + rng() * 10;
   }
 
   // Launcher probability halved alongside the doubled building density below, so the absolute
   // number of defense launchers (and their per-frame cost / return fire) stays ~constant while
   // total building density increases.
-  const isDefenseLauncher = Math.random() < 0.075;
+  const isDefenseLauncher = rng() < 0.075;
 
   return {
     position: { x: position.x, y: terrainHeight, z: position.z },
@@ -90,7 +100,11 @@ function generateBuildings(
   chunkSize: number,
   heightmap: Float32Array,
   subdivisions: number,
+  seed: number,
 ): BuildingConfig[] {
+  // Deterministic per-chunk stream: same (seed, chunk) → same buildings,
+  // regardless of the order chunks get generated in.
+  const rng = createChunkRng(seed, chunkX, chunkZ);
   const worldX = chunkX * chunkSize;
   const worldZ = chunkZ * chunkSize;
   const buildingConfigs: BuildingConfig[] = [];
@@ -99,11 +113,11 @@ function generateBuildings(
   // only a few instances sharing a material, so ~2x in-view buildings (~300-450) is affordable.
   const buildingDensity = 0.000025;
   const chunkArea = chunkSize * chunkSize;
-  const numBuildings = Math.floor(chunkArea * buildingDensity * (0.5 + Math.random() * 0.8));
+  const numBuildings = Math.floor(chunkArea * buildingDensity * (0.5 + rng() * 0.8));
 
   for (let i = 0; i < numBuildings; i++) {
-    const localX = (Math.random() - 0.5) * chunkSize * 0.8;
-    const localZ = (Math.random() - 0.5) * chunkSize * 0.8;
+    const localX = (rng() - 0.5) * chunkSize * 0.8;
+    const localZ = (rng() - 0.5) * chunkSize * 0.8;
     const buildingX = worldX + localX;
     const buildingZ = worldZ + localZ;
 
@@ -129,7 +143,7 @@ function generateBuildings(
       continue;
     }
 
-    const buildingConfig = generateRandomBuildingConfig({ x: buildingX, y: 0, z: buildingZ }, terrainHeight);
+    const buildingConfig = generateRandomBuildingConfig({ x: buildingX, y: 0, z: buildingZ }, terrainHeight, rng);
 
     // The base spans the whole footprint, so rest it on the LOWEST ground under the
     // four corners — a center-height base shows air under the downhill edge on any
@@ -147,7 +161,7 @@ function generateBuildings(
     }
     buildingConfig.position.y = minCornerHeight;
 
-    buildingConfig.isTarget = Math.random() < 0.1;
+    buildingConfig.isTarget = rng() < 0.1;
     buildingConfigs.push(buildingConfig);
   }
   return buildingConfigs;
@@ -193,9 +207,10 @@ self.onmessage = (event) => {
 
   switch (type) {
     case 'GENERATE_TERRAIN_CHUNK':
-      const { chunkX, chunkZ, chunkSize, subdivisions } = data;
+      const { chunkX, chunkZ, chunkSize, subdivisions, seed } = data as TerrainChunkRequest;
+      ensureNoiseSeed(seed);
       const heightmap = generateHeightmap(chunkX, chunkZ, chunkSize, subdivisions);
-      const buildingConfigs = generateBuildings(chunkX, chunkZ, chunkSize, heightmap, subdivisions);
+      const buildingConfigs = generateBuildings(chunkX, chunkZ, chunkSize, heightmap, subdivisions, seed);
 
       (self as any).postMessage({
         type: 'TERRAIN_CHUNK_READY',
@@ -210,23 +225,8 @@ self.onmessage = (event) => {
       break;
 
     default:
-      // Handle legacy terrain chunk generation
-      if (data.chunkX !== undefined && data.chunkZ !== undefined) {
-        const { chunkX, chunkZ, chunkSize, subdivisions } = data;
-        const heightmap = generateHeightmap(chunkX, chunkZ, chunkSize, subdivisions);
-        const buildingConfigs = generateBuildings(chunkX, chunkZ, chunkSize, heightmap, subdivisions);
-
-        (self as any).postMessage({
-          type: 'TERRAIN_CHUNK_READY',
-          messageId,
-          data: {
-            chunkX,
-            chunkZ,
-            heightmap,
-            buildingConfigs,
-          },
-        });
-      }
+      // Unknown message type: no reply. WorkerManager only sends the typed
+      // requests above (the old untyped "legacy" duplicate handler is gone).
       break;
   }
 };

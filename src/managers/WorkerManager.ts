@@ -1,8 +1,18 @@
+import {
+  TerrainWorkerRequest,
+  MissilePhysicsWorkerRequest,
+  TerrainChunkResult,
+  DefenseTrajectoryRequest,
+  DefenseTrajectoryResult,
+  TomahawkPathRequest,
+  TomahawkPathResult,
+} from '../workers/worker-utils';
+
 export class WorkerManager {
   private terrainWorker!: Worker;
   private missilePhysicsWorker!: Worker;
 
-  private messageCallbacks: Map<string, { resolve: (result: any) => void; timeoutId: ReturnType<typeof setTimeout> }> =
+  private messageCallbacks: Map<string, { resolve: (result: unknown) => void; timeoutId: ReturnType<typeof setTimeout> }> =
     new Map();
   private messageIdCounter: number = 0;
 
@@ -43,28 +53,29 @@ export class WorkerManager {
   }
 
   // Terrain worker methods
-  public generateTerrainChunk(chunkX: number, chunkZ: number, chunkSize: number, subdivisions: number): Promise<any> {
-    return this.sendMessageToWorker(this.terrainWorker, {
+  public generateTerrainChunk(
+    chunkX: number,
+    chunkZ: number,
+    chunkSize: number,
+    subdivisions: number,
+    seed: number,
+  ): Promise<TerrainChunkResult> {
+    return this.sendMessageToWorker<TerrainChunkResult>(this.terrainWorker, {
       type: 'GENERATE_TERRAIN_CHUNK',
-      data: {
-        chunkX,
-        chunkZ,
-        chunkSize,
-        subdivisions,
-      },
+      data: { chunkX, chunkZ, chunkSize, subdivisions, seed },
     });
   }
 
   // Missile physics worker methods
-  public calculateDefenseTrajectory(missileData: any): Promise<any> {
-    return this.sendMessageToWorker(this.missilePhysicsWorker, {
+  public calculateDefenseTrajectory(missileData: DefenseTrajectoryRequest): Promise<DefenseTrajectoryResult> {
+    return this.sendMessageToWorker<DefenseTrajectoryResult>(this.missilePhysicsWorker, {
       type: 'CALCULATE_DEFENSE_TRAJECTORY',
       data: missileData,
     });
   }
 
-  public generateTomahawkPath(pathData: any): Promise<any> {
-    return this.sendMessageToWorker(this.missilePhysicsWorker, {
+  public generateTomahawkPath(pathData: TomahawkPathRequest): Promise<TomahawkPathResult> {
+    return this.sendMessageToWorker<TomahawkPathResult>(this.missilePhysicsWorker, {
       type: 'GENERATE_TOMAHAWK_PATH',
       data: pathData,
     });
@@ -72,11 +83,17 @@ export class WorkerManager {
 
   // Generic message sending with promise-based approach. One promise per message;
   // the timeout is cleared as soon as the response arrives so no timers accumulate.
-  private sendMessageToWorker(worker: Worker, message: any): Promise<any> {
+  // The request union types above keep every payload compiler-checked; the result
+  // type is asserted per call site (the worker's reply shape is part of the same
+  // protocol contract in worker-utils).
+  private sendMessageToWorker<TResult>(
+    worker: Worker,
+    message: TerrainWorkerRequest | MissilePhysicsWorkerRequest,
+  ): Promise<TResult> {
     const messageId = `msg_${this.messageIdCounter++}`;
     const messageWithId = { ...message, messageId };
 
-    return new Promise<any>((resolve, reject) => {
+    return new Promise<TResult>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         if (this.messageCallbacks.has(messageId)) {
           this.messageCallbacks.delete(messageId);
@@ -84,7 +101,7 @@ export class WorkerManager {
         }
       }, this.WORKER_TIMEOUT);
 
-      this.messageCallbacks.set(messageId, { resolve, timeoutId });
+      this.messageCallbacks.set(messageId, { resolve: resolve as (result: unknown) => void, timeoutId });
       worker.postMessage(messageWithId);
     });
   }

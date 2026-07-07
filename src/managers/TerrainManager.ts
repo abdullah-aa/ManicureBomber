@@ -9,9 +9,18 @@ import {
   DynamicTexture,
 } from '@babylonjs/core';
 import { Building, BuildingConfig } from '../entities/Building';
+import type { Bomber } from '../entities/Bomber';
+import type { TerrainChunkResult } from '../workers/worker-utils';
 import { Cloud, CLOUD_BAND_MIN_Y, CLOUD_BAND_MAX_Y } from '../entities/Cloud';
 import { WorkerManager } from './WorkerManager';
 import { Game } from './Game';
+import {
+  SKY_COLOR,
+  FOG_END,
+  TERRAIN_CHUNK_SIZE,
+  TERRAIN_KEEP_RADIUS,
+  TERRAIN_GENERATION_THRESHOLD,
+} from '../config/Balance';
 
 interface TerrainChunk {
   mesh: GroundMesh;
@@ -25,21 +34,23 @@ export class TerrainManager {
   private scene: Scene;
   private game: Game | null = null;
   private chunks: Map<string, TerrainChunk | null> = new Map();
-  private chunkSize: number = 900;
-  private generationThreshold: number = 300; // < chunkSize/2 (450) so it fires near an edge, not always
+  private chunkSize: number = TERRAIN_CHUNK_SIZE;
+  private generationThreshold: number = TERRAIN_GENERATION_THRESHOLD; // < chunkSize/2 so it fires near an edge, not always
   // Symmetric, heading-independent Chebyshev keep-set of radius keepRadius (see terrain.worker
   // computeKeepSet): (2R+1)^2 chunks loaded around the plane. Sized so the nearest loaded edge is
-  // always beyond fogEnd (keepRadius*chunkSize - 300 >= fogEnd), so no edge is ever visible.
-  // R=2, S=900 -> 2*900-300 = 1500 >= fogEnd 1500. Few, large, low-poly chunks keep mobile fast.
-  private keepRadius: number = 2;
+  // always beyond fogEnd — the invariant keepRadius*chunkSize - threshold >= FOG_END is
+  // ENFORCED at load time in Balance.ts. Few, large, low-poly chunks keep mobile fast.
+  private keepRadius: number = TERRAIN_KEEP_RADIUS;
   private maxTotalChunks: number = 30; // (2*2+1)^2 = 25 footprint + slack
   private maxChunksPerUpdate: number = 6;
   private terrainMaterial!: StandardMaterial;
   private lastTerrainUpdateTime: number = 0;
   private subdivisions = 48;
-  private bomber: any = null;
+  private bomber: Bomber | null = null;
 
   private workerManager: WorkerManager;
+  // World seed carried by every chunk request — same seed, same world (see ?seed=)
+  private readonly worldSeed: number;
 
   private isDisposing: boolean = false;
 
@@ -53,7 +64,7 @@ export class TerrainManager {
 
   // Frame-spread mesh processing to prevent freezes
   private pendingChunkProcessing: Array<{
-    result: any;
+    result: TerrainChunkResult;
     chunkX: number;
     chunkZ: number;
     priority: number; // Higher priority = process first
@@ -63,9 +74,10 @@ export class TerrainManager {
   private lastChunkProcessTime: number = 0;
   private chunkProcessInterval: number = 16; // Minimum 16ms between chunk processing
 
-  constructor(scene: Scene, workerManager: WorkerManager) {
+  constructor(scene: Scene, workerManager: WorkerManager, worldSeed: number) {
     this.scene = scene;
     this.workerManager = workerManager;
+    this.worldSeed = worldSeed;
     this.createTerrainMaterial();
     this.createClearSky();
   }
@@ -96,20 +108,13 @@ export class TerrainManager {
     this.activeWorkerCalls.add(chunkKey); // Track this worker call
 
     return this.workerManager
-      .generateTerrainChunk(chunkX, chunkZ, this.chunkSize, this.subdivisions)
-      .then(
-        (result: {
-          chunkX: number;
-          chunkZ: number;
-          heightmap: Float32Array;
-          buildingConfigs: Array<BuildingConfig>;
-        }) => {
-          // Only process result if we're still not disposing
-          if (!this.isDisposing) {
-            this.processTerrainChunkResult(result, chunkX, chunkZ);
-          }
-        },
-      )
+      .generateTerrainChunk(chunkX, chunkZ, this.chunkSize, this.subdivisions, this.worldSeed)
+      .then((result: TerrainChunkResult) => {
+        // Only process result if we're still not disposing
+        if (!this.isDisposing) {
+          this.processTerrainChunkResult(result, chunkX, chunkZ);
+        }
+      })
       .catch(() => {
         // Remove failed chunk from tracking
         this.chunks.delete(chunkKey);
@@ -120,7 +125,7 @@ export class TerrainManager {
       });
   }
 
-  private processTerrainChunkResult(result: any, chunkX: number, chunkZ: number): void {
+  private processTerrainChunkResult(result: TerrainChunkResult, chunkX: number, chunkZ: number): void {
     // Calculate priority based on distance from bomber
     const bomberPos = this.bomber ? this.bomber.getPosition() : new Vector3(0, 0, 0);
     const chunkCenterX = chunkX * this.chunkSize;
@@ -177,7 +182,7 @@ export class TerrainManager {
     });
   }
 
-  private createTerrainChunkMesh(result: any, chunkX: number, chunkZ: number): void {
+  private createTerrainChunkMesh(result: TerrainChunkResult, chunkX: number, chunkZ: number): void {
     const chunkKey = `${chunkX}_${chunkZ}`;
     const { heightmap, buildingConfigs } = result;
 
@@ -381,16 +386,16 @@ export class TerrainManager {
   }
 
   private createClearSky(): void {
-    // Set scene clear color to a clear sky blue
-    this.scene.clearColor = new Color4(0.5, 0.7, 0.9, 1.0);
+    // Sky color is shared via Balance.ts with the Sun's baked occlusion disc
+    this.scene.clearColor = new Color4(SKY_COLOR.r, SKY_COLOR.g, SKY_COLOR.b, 1.0);
 
     // Linear distance fog fades distant terrain into the sky, hiding the edge of the
     // (small) loaded world and cutting fill-rate. fogColor MUST match clearColor RGB so
-    // the horizon dissolves seamlessly, and fogEnd must stay below camera.maxZ (1800).
+    // the horizon dissolves seamlessly; FOG_END < CAMERA_MAX_Z is enforced in Balance.ts.
     this.scene.fogMode = Scene.FOGMODE_LINEAR;
-    this.scene.fogColor = new Color3(0.5, 0.7, 0.9);
+    this.scene.fogColor = new Color3(SKY_COLOR.r, SKY_COLOR.g, SKY_COLOR.b);
     this.scene.fogStart = 900;
-    this.scene.fogEnd = 1500;
+    this.scene.fogEnd = FOG_END;
   }
 
   public generateInitialTerrain(center: Vector3): Promise<void> {
@@ -602,7 +607,7 @@ export class TerrainManager {
     }
   }
 
-  public setBomber(bomber: any): void {
+  public setBomber(bomber: Bomber): void {
     this.bomber = bomber;
   }
 
@@ -620,7 +625,7 @@ export class TerrainManager {
   }
 
   private isSafeForWorkerCalls(): boolean {
-    return !this.isDisposing && this.bomber && !this.bomber.isBomberDestroyed();
+    return !this.isDisposing && this.bomber !== null && !this.bomber.isBomberDestroyed();
   }
 
   public dispose(): void {

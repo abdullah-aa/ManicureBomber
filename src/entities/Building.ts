@@ -1,4 +1,4 @@
-import { Scene, Vector3, Color3, AbstractMesh, TransformNode, ParticleSystem, Color4, Observer } from '@babylonjs/core';
+import { Scene, Vector3, AbstractMesh, TransformNode, ParticleSystem, Color4, Observer } from '@babylonjs/core';
 import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
 import { WorkerManager } from '../managers/WorkerManager';
 import { Game } from '../managers/Game';
@@ -6,24 +6,16 @@ import { DefenseMissile } from './DefenseMissile';
 import { BuildingAssets } from './BuildingAssets';
 import { buildingApexHeight } from '../workers/worker-utils';
 import { ExplosionPool } from '../effects/ExplosionPool';
+import { LAUNCHER_RADAR_RANGE } from '../config/Balance';
 
-export enum BuildingType {
-  RESIDENTIAL = 'residential',
-  COMMERCIAL = 'commercial',
-  INDUSTRIAL = 'industrial',
-  SKYSCRAPER = 'skyscraper',
-}
-
-export interface BuildingConfig {
-  position: { x: number; y: number; z: number };
-  type: BuildingType;
-  width: number;
-  height: number;
-  depth: number;
-  color?: Color3;
-  isTarget?: boolean;
-  isDefenseLauncher?: boolean;
-}
+// One source of truth for the building type/config shapes: the Babylon-free
+// definitions in worker-utils (the worker generates the configs; this class
+// consumes them). Re-exported so existing `from './Building'` imports keep
+// working — the two files used to carry duplicate declarations kept
+// assignment-compatible only by their string values.
+export { BuildingType } from '../workers/worker-utils';
+export type { BuildingConfig } from '../workers/worker-utils';
+import { BuildingType, BuildingConfig } from '../workers/worker-utils';
 
 export class Building {
   /**
@@ -90,7 +82,7 @@ export class Building {
   private launcherDestroyed: boolean = false;
   private lastMissileLaunchTime: number = 0;
   private missileLaunchInterval: number = 4 + Math.random() * 6; // Random interval between 4-10 seconds
-  private radarScanRange: number = 450; // Detection range — outranges the Tomahawk's 300 (Bomber.ts)
+  private radarScanRange: number = LAUNCHER_RADAR_RANGE; // outranges the Tomahawk (contract in Balance.ts)
 
   // Callback for destruction notification
   private onDestroyedCallback: (() => void) | null = null;

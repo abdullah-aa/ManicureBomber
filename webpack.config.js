@@ -19,14 +19,7 @@ module.exports = (env, argv) => {
       rules: [
         {
           test: /\.ts$/,
-          use: {
-            loader: 'ts-loader',
-            options: {
-              // tsconfig has declaration:true (outDir dist/), which would strew
-              // .d.ts files through the static build output — bundles need none.
-              compilerOptions: { declaration: false },
-            },
-          },
+          use: 'ts-loader',
           exclude: /node_modules/,
         },
       ],

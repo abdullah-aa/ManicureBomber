@@ -15,10 +15,21 @@ import { InputManager } from '../managers/InputManager';
 import { TomahawkMissile } from './TomahawkMissile';
 import { TerrainManager } from '../managers/TerrainManager';
 import { WorkerManager } from '../managers/WorkerManager';
+import { ProjectileRegistry } from '../managers/ProjectileRegistry';
 import { Building } from './Building';
 import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
 import { EffectTextures } from '../effects/EffectTextures';
 import { AudioManager } from '../effects/AudioManager';
+import {
+  BOMBER_SPEED,
+  BOMBER_TURN_RATE,
+  BOMBER_CLIMB_RATE,
+  BOMBER_MIN_ALTITUDE,
+  BOMBER_MAX_ALTITUDE,
+  TOMAHAWK_ACQUISITION_RANGE,
+} from '../config/Balance';
+import { GameClock } from '../utils/GameClock';
+import { Cooldown } from '../utils/Cooldown';
 
 export class Bomber {
   private scene: Scene;
@@ -28,10 +39,10 @@ export class Bomber {
   private position: Vector3;
   private rotation: Vector3;
   private velocity: Vector3;
-  private speed: number = 25; // Units per second
-  private altitude: number = 175; // Spawn mid-band between minimumAltitude and maximumAltitude
-  private turnSpeed: number = 0.5; // Radians per second
-  private climbRate: number = 20; // Units per second
+  private speed: number = BOMBER_SPEED;
+  private altitude: number = (BOMBER_MIN_ALTITUDE + BOMBER_MAX_ALTITUDE) / 2; // Spawn mid-band
+  private turnSpeed: number = BOMBER_TURN_RATE;
+  private climbRate: number = BOMBER_CLIMB_RATE;
   private particleSystems: ParticleSystem[] = []; // Engine exhaust particle systems
   private bombBayLeft!: Mesh;
   private bombBayRight!: Mesh;
@@ -64,17 +75,14 @@ export class Bomber {
   // (terrain <= 60 + building height <= 60 + 3 muzzle offset) and aim points carry
   // up to +-40 error, so 150 keeps every launched missile climbing toward the
   // bomber — no altitude slips under the threat envelope.
-  private minimumAltitude: number = 150;
+  private minimumAltitude: number = BOMBER_MIN_ALTITUDE;
   // Ceiling matches the defense missiles' former airburst altitude; they now fly
   // higher than this before bursting, so there is no safe altitude above the
   // envelope either. Also keeps the camera from revealing far terrain.
-  private maximumAltitude: number = 200;
+  private maximumAltitude: number = BOMBER_MAX_ALTITUDE;
 
   // Tomahawk missile system
-  private missiles: TomahawkMissile[] = [];
-  private missileExplodedAt: Map<TomahawkMissile, number> = new Map();
-  private lastMissileLaunchTime: number = -Infinity;
-  private missileCooldownTime: number = 10; // 10 seconds cooldown
+  private readonly missileCooldown = new Cooldown(10); // seconds between Tomahawks
   private terrainManager: TerrainManager | null = null; // Reference to terrain manager for targeting
 
   // Target detection caching for performance
@@ -100,8 +108,7 @@ export class Bomber {
   private onDestroyedCallback: (() => void) | null = null;
 
   // Countermeasure flare system
-  private flareCooldown: number = 8; // 8 seconds cooldown
-  private lastFlareTime: number = -Infinity;
+  private readonly flareCooldown = new Cooldown(8); // seconds between volleys
   private activeFlares: Array<{
     position: Vector3;
     velocity: Vector3;
@@ -115,8 +122,6 @@ export class Bomber {
   // Long enough to still be burning after a fall from cruise altitude (~4.5s);
   // must stay below flareCooldown so the pool fully recycles between volleys
   private flareLifetime: number = 7;
-  private flareParticleSystems: ParticleSystem[] = []; // Visual effects for flares
-  private flareMeshes: Mesh[] = []; // Visual flare meshes
   // Shared by every flare for the bomber's lifetime (flares are frequent and identical)
   private flareMaterial: StandardMaterial | null = null;
   // Reusable {mesh, particles} pairs — one volley is 8 flares, and the 8s cooldown
@@ -134,7 +139,12 @@ export class Bomber {
   // deployFlare would silently rebuild the whole flare pool on the corpse.
   private pendingTimeouts: ReturnType<typeof setTimeout>[] = [];
 
-  constructor(scene: Scene, workerManager: WorkerManager) {
+  constructor(
+    scene: Scene,
+    workerManager: WorkerManager,
+    // Owns Tomahawk lifecycle lingers/retirement; Bomber keeps the update loop
+    private readonly projectiles: ProjectileRegistry,
+  ) {
     this.scene = scene;
     this.workerManager = workerManager;
     this.position = new Vector3(0, this.altitude, 0);
@@ -519,10 +529,6 @@ export class Bomber {
     this.particleSystems.push(particleSystem);
   }
 
-  public setMinimumAltitude(minAltitude: number): void {
-    this.altitude = Math.max(this.altitude, minAltitude + 10); // 10 unit safety margin
-  }
-
   public update(deltaTime: number, inputManager: InputManager): void {
     // Handle turning (left/right arrows) and banking
     // Only turn if Right Shift is NOT pressed (Right Shift + arrows is for camera panning)
@@ -649,7 +655,7 @@ export class Bomber {
   public openBombBay(): void {
     if (this.bombBayState === 'closed') {
       this.bombBayState = 'opening';
-      this.bombBayOpenStartTime = performance.now() / 1000;
+      this.bombBayOpenStartTime = GameClock.now();
       this.bombBayOpenProgress = 0;
 
       // Start visual effects
@@ -660,7 +666,7 @@ export class Bomber {
   public closeBombBay(): void {
     if (this.bombBayState === 'open') {
       this.bombBayState = 'closing';
-      this.bombBayOpenStartTime = performance.now() / 1000; // Set the start time for closing animation
+      this.bombBayOpenStartTime = GameClock.now(); // Set the start time for closing animation
       this.bombBayOpenProgress = 1; // Start from fully open position
 
       // Don't stop effects immediately - let them fade out during closing animation
@@ -677,7 +683,7 @@ export class Bomber {
   }
 
   public updateBombBay(deltaTime: number): void {
-    const currentTime = performance.now() / 1000;
+    const currentTime = GameClock.now();
 
     // Keep the pooled bay light tracking the (unparented) bay position
     if (this.bombBayLightHandle.isActive()) {
@@ -829,13 +835,11 @@ export class Bomber {
 
   // Missile system methods
   public canLaunchMissile(): boolean {
-    const currentTime = performance.now() / 1000;
-    const cooldownReady = currentTime - this.lastMissileLaunchTime >= this.missileCooldownTime;
     // Can launch if bomb bay is closed (not being used for bombing) or if missile launch is already pending
     const bombBayAvailable = this.bombBayState === 'closed' || this.missileLaunchPending;
     // Also check if bombing run is not active
     const noBombingRun = !this.isBombingRunActiveCallback || !this.isBombingRunActiveCallback();
-    return cooldownReady && bombBayAvailable && noBombingRun;
+    return this.missileCooldown.ready() && bombBayAvailable && noBombingRun;
   }
 
   public setBombingRunActiveCallback(callback: () => boolean): void {
@@ -843,15 +847,13 @@ export class Bomber {
   }
 
   public getMissileCooldownStatus(): number {
-    const currentTime = performance.now() / 1000;
-    const timeSinceLastLaunch = currentTime - this.lastMissileLaunchTime;
-    return Math.min(timeSinceLastLaunch / this.missileCooldownTime, 1);
+    return this.missileCooldown.status();
   }
 
-  // Tomahawk acquisition range — deliberately SHORTER than the defense launchers'
-  // radarScanRange (450, Building.ts): launchers get to fire first, and the bomber
-  // must penetrate their engagement zone before it can return fire.
-  private readonly defenseAcquisitionRange = 300;
+  // Deliberately SHORTER than LAUNCHER_RADAR_RANGE: launchers get to fire first,
+  // and the bomber must penetrate their engagement zone before it can return
+  // fire. The contract lives in Balance.ts.
+  private readonly defenseAcquisitionRange = TOMAHAWK_ACQUISITION_RANGE;
 
   public getDefenseAcquisitionRange(): number {
     return this.defenseAcquisitionRange;
@@ -919,8 +921,7 @@ export class Bomber {
       return;
     }
 
-    const currentTime = performance.now() / 1000;
-    this.lastMissileLaunchTime = currentTime;
+    this.missileCooldown.fire();
 
     AudioManager.get().launchWhoosh();
 
@@ -944,7 +945,7 @@ export class Bomber {
       }
     });
 
-    this.missiles.push(missile);
+    this.projectiles.addTomahawk(missile);
     missile.launch();
 
     // Immediately start closing bomb bay after launch
@@ -957,32 +958,16 @@ export class Bomber {
 
   /** Active Tomahawk missiles (for Rocket View's candidate provider). */
   public getMissiles(): TomahawkMissile[] {
-    return this.missiles;
+    return this.projectiles.getTomahawks();
   }
 
   private updateMissiles(deltaTime: number): void {
-    const currentTime = performance.now() / 1000;
-
-    // Update all missiles; sweep exploded ones 10s after explosion so their
-    // lingering smoke finishes (no per-frame timers)
-    for (let i = this.missiles.length - 1; i >= 0; i--) {
-      const missile = this.missiles[i];
+    for (const missile of this.projectiles.getTomahawks()) {
       // Terrain height under the missile arms ground detonation (a terminal
       // dive that misses hits the hillside instead of tunneling to y=0)
       const mp = missile.getPositionRef();
       const groundHeight = this.terrainManager ? this.terrainManager.getTerrainHeightAt(mp.x, mp.z) : 0;
       missile.update(deltaTime, groundHeight);
-
-      if (missile.hasExploded()) {
-        const explodedAt = this.missileExplodedAt.get(missile);
-        if (explodedAt === undefined) {
-          this.missileExplodedAt.set(missile, currentTime);
-        } else if (currentTime - explodedAt > 10) {
-          missile.dispose();
-          this.missileExplodedAt.delete(missile);
-          this.missiles.splice(i, 1);
-        }
-      }
     }
   }
 
@@ -1011,7 +996,7 @@ export class Bomber {
   public takeDamage(damageAmount: number): void {
     if (this.isDestroyed) return;
 
-    const currentTime = performance.now() / 1000;
+    const currentTime = GameClock.now();
     const timeSinceLastDamage = currentTime - this.lastDamageTime;
     if (timeSinceLastDamage < 0.1) return; // Ignore damage if taken too frequently
 
@@ -1193,21 +1178,15 @@ export class Bomber {
 
   // Countermeasure flare system
   public canLaunchFlares(): boolean {
-    const currentTime = performance.now() / 1000;
-    return currentTime - this.lastFlareTime >= this.flareCooldown;
+    return this.flareCooldown.ready();
   }
 
   public getFlareCooldownStatus(): number {
-    const currentTime = performance.now() / 1000;
-    const timeSinceLastFlare = currentTime - this.lastFlareTime;
-    return Math.min(timeSinceLastFlare / this.flareCooldown, 1);
+    return this.flareCooldown.status();
   }
 
   public launchFlares(): boolean {
-    if (!this.canLaunchFlares()) return false;
-
-    const currentTime = performance.now() / 1000;
-    this.lastFlareTime = currentTime;
+    if (!this.flareCooldown.tryFire()) return false;
 
     AudioManager.get().flarePop();
 
@@ -1488,21 +1467,6 @@ export class Bomber {
       this.flareMaterial.dispose();
       this.flareMaterial = null;
     }
-
-    // Clean up legacy flare arrays (kept for compatibility)
-    this.flareMeshes.forEach((mesh) => {
-      if (mesh) {
-        mesh.dispose();
-      }
-    });
-    this.flareMeshes = [];
-
-    this.flareParticleSystems.forEach((particles) => {
-      if (particles) {
-        particles.dispose();
-      }
-    });
-    this.flareParticleSystems = [];
 
     // Clean up damage effects — dispose(false): their pixel texture is the shared
     // EffectTextures instance, which other projectiles' exhausts still use

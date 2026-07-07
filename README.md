@@ -41,13 +41,23 @@ The dev server runs on `http://localhost:8080`. Development-only extras:
 
 - **F12** opens the Babylon.js Inspector (wired only when `NODE_ENV === 'development'`, `src/index.ts`).
 - Append **`?perf=1`** to the URL to attach Babylon `SceneInstrumentation`/`EngineInstrumentation` to `window.__perf` for frame/draw-call profiling (`src/index.ts`).
+- Append **`?seed=<uint32>`** to pin the world seed — terrain noise and per-chunk building layouts are fully deterministic for a given seed (`Game.getWorldSeed()`, `src/workers/worker-utils.ts` `createChunkRng`). Without the param a random seed is rolled per page load.
+
+#### Headless test instrumentation (`window.__perf`)
+
+Automated drivers (headless Playwright against the dev server) drive the game through the `?perf=1` probe. The contract:
+
+- `__perf.engine` / `__perf.scene` / `__perf.sceneInstr` / `__perf.engineInstr` — the Babylon engine, scene, and instrumentation objects.
+- `__perf.game` — the `Game` instance. Drivers start gameplay with `game.start()`, toggle autopilot via the AI controller, and reach subsystems through the game's fields (e.g. `__perf.game.uiManager` — there is deliberately **no** separate `window.uiManager` global). TypeScript `private` doesn't exist at runtime, so drivers may read private fields directly.
+- Instrumentation getters on managers (`getPanicSubState()`, `getStateLabel()`, …) exist for these drivers; they are cheap, side-effect-free, and safe to poll.
+- Assert on **game-space** quantities (positions, `GameClock` time, states), never wall-clock durations — headless SwiftShader runs at a few fps and wall-clock timing is meaningless there.
 
 ### Build, check, format
 
 ```bash
-npm run build     # webpack --mode=production -> dist/ (code-split bundles)
-npx tsc --noEmit  # type-check
-npm run format    # prettier --write .
+npm run build      # webpack --mode=production -> dist/ (code-split bundles)
+npm run typecheck  # tsc --noEmit
+npm run format     # prettier --write .
 ```
 
 ### Deploy
@@ -131,7 +141,7 @@ Workers communicate via structured-clone `postMessage` (no `SharedArrayBuffer`, 
 
 ## Project status / known gaps
 
-- **No audio.** `src/entities/Bomb.ts` imports Babylon `Sound` and calls `play()`, but the sound is never assigned — audio is effectively stubbed and there are no sound assets.
+- **Audio is fully procedural** (`src/effects/AudioManager.ts`) — WebAudio oscillators/noise, zero sound assets. It no-ops silently where WebAudio is unavailable.
 - **No device detection / responsive branching.** The UI is built the same way on all devices; the only resolution handling is `engine.setHardwareScalingLevel`.
 - **Single-player only** — no networking or multiplayer.
 

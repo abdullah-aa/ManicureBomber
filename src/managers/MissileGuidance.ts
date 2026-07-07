@@ -31,6 +31,7 @@ import {
   vector3DistanceSquared,
   vector3Length,
 } from '../workers/worker-utils';
+import { FLARE_SEEKER_RANGE_MULTIPLIER } from '../config/Balance';
 
 // Base interface for common missile properties
 export interface BaseMissileData {
@@ -218,8 +219,9 @@ const flareSearch = { flare: null as Vector3 | null, distanceSq: Infinity };
 // hotter than the target — so the closest flare inside the seeker's widened
 // detection radius always wins over the real target.
 function findClosestFlare(position: Vector3, flareTargets: Vector3[], flareDetectionRange: number): void {
-  // 1.5x detection range simulates realistic IR seeker sensitivity
-  const detectionRadius = flareDetectionRange * 1.5;
+  // Widened detection simulates realistic IR seeker sensitivity; the AI's flare
+  // release range is derived from this same multiplier (Balance.ts)
+  const detectionRadius = flareDetectionRange * FLARE_SEEKER_RANGE_MULTIPLIER;
   const detectionRadiusSq = detectionRadius * detectionRadius;
 
   let closest: Vector3 | null = null;

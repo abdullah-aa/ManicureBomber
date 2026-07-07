@@ -4,16 +4,18 @@ import { WorkerManager } from '../managers/WorkerManager';
 import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
 import { EffectTextures } from '../effects/EffectTextures';
 import { ExplosionPool } from '../effects/ExplosionPool';
+import { DEFENSE_MAX_ALTITUDE, DEFENSE_MIN_AIRBURST_ALTITUDE } from '../config/Balance';
+import type { DefenseTrajectoryRequest, DefenseTrajectoryResult } from '../workers/worker-utils';
 
 export class DefenseMissile {
   /** Highest altitude any defense missile can reach before self-detonating. */
-  public static readonly MAX_ALTITUDE = 280;
+  public static readonly MAX_ALTITUDE = DEFENSE_MAX_ALTITUDE;
   /**
    * Lowest possible airburst altitude. Sits above the bomber's 200 ceiling plus
    * the 20 u proximity-damage radius, so every missile stays lethal through the
    * bomber's entire flyable band before bursting.
    */
-  public static readonly MIN_AIRBURST_ALTITUDE = 220;
+  public static readonly MIN_AIRBURST_ALTITUDE = DEFENSE_MIN_AIRBURST_ALTITUDE;
 
   /**
    * Per-Scene free-list of PARKED missiles (in-flight ones live in
@@ -64,6 +66,9 @@ export class DefenseMissile {
   // Trajectory calculation properties
   private trajectoryCalculated: boolean = false;
   private pendingTrajectoryCalculation: boolean = false;
+  // Bumped per arm(); a worker trajectory reply from an older launch of this
+  // pooled hull is discarded by comparing against the value captured at send.
+  private trajectoryGeneration: number = 0;
 
   /** Builds the reusable hull only; all per-launch state lives in arm(). Use acquire(). */
   private constructor(scene: Scene, workerManager: WorkerManager) {
@@ -83,6 +88,9 @@ export class DefenseMissile {
 
   /** Re-arm a pooled missile for a fresh launch — resets every per-launch field. */
   private arm(launchPosition: Vector3, targetPosition: Vector3, bomberVelocity: Vector3): void {
+    // Invalidate any in-flight trajectory reply from a PREVIOUS launch of this
+    // pooled hull (see applyTrajectoryResult's generation check)
+    this.trajectoryGeneration++;
     this.position.copyFrom(launchPosition);
     this.targetPosition.copyFrom(targetPosition);
     this.bomberVelocity.copyFrom(bomberVelocity);
@@ -263,9 +271,13 @@ export class DefenseMissile {
 
   private calculateInitialTrajectory(): void {
     this.pendingTrajectoryCalculation = true;
+    // Snapshot this launch's identity: if the pooled missile is released and
+    // re-armed before the worker replies, the stale result must not stamp the
+    // OLD launch's velocity/rotation onto the new flight.
+    const launchGeneration = this.trajectoryGeneration;
 
-    // Prepare data for trajectory calculation
-    const trajectoryData: any = {
+    // Prepare data for trajectory calculation (typed by the worker protocol)
+    const trajectoryData: DefenseTrajectoryRequest = {
       position: { x: this.position.x, y: this.position.y, z: this.position.z },
       velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
       rotation: { x: this.missileGroup.rotation.x, y: this.missileGroup.rotation.y, z: this.missileGroup.rotation.z },
@@ -283,7 +295,7 @@ export class DefenseMissile {
     this.workerManager
       .calculateDefenseTrajectory(trajectoryData)
       .then((result) => {
-        this.applyTrajectoryResult(result);
+        this.applyTrajectoryResult(result, launchGeneration);
       })
       .catch(() => {
         // If worker fails, reset flag to retry on next loop
@@ -291,8 +303,8 @@ export class DefenseMissile {
       });
   }
 
-  private applyTrajectoryResult(result: any): void {
-    if (!result || this.exploded) return;
+  private applyTrajectoryResult(result: DefenseTrajectoryResult, launchGeneration: number): void {
+    if (!result || this.exploded || launchGeneration !== this.trajectoryGeneration) return;
 
     // Apply calculated velocity and rotation
     this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);

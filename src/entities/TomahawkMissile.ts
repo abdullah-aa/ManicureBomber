@@ -15,7 +15,8 @@ import { WorkerManager } from '../managers/WorkerManager';
 import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
 import { EffectTextures } from '../effects/EffectTextures';
 import { ExplosionPool } from '../effects/ExplosionPool';
-import { updateTomahawkMissilePhysics, TomahawkMissileData } from '../managers/MissileGuidance';
+import { updateTomahawkMissilePhysics, TomahawkMissileData, TomahawkMissileResult } from '../managers/MissileGuidance';
+import { GameClock } from '../utils/GameClock';
 
 export class TomahawkMissile {
   private scene: Scene;
@@ -153,7 +154,7 @@ export class TomahawkMissile {
     this.workerManager
       .generateTomahawkPath(pathData)
       .then((result) => {
-        this.waypoints = result.waypoints.map((wp: any) => new Vector3(wp.x, wp.y, wp.z));
+        this.waypoints = result.waypoints.map((wp) => new Vector3(wp.x, wp.y, wp.z));
       })
       .catch(() => {
         // Fallback: use predicted end position
@@ -452,13 +453,13 @@ export class TomahawkMissile {
     this.missileGroup.rotation = this.rotation.clone();
 
     // Start remaining particle effects now that launch animation is complete
-    this.pathStartTime = performance.now() / 1000;
+    this.pathStartTime = GameClock.now();
     this.exhaustParticles.start();
     this.flightSmokeParticles.start();
 
     // Initialize path time for curved navigation (path is already generated)
     this.pathTime = 0.01; // Small offset to start on curved path
-    this.lastSegmentChangeTime = performance.now() / 1000;
+    this.lastSegmentChangeTime = GameClock.now();
 
     // Initialize particle effects for flyby phase
     this.flightPhase = 'FLYBY';
@@ -471,7 +472,7 @@ export class TomahawkMissile {
     // World-space follow (covers both the parented launch animation and free flight)
     this.lightHandle.setPosition(this.missileGroup.getAbsolutePosition());
 
-    const currentTime = performance.now() / 1000;
+    const currentTime = GameClock.now();
 
     // During launch animation phase, move parent node with bomber's velocity
     // The animation runs on missileGroup (child), so it naturally combines with parent movement
@@ -514,7 +515,7 @@ export class TomahawkMissile {
     this.applyPhysicsResult(updateTomahawkMissilePhysics(d));
   }
 
-  private applyPhysicsResult(result: any): void {
+  private applyPhysicsResult(result: TomahawkMissileResult): void {
     if (!result || this.exploded) return;
 
     // Apply new position, velocity, and rotation from worker

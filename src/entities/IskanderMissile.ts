@@ -10,6 +10,8 @@ import {
 import { Bomber } from './Bomber';
 import { MissileAssets } from './MissileAssets';
 import { WorkerManager } from '../managers/WorkerManager';
+import { ISKANDER_CLIMB_ALTITUDE, ISKANDER_FLARE_DETECTION_RANGE } from '../config/Balance';
+import { GameClock } from '../utils/GameClock';
 import type { TerrainManager } from '../managers/TerrainManager';
 import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
 import { EffectTextures } from '../effects/EffectTextures';
@@ -32,7 +34,7 @@ export class IskanderMissile {
    * missile toward the bomber. Clears the tallest structure (skyscraper,
    * world y ≈ 61) with margin while staying below the bomber's flight band.
    */
-  public static readonly CLIMB_ALTITUDE = 90;
+  public static readonly CLIMB_ALTITUDE = ISKANDER_CLIMB_ALTITUDE;
   private climbing: boolean = true;
   private launched: boolean = false;
   private exploded: boolean = false;
@@ -53,7 +55,7 @@ export class IskanderMissile {
 
   // Countermeasure flare targeting
   private flareTargets: Vector3[] = [];
-  private flareDetectionRange: number = 150; // Increased from 100 - real IR seekers are very sensitive
+  private flareDetectionRange: number = ISKANDER_FLARE_DETECTION_RANGE; // widened in guidance (Balance.ts)
   private originalTargetPosition: Vector3;
   private isTargetingFlare: boolean = false;
 
@@ -70,8 +72,6 @@ export class IskanderMissile {
   // Lock establishment callback
   private onLockEstablishedCallback: (() => void) | null = null;
 
-  // Worker integration (kept for API stability; per-frame guidance is main-thread now)
-  private workerManager: WorkerManager;
 
   // Reused per-frame guidance payload — updateIskanderMissilePhysics reads it
   // synchronously and never mutates it, so one object per missile replaces the
@@ -80,7 +80,7 @@ export class IskanderMissile {
   // flareTargets, originalTargetPosition) are re-pointed in update().
   private readonly physicsData: IskanderMissileData;
 
-  constructor(scene: Scene, launchPosition: Vector3, bomber: Bomber, workerManager: WorkerManager) {
+  constructor(scene: Scene, launchPosition: Vector3, bomber: Bomber) {
     this.scene = scene;
     this.position = launchPosition.clone();
     this.bomber = bomber;
@@ -88,7 +88,6 @@ export class IskanderMissile {
     this.originalTargetPosition = this.targetPosition.clone();
     this.rotation = new Vector3(0, 0, 0);
     this.velocity = new Vector3(0, 0, 0); // Start stationary
-    this.workerManager = workerManager;
 
     this.physicsData = {
       position: this.position,
@@ -342,21 +341,6 @@ export class IskanderMissile {
     this.flightSmokeParticles.start();
   }
 
-  public addFlareTarget(flarePosition: Vector3): void {
-    // Don't add duplicate flare positions - check if this flare is already tracked
-    const isDuplicate = this.flareTargets.some(existing =>
-      Vector3.Distance(existing, flarePosition) < 1 // Within 1 unit = same flare
-    );
-
-    if (!isDuplicate) {
-      this.flareTargets.push(flarePosition.clone());
-    }
-  }
-
-  public clearFlareTargets(): void {
-    this.flareTargets = [];
-  }
-
   public updateFlareTargets(activeFlares: Vector3[]): void {
     // Store the (read-only) array reference. It is only ever read here — serialized
     // to plain {x,y,z} objects in updatePhysicsWorker — so no per-frame cloning of
@@ -370,7 +354,7 @@ export class IskanderMissile {
 
     this.lightHandle.setPosition(this.position);
 
-    const currentTime = performance.now() / 1000;
+    const currentTime = GameClock.now();
 
     // Update target position periodically for better performance
     if (currentTime - this.lastTargetUpdateTime > this.targetUpdateInterval) {
