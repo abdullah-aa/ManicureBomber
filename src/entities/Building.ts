@@ -69,6 +69,10 @@ export class Building {
   private damage: number = 0;
   private maxHealth: number = 100;
   private isDestroyed: boolean = false;
+  // Set by dispose() (chunk unload or post-destruction teardown). Holders of
+  // stale refs (AI target, radar cache, mid-flight Tomahawk, panic anchor) see
+  // a disposed building as destroyed via getIsDestroyed().
+  private disposed: boolean = false;
   private fireParticles: ParticleSystem | null = null;
   private smokeParticles: ParticleSystem | null = null;
   private damageLightHandle: LightHandle = LightHandle.inert();
@@ -468,10 +472,13 @@ export class Building {
       { smoke: false, shockwave: false, sparks: false, emitHalfExtents: this.explosionHalfExtents() },
     );
 
-    // Fade out and dispose building
-    setTimeout(() => {
-      this.dispose();
-    }, 1000);
+    // Fade out and dispose building (tracked: chunk unload inside this window
+    // would otherwise dispose first and let the timer double-dispose)
+    this.pendingTimeouts.push(
+      setTimeout(() => {
+        this.dispose();
+      }, 1000),
+    );
   }
 
   private destroyBuildingByBomb(): void {
@@ -727,7 +734,7 @@ export class Building {
   }
 
   public getIsDestroyed(): boolean {
-    return this.isDestroyed;
+    return this.isDestroyed || this.disposed;
   }
 
   public setOnDestroyedCallback(callback: () => void): void {
@@ -795,6 +802,9 @@ export class Building {
   }
 
   public dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+
     // Chunk unload can land mid-collapse or mid-smolder: kill the driver and the
     // pending timers first so nothing fires against disposed meshes.
     if (this.collapseObserver) {

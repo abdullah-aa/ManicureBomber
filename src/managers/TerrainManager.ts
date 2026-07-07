@@ -390,8 +390,10 @@ export class TerrainManager {
       return Promise.resolve();
     }
 
-    const chunkX = Math.floor(center.x / this.chunkSize);
-    const chunkZ = Math.floor(center.z / this.chunkSize);
+    // Chunk meshes are CENTERED on chunkX * chunkSize, so the containing chunk
+    // is round(), not floor() — same convention as getTerrainHeightAt.
+    const chunkX = Math.round(center.x / this.chunkSize);
+    const chunkZ = Math.round(center.z / this.chunkSize);
 
     // Seed the full keep-radius disk so the very first frame is already blank-free out to fogEnd.
     const chunkPromises: Promise<void>[] = [];
@@ -405,8 +407,11 @@ export class TerrainManager {
   }
 
   public update(bomberPosition: Vector3): void {
-    const currentChunkX = Math.floor(bomberPosition.x / this.chunkSize);
-    const currentChunkZ = Math.floor(bomberPosition.z / this.chunkSize);
+    // round(), not floor(): chunks are center-anchored, and a floor()-centered
+    // keep-set lags the true containing chunk by up to half a chunk — enough to
+    // pull the nearest unloaded edge inside fogEnd (see keepRadius invariant).
+    const currentChunkX = Math.round(bomberPosition.x / this.chunkSize);
+    const currentChunkZ = Math.round(bomberPosition.z / this.chunkSize);
 
     // Cadence is owned by the game loop (terrainUpdateInterval); no internal throttle here.
     this.lastTerrainUpdateTime = performance.now();
@@ -429,10 +434,10 @@ export class TerrainManager {
   }
 
   private distanceToNearestChunkEdge(position: Vector3): number {
-    const chunkX = Math.floor(position.x / this.chunkSize);
-    const chunkZ = Math.floor(position.z / this.chunkSize);
-    const chunkCenterX = (chunkX + 0.5) * this.chunkSize;
-    const chunkCenterZ = (chunkZ + 0.5) * this.chunkSize;
+    // Center-anchored chunks: the containing chunk's center is at
+    // round(pos / size) * size and its edges at center ± size/2.
+    const chunkCenterX = Math.round(position.x / this.chunkSize) * this.chunkSize;
+    const chunkCenterZ = Math.round(position.z / this.chunkSize) * this.chunkSize;
     return Math.min(
       this.chunkSize / 2 - Math.abs(position.x - chunkCenterX),
       this.chunkSize / 2 - Math.abs(position.z - chunkCenterZ),

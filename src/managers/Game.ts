@@ -94,6 +94,9 @@ export class Game {
   // Scoring system
   private destroyedBuildings: number = 0;
   private destroyedTargets: number = 0;
+  // Tomahawk kills knock out launchers without levelling the building (their
+  // damage is capped below full destruction), so they get their own counter.
+  private destroyedLaunchers: number = 0;
   // Fraction of max health restored per red-ring target destroyed
   private readonly targetDestroyHealFraction = 0.05;
 
@@ -114,9 +117,12 @@ export class Game {
 
   constructor(scene: Scene, canvas: HTMLCanvasElement) {
     this.scene = scene;
-    // Touch-first game: pointer moves never need a pick ray (input reads raw
-    // client coordinates), so skip Babylon's per-move scene picking entirely.
+    // Touch-first game: pointer events never need a pick ray (input reads raw
+    // client coordinates and every mesh is unpickable), so skip Babylon's
+    // per-event scene picking entirely — moves, downs and ups alike.
     this.scene.skipPointerMovePicking = true;
+    this.scene.skipPointerDownPicking = true;
+    this.scene.skipPointerUpPicking = true;
     this.canvas = canvas;
   }
 
@@ -133,10 +139,11 @@ export class Game {
     this.bomber = new Bomber(this.scene, this.workerManager);
     this.bomber.setBombingRunActiveCallback(() => this.isBombingRunInProgress());
     this.bomber.setOnDestroyedCallback(() => this.handleGameOver());
-    this.bomber.setOnTargetDestroyedCallback((building: Building) => {
-      if (building.isTarget()) {
-        this.destroyedTargets++;
-      }
+    // Fired by a Tomahawk confirming its launcher kill. The building itself
+    // still stands (Tomahawk damage is capped), so this credits launchers —
+    // destroyedBuildings/destroyedTargets stay bomb-only.
+    this.bomber.setOnTargetDestroyedCallback(() => {
+      this.destroyedLaunchers++;
     });
 
     this.cameraController = new CameraController(this.camera, this.bomber, this.terrainManager);
@@ -872,6 +879,10 @@ export class Game {
     // The settings modal (z-index 3000) would cover the game-over screen (1000)
     this.uiManager.closeSettingsModal();
 
+    // The UI update loop stops on game over, so clear alerts (e.g. the
+    // persistent LOCKED banner) that would otherwise stay pinned forever
+    this.uiManager.clearAllAlerts();
+
     // Show game over message
     this.showGameOverMessage();
   }
@@ -885,6 +896,7 @@ export class Game {
                 <p>Your Bomber has been destroyed!</p>
                 <p>Buildings Destroyed: ${this.destroyedBuildings}</p>
                 <p>Targets Eliminated: ${this.destroyedTargets}</p>
+                <p>Launchers Knocked Out: ${this.destroyedLaunchers}</p>
                 <button id="restart-button" onclick="location.reload()">Restart Mission</button>
             </div>
         `;

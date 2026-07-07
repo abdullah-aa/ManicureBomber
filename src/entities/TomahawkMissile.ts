@@ -557,13 +557,21 @@ export class TomahawkMissile {
       const horizontalDist = Math.sqrt(dx * dx + dz * dz);
       const hitRadius = Math.max(this.targetBuilding.getMaxHeight() * 0.5, 30); // generous, footprint-scaled
       if (horizontalDist <= hitRadius) {
+        // isDefenseLauncher() flips false once the launcher is destroyed, so
+        // sampling it before destroyLauncher() tells us whether THIS missile
+        // scored the kill (vs. a bomb or an earlier missile getting there first).
+        const launcherWasAlive = this.targetBuilding.isDefenseLauncher();
         this.targetBuilding.destroyLauncher();
+        if (launcherWasAlive && this.onTargetDestroyedCallback) {
+          this.onTargetDestroyedCallback(this.targetBuilding);
+        }
       }
     }
 
-    // Hide missile model; the stopped flight particle systems are disposed by the
-    // bomber's exploded-missile sweep via dispose() ~10s later.
-    this.fuselage.setEnabled(false);
+    // Hide the whole missile model (nose, wings and nozzle are siblings of the
+    // fuselage, not children); the stopped flight particle systems are disposed
+    // by the bomber's exploded-missile sweep via dispose() ~10s later.
+    this.missileGroup.setEnabled(false);
   }
 
   public hasExploded(): boolean {

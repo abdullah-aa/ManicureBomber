@@ -128,6 +128,11 @@ export class Bomber {
   // Target destruction callback
   private onTargetDestroyedCallback: ((building: Building) => void) | null = null;
 
+  // Timers staged against the live bomber (flare volley, damage-effect stops).
+  // All cleared in dispose() so nothing fires against a dead bomber — a late
+  // deployFlare would silently rebuild the whole flare pool on the corpse.
+  private pendingTimeouts: ReturnType<typeof setTimeout>[] = [];
+
   constructor(scene: Scene, workerManager: WorkerManager) {
     this.scene = scene;
     this.workerManager = workerManager;
@@ -1154,18 +1159,15 @@ export class Bomber {
   }
 
   public triggerDamageEffects(): void {
+    // Rate limiting lives in takeDamage (its 0.1s damage window); re-checking
+    // lastDamageTime here would always bail because takeDamage just stamped it.
     if (this.isDestroyed || !this.damageEffects.length) return;
-
-    const currentTime = performance.now() / 1000;
-    const timeSinceLastDamage = currentTime - this.lastDamageTime;
-
-    if (timeSinceLastDamage < 0.1) return; // Prevent spam
 
     // Start smoke effects
     const smokeParticles = this.damageEffects[0];
     if (smokeParticles && !smokeParticles.isStarted()) {
       smokeParticles.start();
-      setTimeout(() => smokeParticles.stop(), this.damageEffectDuration * 1000);
+      this.pendingTimeouts.push(setTimeout(() => smokeParticles.stop(), this.damageEffectDuration * 1000));
     }
 
     // Start fire effects if health is low
@@ -1173,18 +1175,20 @@ export class Bomber {
       const fireParticles = this.damageEffects[1];
       if (fireParticles && !fireParticles.isStarted()) {
         fireParticles.start();
-        setTimeout(() => fireParticles.stop(), this.damageEffectDuration * 1000);
+        this.pendingTimeouts.push(setTimeout(() => fireParticles.stop(), this.damageEffectDuration * 1000));
       }
     }
 
     // Flash damage light
     if (this.damageLight) {
       this.damageLight.intensity = 2;
-      setTimeout(() => {
-        if (this.damageLight) {
-          this.damageLight.intensity = 0;
-        }
-      }, 200);
+      this.pendingTimeouts.push(
+        setTimeout(() => {
+          if (this.damageLight) {
+            this.damageLight.intensity = 0;
+          }
+        }, 200),
+      );
     }
   }
 
@@ -1232,17 +1236,23 @@ export class Bomber {
     ];
 
     flareSets.forEach((set) => {
-      setTimeout(() => {
-        set.offsets.forEach((offset) => {
-          this.deployFlare(offset);
-        });
-      }, set.delay * 1000);
+      this.pendingTimeouts.push(
+        setTimeout(() => {
+          set.offsets.forEach((offset) => {
+            this.deployFlare(offset);
+          });
+        }, set.delay * 1000),
+      );
     });
 
     return true;
   }
 
   private deployFlare(offset: Vector3): void {
+    // A volley timer that outlives the bomber must not rebuild the flare pool
+    // on a disposed hull (dispose() resets flarePoolBuilt).
+    if (this.isDestroyed) return;
+
     // Use current bomber position at deployment time
     const flarePos = this.position.clone().add(offset);
 
@@ -1448,6 +1458,11 @@ export class Bomber {
   }
 
   public dispose(): void {
+    // Cancel staged flare deployments and damage-effect stop timers before
+    // tearing down what they reference
+    for (const handle of this.pendingTimeouts) clearTimeout(handle);
+    this.pendingTimeouts.length = 0;
+
     // Force close bomb bay and clean up all effects
     this.forceCloseBombBay();
 

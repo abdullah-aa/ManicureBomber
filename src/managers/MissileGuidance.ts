@@ -157,8 +157,9 @@ function getCurvedPathPositionToRef(waypoints: Vector3[], t: number, ref: Vector
     // Terminal descent phase: Sharp dive from waypoint 4 to target
     const terminalT = (t - terminalDescentThreshold) / (1.0 - terminalDescentThreshold);
 
-    // Use waypoint 4 (terminal start) and final waypoint (target) for steep dive
-    const terminalStartIndex = Math.min(3, waypoints.length - 2);
+    // Dive from the penultimate waypoint — authored as the over-target terminal
+    // descent start point (above the target at cruise altitude) — to the target.
+    const terminalStartIndex = waypoints.length - 2;
     const terminalStart = waypoints[terminalStartIndex];
     const target = waypoints[waypoints.length - 1];
 

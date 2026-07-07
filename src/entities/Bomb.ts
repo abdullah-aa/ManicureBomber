@@ -1,4 +1,4 @@
-import { Scene, Mesh, Vector3, MeshBuilder, ParticleSystem, Sound, Color4 } from '@babylonjs/core';
+import { Scene, Mesh, Vector3, MeshBuilder, ParticleSystem, Color4 } from '@babylonjs/core';
 import { MissileAssets } from './MissileAssets';
 import { LightManager, LightHandle, LightPriority } from '../managers/LightManager';
 import { EffectTextures } from '../effects/EffectTextures';
@@ -9,7 +9,6 @@ export class Bomb {
   private mesh: Mesh;
   private position: Vector3;
   private velocity: Vector3;
-  private explosionSound: Sound | null = null;
   private trailParticles!: ParticleSystem;
   private lightHandle: LightHandle;
 
@@ -212,11 +211,6 @@ export class Bomb {
 
     ExplosionPool.get(this.scene).explode(explosionPoint, 1);
 
-    // Only play sound if it exists
-    if (this.explosionSound) {
-      this.explosionSound.play();
-    }
-
     // Detach the trail from the doomed mesh first: disposing an emitter mesh
     // auto-disposes its particle systems with disposeTexture=true, which would
     // kill the shared EffectTextures trail texture for every later bomb/missile.
@@ -243,7 +237,6 @@ export class Bomb {
     // Plain dispose() keeps the shared MissileAssets part materials.
     if (this.trailParticles) this.trailParticles.dispose(false);
     this.mesh.dispose();
-    if (this.explosionSound) this.explosionSound.dispose();
     this.lightHandle.release();
   }
 }

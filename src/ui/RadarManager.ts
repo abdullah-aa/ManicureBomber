@@ -277,6 +277,21 @@ export class RadarManager {
     const cosY = Math.cos(bomberRotationY);
     const sinY = Math.sin(bomberRotationY);
 
+    // Missiles claim markers FIRST: the pool is finite and a dense cluster of
+    // static building dots must never starve the actual threats off the display.
+    this.activeIskanderMissiles = iskanderMissiles.filter((missile) => missile.isLaunched() && !missile.hasExploded());
+    this.activeMissiles = defenseMissiles.filter((missile) => missile.isLaunched() && !missile.hasExploded());
+
+    for (const missile of this.activeMissiles) {
+      const missilePosition = missile.getPositionRef();
+      this.tryPlaceMarker('missile', missilePosition.x, missilePosition.z, bomberPosition, cosY, sinY);
+    }
+
+    for (const missile of this.activeIskanderMissiles) {
+      const missilePosition = missile.getPositionRef();
+      this.tryPlaceMarker('iskander', missilePosition.x, missilePosition.z, bomberPosition, cosY, sinY);
+    }
+
     // Add building markers to radar (limited by pool size); only targets and
     // defense launchers are shown
     for (const building of this.cachedBuildings) {
@@ -293,20 +308,6 @@ export class RadarManager {
       const buildingPosition = building.getPosition();
       const markerType = building.isTarget() ? 'target' : 'defense-launcher';
       this.tryPlaceMarker(markerType, buildingPosition.x, buildingPosition.z, bomberPosition, cosY, sinY);
-    }
-
-    // Update active missiles list and add missile markers
-    this.activeIskanderMissiles = iskanderMissiles.filter((missile) => missile.isLaunched() && !missile.hasExploded());
-    this.activeMissiles = defenseMissiles.filter((missile) => missile.isLaunched() && !missile.hasExploded());
-
-    for (const missile of this.activeMissiles) {
-      const missilePosition = missile.getPositionRef();
-      this.tryPlaceMarker('missile', missilePosition.x, missilePosition.z, bomberPosition, cosY, sinY);
-    }
-
-    for (const missile of this.activeIskanderMissiles) {
-      const missilePosition = missile.getPositionRef();
-      this.tryPlaceMarker('iskander', missilePosition.x, missilePosition.z, bomberPosition, cosY, sinY);
     }
 
     // Sweep: hide only the markers that lost their entity this tick

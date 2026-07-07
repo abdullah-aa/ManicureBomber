@@ -1073,6 +1073,14 @@ export class UIManager {
     }
   }
 
+  /** Drop every alert immediately (game over: the UI loop stops, so a
+   *  persistent LOCKED banner would otherwise stay pinned under the overlay). */
+  public clearAllAlerts(): void {
+    this.activeAlerts.forEach((alertElement) => alertElement.remove());
+    this.activeAlerts.clear();
+    this.persistentAlerts.clear();
+  }
+
   public removeAlert(type: string): void {
     const alertElement = this.activeAlerts.get(type);
     if (alertElement) {
